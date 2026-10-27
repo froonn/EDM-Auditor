@@ -38,6 +38,7 @@ All tests should pass:
 
 The test suite checks DOCX paragraphs and tables, PDF page numbers, file-like
 input, missing or damaged files, PDFs without a text layer, and the size limit.
+UTF-8 `.txt` files are also supported and are parsed into indexed paragraphs.
 
 ### 3. Check a real document manually
 
@@ -192,3 +193,24 @@ pytest tests/rag -q
 
 The index stores source ranges and metadata, replaces stale entries on a full
 rebuild, and rejects incompatible embedding models or vector dimensions.
+
+To load a local UTF-8 legal-act text file into the database, use the separate
+ingestion adapter after applying the database migration:
+
+```bash
+python - <<'PY'
+from edm_auditor.database import create_engine_for, create_session_factory
+from edm_auditor.rag import TextLegalActIngestor
+
+engine = create_engine_for("sqlite:///data/edm_auditor.sqlite3")
+ingestor = TextLegalActIngestor(create_session_factory(engine))
+ingestor.ingest(
+    "data/legal-acts/trudovoi-kodeks-rb.txt",
+    code="TK-RB",
+    title="Трудовой кодекс Республики Беларусь",
+)
+PY
+```
+
+The adapter accepts only `.txt` files, decodes them as UTF-8, preserves the
+normalized text and paragraph boundaries, and stores the result in `legal_acts`.
