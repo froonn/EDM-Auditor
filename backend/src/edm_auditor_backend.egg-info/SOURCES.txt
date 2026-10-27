@@ -1,0 +1,15 @@
+pyproject.toml
+src/edm_auditor/__init__.py
+src/edm_auditor/document_parser/__init__.py
+src/edm_auditor/document_parser/_common.py
+src/edm_auditor/document_parser/base.py
+src/edm_auditor/document_parser/docx_parser.py
+src/edm_auditor/document_parser/exceptions.py
+src/edm_auditor/document_parser/models.py
+src/edm_auditor/document_parser/pdf_parser.py
+src/edm_auditor/document_parser/service.py
+src/edm_auditor_backend.egg-info/PKG-INFO
+src/edm_auditor_backend.egg-info/SOURCES.txt
+src/edm_auditor_backend.egg-info/dependency_links.txt
+src/edm_auditor_backend.egg-info/requires.txt
+src/edm_auditor_backend.egg-info/top_level.txt
