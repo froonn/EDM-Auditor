@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from edm_auditor.document_parser import ParsedDocument
 
-from .enums import DocumentStatus
-from .models import Document, DocumentParagraph
+from .enums import AuditSeverity, CheckType, DocumentStatus
+from .models import AuditRule, Document, DocumentParagraph, LegalAct
 
 
 class DocumentRepository:
@@ -84,3 +84,51 @@ class DocumentRepository:
             if document is None:
                 raise LookupError(f"Document {document_id} does not exist")
             document.status = status.value
+
+    def create_legal_act(
+        self,
+        *,
+        code: str,
+        title: str,
+        article_text: str,
+        number: str | None = None,
+        source_url: str | None = None,
+    ) -> LegalAct:
+        with self._session_factory.begin() as session:
+            legal_act = LegalAct(
+                code=code,
+                title=title,
+                number=number,
+                article_text=article_text,
+                source_url=source_url,
+            )
+            session.add(legal_act)
+            session.flush()
+            return legal_act
+
+    def create_rule(
+        self,
+        *,
+        rule_code: str,
+        name: str,
+        severity: AuditSeverity,
+        check_type: CheckType,
+        description: str = "",
+        document_type: str | None = None,
+        parameters_json: str | None = None,
+        legal_act_id: int | None = None,
+    ) -> AuditRule:
+        with self._session_factory.begin() as session:
+            rule = AuditRule(
+                rule_code=rule_code,
+                name=name,
+                severity=severity.value,
+                check_type=check_type.value,
+                description=description,
+                document_type=document_type,
+                parameters_json=parameters_json,
+                legal_act_id=legal_act_id,
+            )
+            session.add(rule)
+            session.flush()
+            return rule

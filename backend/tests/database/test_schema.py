@@ -3,7 +3,13 @@ from sqlalchemy.exc import IntegrityError
 import pytest
 
 from edm_auditor.database.connection import create_engine_for, create_session_factory
-from edm_auditor.database.models import Base, Document, DocumentParagraph, User
+from edm_auditor.database.models import (
+    AuditRule,
+    Base,
+    Document,
+    DocumentParagraph,
+    User,
+)
 
 
 @pytest.fixture
@@ -105,3 +111,39 @@ def test_foreign_keys_and_document_cascade_are_enabled(session_factory) -> None:
 
     with session_factory() as session:
         assert session.query(DocumentParagraph).count() == 0
+
+
+def test_rule_code_and_json_constraints_are_enforced(session_factory) -> None:
+    with session_factory.begin() as session:
+        session.add(
+            AuditRule(
+                rule_code="RULE-1",
+                name="Required title",
+                severity="low",
+                check_type="keyword",
+                parameters_json='{"keyword": "title"}',
+            )
+        )
+
+    with pytest.raises(IntegrityError):
+        with session_factory.begin() as session:
+            session.add(
+                AuditRule(
+                    rule_code="RULE-1",
+                    name="Duplicate",
+                    severity="low",
+                    check_type="keyword",
+                )
+            )
+
+    with pytest.raises(IntegrityError):
+        with session_factory.begin() as session:
+            session.add(
+                AuditRule(
+                    rule_code="RULE-2",
+                    name="Invalid JSON",
+                    severity="low",
+                    check_type="keyword",
+                    parameters_json="{invalid",
+                )
+            )
