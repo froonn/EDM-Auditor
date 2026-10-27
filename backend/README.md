@@ -214,3 +214,17 @@ PY
 
 The adapter accepts only `.txt` files, decodes them as UTF-8, preserves the
 normalized text and paragraph boundaries, and stores the result in `legal_acts`.
+
+Build and query the index from the database with the local offline provider:
+
+```bash
+python -m edm_auditor.rag build
+python -m edm_auditor.rag count
+python -m edm_auditor.rag search "annual leave" --threshold 0.1
+```
+
+The commands use `data/edm_auditor.sqlite3` and
+`data/rag-index.sqlite3` by default. Override them with
+`EDM_DATABASE_PATH`, `RAG_INDEX_PATH`, and `RAG_EMBEDDING_DIMENSION`.
+`RAG_EMBEDDING_MODEL` currently supports only `deterministic-v1`; no network
+service or API key is required.
