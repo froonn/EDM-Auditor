@@ -64,7 +64,6 @@ def test_incompatible_index_configuration_is_rejected(tmp_path: Path) -> None:
         dimension=8,
         chunking_version="paragraph-v1",
     )
-
     with pytest.raises(IndexConfigurationError):
         SQLiteVectorStore(
             path,
@@ -72,3 +71,26 @@ def test_incompatible_index_configuration_is_rejected(tmp_path: Path) -> None:
             dimension=8,
             chunking_version="paragraph-v1",
         )
+
+
+def test_rebuild_removes_stale_chunks(tmp_path: Path) -> None:
+    provider = DeterministicEmbeddingProvider(dimension=8)
+    store = SQLiteVectorStore(
+        tmp_path / "vectors.sqlite3",
+        embedding_model=provider.model_name,
+        dimension=provider.dimension,
+        chunking_version="paragraph-v1",
+    )
+    indexer = RAGIndexer(store, provider)
+
+    indexer.build(
+        [
+            IndexSource(legal_act_id=1, text="First act"),
+            IndexSource(legal_act_id=2, text="Second act"),
+        ]
+    )
+    indexer.build([IndexSource(legal_act_id=1, text="Updated act")])
+
+    assert store.count() == 1
+    assert store.delete_legal_act(1) == 1
+    assert store.count() == 0

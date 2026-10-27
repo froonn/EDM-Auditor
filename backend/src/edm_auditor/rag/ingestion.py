@@ -7,6 +7,7 @@ from pathlib import Path
 from edm_auditor.database.models import LegalAct
 from edm_auditor.database.repositories import DocumentRepository
 from sqlalchemy.orm import Session
+from sqlalchemy import select
 
 from edm_auditor.document_parser import DocumentParserService
 
@@ -43,3 +44,36 @@ class TextLegalActIngestor:
             article_text=parsed.text,
             source_url=source_url,
         )
+
+
+class DatabaseIndexSourceLoader:
+    """Convert legal acts and their active rules into index sources."""
+
+    def __init__(self, session_factory: Callable[[], Session]) -> None:
+        self._session_factory = session_factory
+
+    def load(self) -> list["IndexSource"]:
+        from .indexer import IndexSource
+
+        with self._session_factory() as session:
+            acts = session.scalars(select(LegalAct).order_by(LegalAct.id)).all()
+            sources: list[IndexSource] = []
+            for act in acts:
+                sources.append(IndexSource(legal_act_id=act.id, text=act.article_text))
+                for rule in sorted(
+                    (rule for rule in act.rules if rule.is_active),
+                    key=lambda item: item.id,
+                ):
+                    rule_context = "\n\n".join(
+                        part
+                        for part in (act.title, rule.name, rule.description, act.article_text)
+                        if part
+                    )
+                    sources.append(
+                        IndexSource(
+                            legal_act_id=act.id,
+                            rule_id=rule.id,
+                            text=rule_context,
+                        )
+                    )
+            return sources

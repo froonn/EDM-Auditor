@@ -2,6 +2,7 @@
 
 from collections.abc import Iterator
 from dataclasses import dataclass
+from hashlib import sha256
 import re
 
 from .exceptions import InvalidChunkingConfiguration
@@ -43,6 +44,7 @@ def chunk_text(
     max_chars: int = 1200,
     overlap_chars: int = 120,
     chunking_version: str = CHUNKING_VERSION,
+    source_hash: str | None = None,
 ) -> list[TextChunk]:
     """Split text while retaining exact source ranges."""
     if max_chars <= 0 or overlap_chars < 0 or overlap_chars >= max_chars:
@@ -51,6 +53,7 @@ def chunk_text(
         )
     if not source_text.strip():
         return []
+    source_hash = source_hash or sha256(source_text.encode("utf-8")).hexdigest()
 
     units: list[_Span] = []
     for span in _spans(source_text):
@@ -71,7 +74,8 @@ def chunk_text(
 
         chunks.append(
             TextChunk(
-                chunk_id=f"legal-act-{legal_act_id}:{chunking_version}:{len(chunks)}",
+                chunk_id=f"legal-act-{legal_act_id}:"
+                f"{rule_id or 'base'}:{source_hash[:16]}:{chunking_version}:{len(chunks)}",
                 legal_act_id=legal_act_id,
                 rule_id=rule_id,
                 text=source_text[start:end],
@@ -79,6 +83,7 @@ def chunk_text(
                 start_char=start,
                 end_char=end,
                 chunking_version=chunking_version,
+                source_hash=source_hash,
             )
         )
 

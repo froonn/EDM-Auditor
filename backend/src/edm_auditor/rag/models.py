@@ -15,6 +15,7 @@ class TextChunk:
     start_char: int
     end_char: int
     chunking_version: str
+    source_hash: str
 
 
 @dataclass(frozen=True, slots=True)

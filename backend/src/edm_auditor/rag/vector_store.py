@@ -43,8 +43,17 @@ class SQLiteVectorStore:
                 "(chunk_id TEXT PRIMARY KEY, legal_act_id INTEGER NOT NULL, "
                 "rule_id INTEGER, text TEXT NOT NULL, chunk_index INTEGER NOT NULL, "
                 "start_char INTEGER NOT NULL, end_char INTEGER NOT NULL, "
-                "chunking_version TEXT NOT NULL, vector TEXT NOT NULL)"
+                "chunking_version TEXT NOT NULL, source_hash TEXT NOT NULL, "
+                "vector TEXT NOT NULL)"
             )
+            columns = {
+                row[1]
+                for row in connection.execute("PRAGMA table_info(vectors)").fetchall()
+            }
+            if "source_hash" not in columns:
+                connection.execute(
+                    "ALTER TABLE vectors ADD COLUMN source_hash TEXT NOT NULL DEFAULT ''"
+                )
             stored = dict(connection.execute("SELECT key, value FROM index_metadata"))
             expected = {
                 "embedding_model": self.metadata.embedding_model,
@@ -69,6 +78,14 @@ class SQLiteVectorStore:
         with self._connect() as connection:
             connection.execute("DELETE FROM vectors")
 
+    def delete_legal_act(self, legal_act_id: int) -> int:
+        """Delete all chunks belonging to one legal act."""
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM vectors WHERE legal_act_id = ?", (legal_act_id,)
+            )
+            return cursor.rowcount
+
     def upsert(self, entries: Iterable[tuple[TextChunk, tuple[float, ...]]]) -> None:
         """Insert or replace entries with stable chunk IDs."""
         entries = tuple(entries)
@@ -76,7 +93,7 @@ class SQLiteVectorStore:
             raise VectorStoreError(f"all vectors must have dimension {self.metadata.dimension}")
         with self._connect() as connection:
             connection.executemany(
-                "INSERT OR REPLACE INTO vectors VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO vectors VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
                     (
                         chunk.chunk_id,
@@ -87,6 +104,7 @@ class SQLiteVectorStore:
                         chunk.start_char,
                         chunk.end_char,
                         chunk.chunking_version,
+                        chunk.source_hash,
                         json.dumps(vector),
                     )
                     for chunk, vector in entries
@@ -98,9 +116,11 @@ class SQLiteVectorStore:
         if any(len(vector) != self.metadata.dimension for _, vector in entries):
             raise VectorStoreError(f"all vectors must have dimension {self.metadata.dimension}")
         with self._connect() as connection:
-            connection.execute("DELETE FROM vectors")
+            connection.execute(
+                "CREATE TEMP TABLE replacement_vectors AS SELECT * FROM vectors WHERE 0"
+            )
             connection.executemany(
-                "INSERT INTO vectors VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO replacement_vectors VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
                     (
                         chunk.chunk_id,
@@ -111,11 +131,15 @@ class SQLiteVectorStore:
                         chunk.start_char,
                         chunk.end_char,
                         chunk.chunking_version,
+                        chunk.source_hash,
                         json.dumps(vector),
                     )
                     for chunk, vector in entries
                 ],
             )
+            connection.execute("DELETE FROM vectors")
+            connection.execute("INSERT INTO vectors SELECT * FROM replacement_vectors")
+            connection.execute("DROP TABLE replacement_vectors")
 
     def search(
         self,
@@ -139,14 +163,17 @@ class SQLiteVectorStore:
         with self._connect() as connection:
             rows = connection.execute(
                 "SELECT chunk_id, legal_act_id, rule_id, text, chunk_index, "
-                "start_char, end_char, chunking_version, vector FROM vectors"
+                "start_char, end_char, chunking_version, source_hash, vector FROM vectors"
                 " WHERE (? IS NULL OR legal_act_id = ?)"
                 " AND (? IS NULL OR rule_id = ?)",
                 (legal_act_id, legal_act_id, rule_id, rule_id),
             ).fetchall()
         results = []
         for row in rows:
-            vector = tuple(json.loads(row[8]))
+            try:
+                vector = tuple(json.loads(row[9]))
+            except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                raise VectorStoreError("vector index contains invalid JSON") from exc
             norm = sqrt(sum(value * value for value in vector))
             score = (
                 sum(left * right for left, right in zip(query_vector, vector)) / query_norm / norm
@@ -156,7 +183,7 @@ class SQLiteVectorStore:
             if score >= threshold:
                 results.append(
                     SearchResult(
-                        TextChunk(*row[:8]),
+                        TextChunk(*row[:9]),
                         score,
                     )
                 )

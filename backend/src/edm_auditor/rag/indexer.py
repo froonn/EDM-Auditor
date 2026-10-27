@@ -2,6 +2,7 @@
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from hashlib import sha256
 
 from .chunking import CHUNKING_VERSION, chunk_text
 from .embeddings import EmbeddingProvider, validate_vectors
@@ -16,6 +17,7 @@ class IndexSource:
     legal_act_id: int
     text: str
     rule_id: int | None = None
+    source_hash: str | None = None
 
 
 class RAGIndexer:
@@ -47,6 +49,8 @@ class RAGIndexer:
                     max_chars=self.max_chars,
                     overlap_chars=self.overlap_chars,
                     chunking_version=self.chunking_version,
+                    source_hash=source.source_hash
+                    or sha256(source.text.encode("utf-8")).hexdigest(),
                 )
             )
         vectors = self.provider.embed_documents([chunk.text for chunk in chunks])

@@ -11,9 +11,9 @@ def test_chunking_preserves_source_ranges() -> None:
     assert [chunk.chunk_index for chunk in chunks] == list(range(len(chunks)))
     assert all(source[chunk.start_char : chunk.end_char] == chunk.text for chunk in chunks)
     assert [chunk.chunk_id for chunk in chunks] == [
-        "legal-act-7:paragraph-v1:0",
-        "legal-act-7:paragraph-v1:1",
-        "legal-act-7:paragraph-v1:2",
+        "legal-act-7:base:0991473799fddb66:paragraph-v1:0",
+        "legal-act-7:base:0991473799fddb66:paragraph-v1:1",
+        "legal-act-7:base:0991473799fddb66:paragraph-v1:2",
     ]
 
 
