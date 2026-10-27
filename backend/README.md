@@ -145,3 +145,50 @@ Foreign keys are enabled for every SQLite connection. Deleting a document
 cascades to its paragraphs, audit reports, and findings. The repository does
 not store binary document contents; `file_path` points to the external file
 storage.
+
+## RAG indexer
+
+The RAG layer splits legal-act text into source-preserving chunks and stores
+their deterministic embeddings in a local SQLite vector index. The default
+provider is intentionally offline and is suitable for tests; a production
+embedding provider can implement the same `EmbeddingProvider` protocol later.
+
+The following example creates an index in a temporary directory and searches
+it without network access or API keys:
+
+```bash
+python - <<'PY'
+from pathlib import Path
+
+from edm_auditor.rag import (
+    DeterministicEmbeddingProvider,
+    IndexSource,
+    RAGIndexer,
+    RAGSearch,
+    SQLiteVectorStore,
+)
+
+provider = DeterministicEmbeddingProvider()
+store = SQLiteVectorStore(
+    Path("data/rag-index.sqlite3"),
+    embedding_model=provider.model_name,
+    dimension=provider.dimension,
+    chunking_version="paragraph-v1",
+)
+RAGIndexer(store, provider).build(
+    [IndexSource(legal_act_id=1, text="Annual leave is granted every year.")]
+)
+
+for result in RAGSearch(store, provider).search("annual leave", k=3):
+    print(result.score, result.chunk.legal_act_id, result.chunk.text)
+PY
+```
+
+Run the RAG tests with:
+
+```bash
+pytest tests/rag -q
+```
+
+The index stores source ranges and metadata, replaces stale entries on a full
+rebuild, and rejects incompatible embedding models or vector dimensions.
