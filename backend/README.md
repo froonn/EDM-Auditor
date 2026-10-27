@@ -96,3 +96,50 @@ The following input conditions are reported as explicit parser exceptions:
 
 These errors are expected behavior and should be handled by the API layer when
 the parser is integrated into file uploads.
+
+## Database
+
+The database layer uses SQLAlchemy 2.x and Alembic with SQLite. The default
+development database is `backend/data/edm_auditor.sqlite3`; its contents are
+not committed to Git.
+
+Apply the current schema from the `backend/` directory:
+
+```bash
+alembic upgrade head
+```
+
+Revert the schema to an empty database:
+
+```bash
+alembic downgrade base
+```
+
+Run all backend checks, including database integration tests:
+
+```bash
+pytest tests/database tests/document_parser -q
+```
+
+The database repository accepts a `ParsedDocument` returned by
+`parse_document` and stores its normalized text and paragraphs in one
+transaction:
+
+```python
+from edm_auditor.database import (
+    DocumentRepository,
+    create_engine_for,
+    create_session_factory,
+)
+from edm_auditor.document_parser import parse_document
+
+engine = create_engine_for("sqlite:///data/edm_auditor.sqlite3")
+repository = DocumentRepository(create_session_factory(engine))
+parsed = parse_document("contract.pdf")
+document = repository.save_parsed_document(parsed)
+```
+
+Foreign keys are enabled for every SQLite connection. Deleting a document
+cascades to its paragraphs, audit reports, and findings. The repository does
+not store binary document contents; `file_path` points to the external file
+storage.

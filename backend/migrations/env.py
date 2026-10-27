@@ -1,4 +1,5 @@
 from logging.config import fileConfig
+from pathlib import Path
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
@@ -6,6 +7,7 @@ from sqlalchemy import engine_from_config, pool
 from edm_auditor.database.models import Base
 
 config = context.config
+Path("data").mkdir(parents=True, exist_ok=True)
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
