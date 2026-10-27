@@ -2,7 +2,7 @@
 
 ## Document parser
 
-The parser supports `.docx` files and text-layer `.pdf` files. Scanned PDFs
+The parser supports `.docx`, UTF-8 `.txt`, and text-layer `.pdf` files. Scanned PDFs
 without an extractable text layer require OCR, which is not implemented yet.
 
 ### 1. Install the backend dependencies
@@ -30,14 +30,9 @@ additional documents are required:
 pytest tests/document_parser -q
 ```
 
-All tests should pass:
-
-```text
-6 passed
-```
-
 The test suite checks DOCX paragraphs and tables, PDF page numbers, file-like
 input, missing or damaged files, PDFs without a text layer, and the size limit.
+UTF-8 `.txt` files are also supported and are parsed into indexed paragraphs.
 
 ### 3. Check a real document manually
 
@@ -145,3 +140,109 @@ Foreign keys are enabled for every SQLite connection. Deleting a document
 cascades to its paragraphs, audit reports, and findings. The repository does
 not store binary document contents; `file_path` points to the external file
 storage.
+
+## RAG indexer
+
+The RAG layer splits legal-act text into source-preserving chunks and stores
+their deterministic embeddings in a local SQLite vector index. The default
+provider is intentionally offline and is suitable for tests; a production
+embedding provider can implement the same `EmbeddingProvider` protocol later.
+The first version is intentionally limited to the offline deterministic
+provider and a local SQLite index. A production embedding provider and a larger
+legal-act corpus should be added separately; they must not become requirements
+for the ordinary test suite. If the corpus grows beyond local SQLite usage, the
+vector store can be replaced behind the existing RAG interfaces.
+
+The production embedding provider and the starter legal-act dataset are not
+implemented yet. Until those decisions are made, use
+`DeterministicEmbeddingProvider` and local or synthetic test texts only.
+
+The following example creates an index in a temporary directory and searches
+it without network access or API keys:
+
+```bash
+python - <<'PY'
+from pathlib import Path
+
+from edm_auditor.rag import (
+    DeterministicEmbeddingProvider,
+    IndexSource,
+    RAGIndexer,
+    RAGSearch,
+    SQLiteVectorStore,
+)
+
+provider = DeterministicEmbeddingProvider()
+store = SQLiteVectorStore(
+    Path("data/rag-index.sqlite3"),
+    embedding_model=provider.model_name,
+    dimension=provider.dimension,
+    chunking_version="paragraph-v1",
+)
+RAGIndexer(store, provider).build(
+    [IndexSource(legal_act_id=1, text="Annual leave is granted every year.")]
+)
+
+for result in RAGSearch(store, provider).search("annual leave", k=3):
+    chunk = result.chunk
+    print(
+        result.score,
+        chunk.legal_act_id,
+        f"chars {chunk.start_char}:{chunk.end_char}",
+        chunk.text,
+    )
+PY
+```
+
+Run the RAG tests with:
+
+```bash
+pytest tests/rag -q
+```
+
+The index stores source ranges and metadata, replaces stale entries on a full
+rebuild, and rejects incompatible embedding models or vector dimensions.
+
+To load a local UTF-8 legal-act text file into the database, use the separate
+ingestion adapter after applying the database migration:
+
+```bash
+python - <<'PY'
+from edm_auditor.database import create_engine_for, create_session_factory
+from edm_auditor.rag import TextLegalActIngestor
+
+engine = create_engine_for("sqlite:///data/edm_auditor.sqlite3")
+ingestor = TextLegalActIngestor(create_session_factory(engine))
+ingestor.ingest(
+    "data/legal-acts/trudovoi-kodeks-rb.txt",
+    code="TK-RB",
+    title="Трудовой кодекс Республики Беларусь",
+)
+PY
+```
+
+The adapter accepts only `.txt` files, decodes them as UTF-8, preserves the
+normalized text and paragraph boundaries, and stores the result in `legal_acts`.
+
+Build and query the index from the database with the local offline provider:
+
+```bash
+python -m edm_auditor.rag build
+python -m edm_auditor.rag count
+python -m edm_auditor.rag search "annual leave" --threshold 0.1
+```
+
+The commands use `data/edm_auditor.sqlite3` and
+`data/rag-index.sqlite3` by default. Override them with
+`EDM_DATABASE_PATH`, `RAG_INDEX_PATH`, and `RAG_EMBEDDING_DIMENSION`.
+`RAG_EMBEDDING_MODEL` currently supports only `deterministic-v1`; no network
+service or API key is required.
+
+Run all backend tests with:
+
+```bash
+pytest -q
+```
+
+The current suite contains 24 tests and does not require network access,
+credentials, or real legal documents.

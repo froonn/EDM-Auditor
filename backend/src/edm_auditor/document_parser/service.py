@@ -14,10 +14,12 @@ from .exceptions import (
 )
 from .models import ParsedDocument
 from .pdf_parser import PDF_MEDIA_TYPE, PdfParser
+from .txt_parser import TXT_MEDIA_TYPE, TxtParser
 
 SUPPORTED_FORMATS = {
     ".docx": (DocxParser, DOCX_MEDIA_TYPE),
     ".pdf": (PdfParser, PDF_MEDIA_TYPE),
+    ".txt": (TxtParser, TXT_MEDIA_TYPE),
 }
 
 

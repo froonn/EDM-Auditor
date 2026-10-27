@@ -5,3 +5,4 @@ __pycache__/
 .idea/
 .venv/
 backend/data/*.sqlite3
+backend/data/legal-acts/
