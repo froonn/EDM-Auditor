@@ -2,7 +2,7 @@
 
 ## Document parser
 
-The parser supports `.docx` files and text-layer `.pdf` files. Scanned PDFs
+The parser supports `.docx`, UTF-8 `.txt`, and text-layer `.pdf` files. Scanned PDFs
 without an extractable text layer require OCR, which is not implemented yet.
 
 ### 1. Install the backend dependencies
@@ -28,12 +28,6 @@ additional documents are required:
 
 ```bash
 pytest tests/document_parser -q
-```
-
-All tests should pass:
-
-```text
-6 passed
 ```
 
 The test suite checks DOCX paragraphs and tables, PDF page numbers, file-like
@@ -153,6 +147,15 @@ The RAG layer splits legal-act text into source-preserving chunks and stores
 their deterministic embeddings in a local SQLite vector index. The default
 provider is intentionally offline and is suitable for tests; a production
 embedding provider can implement the same `EmbeddingProvider` protocol later.
+The first version is intentionally limited to the offline deterministic
+provider and a local SQLite index. A production embedding provider and a larger
+legal-act corpus should be added separately; they must not become requirements
+for the ordinary test suite. If the corpus grows beyond local SQLite usage, the
+vector store can be replaced behind the existing RAG interfaces.
+
+The production embedding provider and the starter legal-act dataset are not
+implemented yet. Until those decisions are made, use
+`DeterministicEmbeddingProvider` and local or synthetic test texts only.
 
 The following example creates an index in a temporary directory and searches
 it without network access or API keys:
@@ -181,7 +184,13 @@ RAGIndexer(store, provider).build(
 )
 
 for result in RAGSearch(store, provider).search("annual leave", k=3):
-    print(result.score, result.chunk.legal_act_id, result.chunk.text)
+    chunk = result.chunk
+    print(
+        result.score,
+        chunk.legal_act_id,
+        f"chars {chunk.start_char}:{chunk.end_char}",
+        chunk.text,
+    )
 PY
 ```
 
@@ -228,3 +237,12 @@ The commands use `data/edm_auditor.sqlite3` and
 `EDM_DATABASE_PATH`, `RAG_INDEX_PATH`, and `RAG_EMBEDDING_DIMENSION`.
 `RAG_EMBEDDING_MODEL` currently supports only `deterministic-v1`; no network
 service or API key is required.
+
+Run all backend tests with:
+
+```bash
+pytest -q
+```
+
+The current suite contains 24 tests and does not require network access,
+credentials, or real legal documents.
