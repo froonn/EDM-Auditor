@@ -26,7 +26,7 @@ On Windows PowerShell, activate the environment with:
 The parser test suite creates synthetic DOCX and PDF documents, so no
 additional documents are required:
 
-```python
+```bash
 pytest tests/document_parser -q
 ```
 
@@ -125,7 +125,8 @@ The database repository accepts a `ParsedDocument` returned by
 `parse_document` and stores its normalized text and paragraphs in one
 transaction:
 
-```python
+```bash
+python - <<'PY'
 from edm_auditor.database import (
     DocumentRepository,
     create_engine_for,
@@ -137,6 +138,7 @@ engine = create_engine_for("sqlite:///data/edm_auditor.sqlite3")
 repository = DocumentRepository(create_session_factory(engine))
 parsed = parse_document("contract.pdf")
 document = repository.save_parsed_document(parsed)
+PY
 ```
 
 Foreign keys are enabled for every SQLite connection. Deleting a document
