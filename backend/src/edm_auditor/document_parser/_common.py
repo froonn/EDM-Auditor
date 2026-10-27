@@ -13,6 +13,7 @@ def build_document(
     size_bytes: int,
     blocks: list[tuple[str, int | None]],
 ) -> ParsedDocument:
+    """Build normalized text and source-relative paragraph coordinates."""
     paragraphs: list[ParsedParagraph] = []
     text_parts: list[str] = []
     position = 0
