@@ -1,6 +1,6 @@
 """SQLAlchemy models for the EDM-Auditor storage schema."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     CheckConstraint,
@@ -12,7 +12,11 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from .enums import AuditSeverity, CheckType, DocumentStatus, UserRole
+from .enums import DocumentStatus, UserRole
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC)
 
 
 class Base(DeclarativeBase):
@@ -27,7 +31,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True)
     hashed_password: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(20), default=UserRole.HR.value)
-    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(default=utc_now)
 
     documents: Mapped[list["Document"]] = relationship(back_populates="owner")
 
@@ -51,7 +55,7 @@ class Document(Base):
     status: Mapped[str] = mapped_column(
         String(20), default=DocumentStatus.UPLOADED.value
     )
-    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(default=utc_now)
 
     owner: Mapped[User | None] = relationship(back_populates="documents")
     paragraphs: Mapped[list["DocumentParagraph"]] = relationship(
@@ -156,7 +160,7 @@ class AuditReport(Base):
     medium_count: Mapped[int] = mapped_column(Integer, default=0)
     low_count: Mapped[int] = mapped_column(Integer, default=0)
     summary: Mapped[str] = mapped_column(Text, default="")
-    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(default=utc_now)
 
     document: Mapped[Document] = relationship(back_populates="reports")
     findings: Mapped[list["AuditFinding"]] = relationship(
