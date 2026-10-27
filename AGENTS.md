@@ -1,0 +1,65 @@
+# Agent Guidelines for EDM-Auditor
+
+## Commit Conventions
+
+All commit messages **must** follow the
+[Conventional Commits](https://www.conventionalcommits.org/) specification and
+be written in **English**.
+
+### Format
+
+```
+<type>(<optional scope>): <short summary>
+
+<optional body>
+
+<optional footer(s)>
+```
+
+### Allowed types
+
+| Type       | Purpose                                                  |
+|------------|----------------------------------------------------------|
+| `feat`     | A new feature or user-facing behaviour                   |
+| `fix`      | A bug fix                                                |
+| `docs`     | Documentation-only changes                               |
+| `style`    | Formatting, whitespace, semicolons — no logic changes    |
+| `refactor` | Code restructuring without changing external behaviour   |
+| `perf`     | Performance improvements                                 |
+| `test`     | Adding or updating tests                                 |
+| `build`    | Build system, dependencies, tooling (`pyproject.toml`, `package.json`, etc.) |
+| `ci`       | CI/CD configuration changes                              |
+| `chore`    | Maintenance tasks that don't fit other types             |
+| `revert`   | Reverts a previous commit                                |
+
+### Rules
+
+1. **Language** — summary, body, and footer must be in English.
+2. **Summary** — use imperative mood, lowercase, no trailing period, max 72 characters.
+3. **Scope** — optional; use the module or area name (e.g., `parser`, `api`, `ui`, `db`).
+4. **Breaking changes** — append `!` after type/scope **and** add a `BREAKING CHANGE:` footer.
+5. **Body** — wrap at 100 characters; explain *what* and *why*, not *how*.
+6. **References** — link issues or tasks in the footer when applicable (e.g., `Refs: #42`).
+
+### Examples
+
+```
+feat(parser): implement DOCX text extraction
+
+Extract paragraphs via python-docx, compute character offsets relative
+to the normalized full text, and return a ParsedDocument.
+```
+
+```
+fix(api): return 422 for unsupported file formats
+
+Previously the endpoint returned 500 when a user uploaded a .txt file.
+Now it catches UnsupportedDocumentFormat and responds with a clear
+validation error.
+
+Refs: #15
+```
+
+```
+docs: add project overview to README
+```
