@@ -26,4 +26,5 @@ class AuditSeverity(StrEnum):
 class CheckType(StrEnum):
     KEYWORD = "keyword"
     REGEX = "regex"
+    NUMERIC = "numeric"
     SEMANTIC = "semantic"
