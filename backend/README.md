@@ -246,3 +246,18 @@ pytest -q
 
 The current suite contains 24 tests and does not require network access,
 credentials, or real legal documents.
+
+## Audit engine
+
+The audit engine currently supports deterministic keyword, regular-expression,
+and numeric rules. It extracts source-preserving ranges from document text,
+creates `AuditFinding` entries, and stores an atomic `AuditReport`. Rule
+parameters are JSON objects, for example:
+
+```json
+{"keywords": ["14 дней"], "recommendation": "Check the leave duration."}
+```
+
+The implementation does not require Natasha, an external embedding provider, or
+an LLM. Semantic RAG validation and optional NLP enrichment remain separate
+follow-up integrations.
