@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 from sqlalchemy import select
@@ -155,3 +156,74 @@ def test_persistence_creates_atomic_report_and_updates_status(session_factory) -
         assert document.status == DocumentStatus.AUDITED.value
         assert stored is not None
         assert len(stored.findings) == 1
+
+
+def test_persistence_audits_synthetic_employment_contract(session_factory) -> None:
+    contract = (
+        Path(__file__).parents[1] / "fixtures" / "employment_contract.txt"
+    ).read_text(encoding="utf-8")
+    with session_factory.begin() as session:
+        session.add(
+            Document(
+                title="Synthetic employment contract",
+                file_type="txt",
+                file_path="employment_contract.txt",
+                raw_text=contract,
+                classified_type="contract",
+            )
+        )
+    with session_factory() as session:
+        document_id = session.scalar(select(Document.id))
+    with session_factory.begin() as session:
+        session.add_all(
+            [
+                AuditRule(
+                    rule_code="leave-minimum",
+                    name="Minimum annual leave",
+                    severity=AuditSeverity.HIGH.value,
+                    check_type=CheckType.DURATION.value,
+                    parameters_json=json.dumps({"min_days": 24}),
+                    document_type="contract",
+                ),
+                AuditRule(
+                    rule_code="probation-limit",
+                    name="Probation limit",
+                    severity=AuditSeverity.HIGH.value,
+                    check_type=CheckType.DURATION.value,
+                    parameters_json=json.dumps({"max_days": 90}),
+                    document_type="contract",
+                ),
+                AuditRule(
+                    rule_code="contract-date",
+                    name="Contract date",
+                    severity=AuditSeverity.MEDIUM.value,
+                    check_type=CheckType.DATE.value,
+                    parameters_json=json.dumps({"after": "2026-03-01"}),
+                    document_type="contract",
+                ),
+                AuditRule(
+                    rule_code="prohibited-probation-wording",
+                    name="Prohibited probation wording",
+                    severity=AuditSeverity.LOW.value,
+                    check_type=CheckType.KEYWORD.value,
+                    parameters_json=json.dumps({"keywords": ["испытательный срок"]}),
+                    document_type="contract",
+                ),
+            ]
+        )
+
+    report = AuditPersistence(session_factory).audit_document(document_id)
+
+    assert report.total_findings == 4
+    assert report.high_count == 2
+    assert report.medium_count == 1
+    assert report.low_count == 1
+    with session_factory() as session:
+        stored = session.scalar(select(AuditReport).where(AuditReport.id == report.id))
+        assert stored is not None
+        assert {finding.quote for finding in stored.findings} == {
+            "14 дней",
+            "4 месяца",
+            "01.02.2026",
+            "испытательный срок",
+        }
