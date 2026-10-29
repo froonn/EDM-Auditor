@@ -235,8 +235,41 @@ python -m edm_auditor.rag search "annual leave" --threshold 0.1
 The commands use `data/edm_auditor.sqlite3` and
 `data/rag-index.sqlite3` by default. Override them with
 `EDM_DATABASE_PATH`, `RAG_INDEX_PATH`, and `RAG_EMBEDDING_DIMENSION`.
-`RAG_EMBEDDING_MODEL` currently supports only `deterministic-v1`; no network
-service or API key is required.
+The CLI uses the embedding profile selected by `EDM_MODEL_PRESET`; setting
+`RAG_EMBEDDING_MODEL` explicitly keeps the legacy deterministic provider path.
+
+## Model configuration
+
+Embedding and LLM settings are stored in `config/models.toml`. The file
+contains provider profiles and safe presets; it never contains API keys.
+Select a preset with `EDM_MODEL_PRESET` or load a different file with
+`EDM_MODEL_CONFIG`:
+
+```bash
+EDM_MODEL_PRESET=offline python -c \
+  'from edm_auditor.model_config import ModelSettings; print(ModelSettings.from_env())'
+```
+
+The `offline` preset uses the deterministic embedding provider and an LLM
+stub. `lm-studio` and `openrouter` use the OpenAI-compatible API shape; their
+embedding model, endpoint, and LLM model must be adjusted to the locally
+available models. Set `OPENROUTER_API_KEY` in the environment for the
+OpenRouter preset. Keep real secrets in a local `.env` file or secret store,
+not in `models.toml`.
+
+Detailed field descriptions and setup examples are in
+[`docs/model-configuration.md`](../docs/model-configuration.md).
+
+Run an audit without FastAPI against a document already stored in the database:
+
+```bash
+python examples/audit_document.py 1
+```
+
+The deterministic engine supports keyword, regex, numeric, date, duration and
+offline semantic rules. Semantic results are normative context candidates, not
+automatic legal conclusions. Audit output is a technical automated check and
+does not replace review by a qualified legal professional.
 
 Run all backend tests with:
 
@@ -246,3 +279,18 @@ pytest -q
 
 The current suite contains 24 tests and does not require network access,
 credentials, or real legal documents.
+
+## Audit engine
+
+The audit engine currently supports deterministic keyword, regular-expression,
+and numeric rules. It extracts source-preserving ranges from document text,
+creates `AuditFinding` entries, and stores an atomic `AuditReport`. Rule
+parameters are JSON objects, for example:
+
+```json
+{"keywords": ["14 дней"], "recommendation": "Check the leave duration."}
+```
+
+The implementation does not require Natasha, an external embedding provider, or
+an LLM. Semantic RAG validation and optional NLP enrichment remain separate
+follow-up integrations.

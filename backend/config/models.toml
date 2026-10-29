@@ -1,0 +1,43 @@
+# Safe defaults for local development. Secrets are read from environment variables.
+
+[profiles.embedding.deterministic]
+provider = "deterministic"
+model = "deterministic-v1"
+dimension = 32
+
+[profiles.embedding.local-multilingual]
+provider = "openai-compatible"
+model = "text-embedding-model"
+base_url = "http://localhost:1234/v1"
+dimension = 768
+
+[profiles.llm.stub]
+provider = "stub"
+model = "stub-v1"
+
+[profiles.llm.lm-studio]
+provider = "openai-compatible"
+model = "google/gemma-3-12b"
+base_url = "http://localhost:1234/v1"
+temperature = 0.1
+max_tokens = 2000
+
+[profiles.llm.openrouter]
+provider = "openai-compatible"
+model = "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+temperature = 0.1
+max_tokens = 2000
+
+[presets.offline]
+embedding = "deterministic"
+llm = "stub"
+
+[presets.lm-studio]
+embedding = "local-multilingual"
+llm = "lm-studio"
+
+[presets.openrouter]
+embedding = "local-multilingual"
+llm = "openrouter"

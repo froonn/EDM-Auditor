@@ -137,7 +137,7 @@ class AuditRule(Base):
             name="ck_rules_severity",
         ),
         CheckConstraint(
-            "check_type IN ('keyword', 'regex', 'semantic')",
+            "check_type IN ('keyword', 'regex', 'numeric', 'date', 'duration', 'semantic')",
             name="ck_rules_check_type",
         ),
         CheckConstraint(
