@@ -331,12 +331,16 @@ flowchart TD
 
 ### Этап 4: FastAPI Backend
 
-- [ ] REST API endpoints:
+- [x] REST API endpoints:
     - `POST /api/documents/upload` — загрузка документа.
     - `POST /api/documents/{id}/audit` — запуск аудита.
     - `GET /api/documents/{id}/report` — получение структурированного отчета.
     - `GET /api/rules`, `POST /api/rules` — управление правилами.
     - `GET /api/legal-acts` — просмотр статей НПА.
+- [x] FastAPI application factory, health endpoint, upload limits and
+  structured validation/parser errors.
+- [x] Offline integration tests for upload, audit, reports, rules and legal
+  acts.
 
 ### Этап 5: React Frontend
 
