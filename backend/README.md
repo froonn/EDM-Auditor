@@ -260,6 +260,17 @@ not in `models.toml`.
 Detailed field descriptions and setup examples are in
 [`docs/model-configuration.md`](../docs/model-configuration.md).
 
+Run an audit without FastAPI against a document already stored in the database:
+
+```bash
+python examples/audit_document.py 1
+```
+
+The deterministic engine supports keyword, regex, numeric, date, duration and
+offline semantic rules. Semantic results are normative context candidates, not
+automatic legal conclusions. Audit output is a technical automated check and
+does not replace review by a qualified legal professional.
+
 Run all backend tests with:
 
 ```bash

@@ -6,3 +6,4 @@ __pycache__/
 .venv/
 backend/data/*.sqlite3
 backend/data/legal-acts/
+report
