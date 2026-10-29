@@ -235,8 +235,8 @@ python -m edm_auditor.rag search "annual leave" --threshold 0.1
 The commands use `data/edm_auditor.sqlite3` and
 `data/rag-index.sqlite3` by default. Override them with
 `EDM_DATABASE_PATH`, `RAG_INDEX_PATH`, and `RAG_EMBEDDING_DIMENSION`.
-`RAG_EMBEDDING_MODEL` currently supports only `deterministic-v1`; no network
-service or API key is required.
+The CLI uses the embedding profile selected by `EDM_MODEL_PRESET`; setting
+`RAG_EMBEDDING_MODEL` explicitly keeps the legacy deterministic provider path.
 
 ## Model configuration
 

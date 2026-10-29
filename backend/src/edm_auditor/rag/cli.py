@@ -6,9 +6,10 @@ from pathlib import Path
 
 from edm_auditor.database.config import DatabaseSettings
 from edm_auditor.database.connection import create_engine_for, create_session_factory
+from edm_auditor.model_config import ModelSettings
+from edm_auditor.model_providers import create_embedding_provider
 
 from .config import RAGSettings
-from .embeddings import DeterministicEmbeddingProvider
 from .indexer import RAGIndexer
 from .ingestion import DatabaseIndexSourceLoader
 from .search import RAGSearch
@@ -17,14 +18,15 @@ from .vector_store import SQLiteVectorStore
 
 def _components():
     settings = RAGSettings.from_env()
-    if settings.embedding_model != "deterministic-v1":
-        raise ValueError(
-            "only deterministic-v1 is available; configure a production provider explicitly"
+    if "RAG_EMBEDDING_MODEL" in os.environ:
+        from .embeddings import DeterministicEmbeddingProvider
+
+        provider = DeterministicEmbeddingProvider(
+            dimension=settings.embedding_dimension,
+            model_name=settings.embedding_model,
         )
-    provider = DeterministicEmbeddingProvider(
-        dimension=settings.embedding_dimension,
-        model_name=settings.embedding_model,
-    )
+    else:
+        provider = create_embedding_provider(ModelSettings.from_env().embedding)
     store = SQLiteVectorStore(
         settings.index_path,
         embedding_model=provider.model_name,
