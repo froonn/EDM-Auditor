@@ -238,6 +238,25 @@ The commands use `data/edm_auditor.sqlite3` and
 `RAG_EMBEDDING_MODEL` currently supports only `deterministic-v1`; no network
 service or API key is required.
 
+## Model configuration
+
+Embedding and LLM settings are stored in `config/models.toml`. The file
+contains provider profiles and safe presets; it never contains API keys.
+Select a preset with `EDM_MODEL_PRESET` or load a different file with
+`EDM_MODEL_CONFIG`:
+
+```bash
+EDM_MODEL_PRESET=offline python -c \
+  'from edm_auditor.model_config import ModelSettings; print(ModelSettings.from_env())'
+```
+
+The `offline` preset uses the deterministic embedding provider and an LLM
+stub. `lm-studio` and `openrouter` use the OpenAI-compatible API shape; their
+embedding model, endpoint, and LLM model must be adjusted to the locally
+available models. Set `OPENROUTER_API_KEY` in the environment for the
+OpenRouter preset. Keep real secrets in a local `.env` file or secret store,
+not in `models.toml`.
+
 Run all backend tests with:
 
 ```bash
