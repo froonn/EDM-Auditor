@@ -5,10 +5,14 @@ from collections.abc import Iterable
 from .extractors import extract_entities
 from .models import AuditResult, FindingDraft, RuleDiagnostic, RuleSpec
 from .validators import validate_rule
+from .rag_validator import ContextSearcher, validate_semantic_rule
 
 
 class AuditEngine:
     """Run active rules and produce stable, source-preserving findings."""
+
+    def __init__(self, rag_searcher: ContextSearcher | None = None) -> None:
+        self._rag_searcher = rag_searcher
 
     def audit(
         self,
@@ -26,7 +30,12 @@ class AuditEngine:
             ):
                 continue
             try:
-                findings.extend(validate_rule(rule, text, entities))
+                if rule.check_type == "semantic":
+                    if self._rag_searcher is None:
+                        raise ValueError("semantic rule requires a configured RAG searcher")
+                    findings.extend(validate_semantic_rule(rule, text, self._rag_searcher))
+                else:
+                    findings.extend(validate_rule(rule, text, entities))
             except (ValueError, TypeError) as exc:
                 diagnostics.append(RuleDiagnostic(rule.rule_code, str(exc)))
         unique = {finding.deduplication_key: finding for finding in findings}

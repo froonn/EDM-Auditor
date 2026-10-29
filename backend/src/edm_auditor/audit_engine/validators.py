@@ -1,6 +1,7 @@
 """Deterministic validators for audit rules."""
 
 import re
+from datetime import date
 from collections.abc import Iterable
 from typing import Any
 
@@ -24,6 +25,10 @@ def validate_rule(
         return ()
     if rule.check_type == "numeric":
         return _numeric_findings(rule, text, tuple(entities))
+    if rule.check_type == "date":
+        return _date_findings(rule, text, tuple(entities))
+    if rule.check_type == "duration":
+        return _duration_findings(rule, text, tuple(entities))
     raise InvalidRuleConfiguration(f"unsupported check type: {rule.check_type}")
 
 
@@ -77,6 +82,90 @@ def _numeric_findings(
         if violates:
             findings.append(_draft(rule, text, entity.start_char, entity.end_char))
     return tuple(findings)
+
+
+def _date_findings(
+    rule: RuleSpec,
+    text: str,
+    entities: tuple[ExtractedEntity, ...],
+) -> tuple[FindingDraft, ...]:
+    before = _date_parameter(rule.parameters.get("before"), "before")
+    after = _date_parameter(rule.parameters.get("after"), "after")
+    if before is None and after is None:
+        raise InvalidRuleConfiguration("date rule requires 'before' or 'after' in ISO format")
+    findings = []
+    for entity in entities:
+        if entity.kind != "date":
+            continue
+        value = _parse_date(entity.value)
+        if (before is not None and value >= before) or (after is not None and value <= after):
+            findings.append(_draft(rule, text, entity.start_char, entity.end_char))
+    return tuple(findings)
+
+
+def _duration_findings(
+    rule: RuleSpec,
+    text: str,
+    entities: tuple[ExtractedEntity, ...],
+) -> tuple[FindingDraft, ...]:
+    minimum = rule.parameters.get("min_days")
+    maximum = rule.parameters.get("max_days")
+    if minimum is None and maximum is None:
+        raise InvalidRuleConfiguration("duration rule requires 'min_days' or 'max_days'")
+    minimum_value = _number(minimum) if minimum is not None else None
+    maximum_value = _number(maximum) if maximum is not None else None
+    findings = []
+    for entity in entities:
+        if entity.kind != "duration":
+            continue
+        value = _duration_days(entity.value)
+        if (minimum_value is not None and value < minimum_value) or (
+            maximum_value is not None and value > maximum_value
+        ):
+            findings.append(_draft(rule, text, entity.start_char, entity.end_char))
+    return tuple(findings)
+
+
+def _date_parameter(value: Any, name: str) -> date | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise InvalidRuleConfiguration(f"{name} must be an ISO date")
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise InvalidRuleConfiguration(f"{name} must be an ISO date") from exc
+
+
+def _parse_date(value: str) -> date:
+    normalized = value.casefold()
+    month_names = (
+        "января февраля марта апреля мая июня июля августа сентября октября ноября декабря"
+    ).split()
+    match = re.fullmatch(r"(\d{1,2})[./](\d{1,2})[./](\d{2,4})", normalized)
+    if match:
+        year = int(match.group(3))
+        return date(year + 2000 if year < 100 else year, int(match.group(2)), int(match.group(1)))
+    match = re.fullmatch(r"(\d{1,2})\s+([а-я]+)\s+(\d{4})", normalized)
+    if match and match.group(2) in month_names:
+        return date(int(match.group(3)), month_names.index(match.group(2)) + 1, int(match.group(1)))
+    raise InvalidRuleConfiguration(f"unsupported date value: {value}")
+
+
+def _duration_days(value: str) -> float:
+    match = re.search(
+        r"(\d+(?:[.,]\d+)?)\s*(дн(?:я|ей)?|месяц(?:а|ев)?|лет?|год(?:а|ов)?)",
+        value.casefold(),
+    )
+    if match is None:
+        raise InvalidRuleConfiguration(f"unsupported duration value: {value}")
+    amount = float(match.group(1).replace(",", "."))
+    unit = match.group(2)
+    if unit.startswith("месяц"):
+        return amount * 30
+    if unit.startswith(("лет", "год")):
+        return amount * 365
+    return amount
 
 
 def _number(value: Any) -> float:

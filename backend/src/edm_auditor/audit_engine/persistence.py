@@ -53,7 +53,12 @@ class AuditPersistence:
                     "diagnostics": [
                         {"rule_code": item.rule_code, "message": item.message}
                         for item in result.diagnostics
-                    ]
+                    ],
+                    "rag_contexts": [
+                        finding.source_context
+                        for finding in result.findings
+                        if finding.source_context is not None
+                    ],
                 }
                 report = AuditReport(
                     document_id=document.id,

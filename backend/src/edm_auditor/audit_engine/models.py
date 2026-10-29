@@ -52,6 +52,7 @@ class FindingDraft:
     recommendation: str | None = None
     legal_act_id: int | None = None
     deduplication_key: str = ""
+    source_context: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)

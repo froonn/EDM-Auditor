@@ -27,4 +27,6 @@ class CheckType(StrEnum):
     KEYWORD = "keyword"
     REGEX = "regex"
     NUMERIC = "numeric"
+    DATE = "date"
+    DURATION = "duration"
     SEMANTIC = "semantic"
