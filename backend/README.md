@@ -257,6 +257,9 @@ available models. Set `OPENROUTER_API_KEY` in the environment for the
 OpenRouter preset. Keep real secrets in a local `.env` file or secret store,
 not in `models.toml`.
 
+Detailed field descriptions and setup examples are in
+[`docs/model-configuration.md`](../docs/model-configuration.md).
+
 Run all backend tests with:
 
 ```bash
