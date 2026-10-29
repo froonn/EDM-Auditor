@@ -294,3 +294,33 @@ parameters are JSON objects, for example:
 The implementation does not require Natasha, an external embedding provider, or
 an LLM. Semantic RAG validation and optional NLP enrichment remain separate
 follow-up integrations.
+
+## FastAPI
+
+Install the backend with the test extras, then start the local API from
+`backend/`:
+
+```bash
+python -m pip install -e ".[test]"
+alembic upgrade head
+uvicorn edm_auditor.api.app:create_app --factory --reload
+```
+
+The API uses SQLite and `data/uploads/` by default. Override these paths with
+`EDM_DATABASE_URL`, `EDM_UPLOAD_DIR`, and `EDM_MAX_UPLOAD_BYTES`. The initial
+API runs audits synchronously and uses the existing offline deterministic
+pipeline; external LLM and embedding providers are not required.
+
+Available endpoints:
+
+- `GET /health`
+- `POST /api/documents/upload`
+- `GET /api/documents/{id}`
+- `POST /api/documents/{id}/audit`
+- `GET /api/documents/{id}/report`
+- `GET /api/rules` and `POST /api/rules`
+- `GET /api/legal-acts`
+
+OpenAPI documentation is available at `/docs`. The local API does not include
+authentication yet and should not be exposed outside a trusted development
+environment.

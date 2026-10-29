@@ -2,5 +2,5 @@
 - [x] feature/database-schema
 - [ ] feature/rag-indexer (offline-реализация готова; production embedding
   provider и стартовый датасет НПА ещё не реализованы)
-- [ ] feature/audit-engine
+- [x] feature/audit-engine
 - [ ] feature/fastapi-api
