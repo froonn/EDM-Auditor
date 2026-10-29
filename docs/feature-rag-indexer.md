@@ -70,9 +70,7 @@ LLM-сервису.
 
 ```text
 backend/
-  src/
-    edm_auditor/
-      rag/
+  src/edm_auditor/rag/
         __init__.py
         models.py          # Chunk, SearchResult и конфигурация индекса
         chunking.py        # детерминированное разбиение и диапазоны
@@ -80,8 +78,7 @@ backend/
         vector_store.py    # протокол и локальное хранилище векторов
         indexer.py         # построение и пересоздание индекса
         search.py          # поиск и преобразование результатов
-  tests/
-    rag/
+  tests/rag/
       test_chunking.py
       test_embeddings.py
       test_vector_store.py

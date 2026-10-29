@@ -56,9 +56,7 @@
 ```text
 backend/
   pyproject.toml
-  src/
-    edm_auditor/
-      database/
+  src/edm_auditor/database/
         __init__.py
         config.py          # URL базы и параметры подключения
         connection.py      # engine/session или эквивалентный слой
@@ -67,8 +65,7 @@ backend/
         repositories.py    # операции чтения и записи
         migrations/
           ...              # версия начальной схемы
-  tests/
-    database/
+  tests/database/
       test_schema.py
       test_document_repository.py
 ```

@@ -61,9 +61,7 @@ PDF без текстового слоя должен распознаватьс
 ```text
 backend/
   pyproject.toml
-  src/
-    edm_auditor/
-      document_parser/
+  src/edm_auditor/document_parser/
         __init__.py
         models.py       # DocumentMetadata, ParsedDocument, ParsedParagraph
         exceptions.py   # публичные ошибки парсинга
@@ -72,8 +70,7 @@ backend/
         pdf_parser.py
         service.py      # выбор парсера и единая точка входа
   tests/
-    fixtures/
-      documents/
+    fixtures/documents/
         simple.docx
         simple.pdf
         empty.pdf
