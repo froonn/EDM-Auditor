@@ -2,6 +2,8 @@
 
 from .engine import AuditEngine
 from .extractors import extract_entities
+from .llm_interpreter import LLMInterpreter
+from .neural_models import NeuralFinding, NeuralResult
 from .persistence import AuditPersistence
 from .models import (
     AuditRequest,
@@ -16,6 +18,9 @@ from .validators import validate_rule
 
 __all__ = [
     "AuditEngine",
+    "LLMInterpreter",
+    "NeuralFinding",
+    "NeuralResult",
     "AuditPersistence",
     "AuditRequest",
     "AuditResult",

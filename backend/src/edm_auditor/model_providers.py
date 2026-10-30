@@ -43,7 +43,10 @@ class StubLLMProvider:
         context: Sequence[str] = (),
     ) -> str:
         del system_prompt, user_prompt, context
-        return '{"status":"not_configured","explanation":"LLM provider is not configured"}'
+        return (
+            '{"schema_version":"1","analyses":[],"general_summary":'
+            '"LLM analysis is disabled in the offline provider"}'
+        )
 
 
 class OpenAICompatibleEmbeddingProvider:

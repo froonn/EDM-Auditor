@@ -46,6 +46,14 @@ class FindingResponse(BaseModel):
     source_context: dict[str, Any] | None = None
 
 
+class NeuralAnalysisResponse(BaseModel):
+    finding_key: str
+    explanation: str
+    recommendation: str
+    confidence: float
+    legal_basis: list[dict[str, Any]]
+
+
 class ReportResponse(BaseModel):
     id: int
     document_id: int
@@ -57,6 +65,8 @@ class ReportResponse(BaseModel):
     summary: dict[str, Any]
     created_at: datetime
     findings: list[FindingResponse]
+    neural_status: str = "not_requested"
+    neural_analyses: list[NeuralAnalysisResponse] = Field(default_factory=list)
 
 
 class RuleCreate(BaseModel):

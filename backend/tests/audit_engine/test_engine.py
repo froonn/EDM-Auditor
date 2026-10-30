@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from edm_auditor.audit_engine import (
     AuditEngine,
+    LLMInterpreter,
     AuditPersistence,
     RuleSpec,
     extract_entities,
@@ -13,6 +14,7 @@ from edm_auditor.audit_engine import (
 from edm_auditor.database.connection import create_engine_for, create_session_factory
 from edm_auditor.database.enums import AuditSeverity, CheckType, DocumentStatus
 from edm_auditor.database.models import AuditReport, AuditRule, Base, Document
+from edm_auditor.model_providers import StubLLMProvider
 
 
 def test_extract_entities_preserves_source_ranges() -> None:
@@ -227,3 +229,35 @@ def test_persistence_audits_synthetic_employment_contract(session_factory) -> No
             "01.02.2026",
             "испытательный срок",
         }
+
+
+def test_persistence_stores_neural_analysis_status(session_factory) -> None:
+    with session_factory.begin() as session:
+        document = Document(
+            title="Neural contract",
+            file_type="txt",
+            file_path="neural.txt",
+            raw_text="Условие присутствует.",
+        )
+        session.add(document)
+        session.flush()
+        session.add(
+            AuditRule(
+                rule_code="condition-present",
+                name="Condition",
+                severity=AuditSeverity.LOW.value,
+                check_type=CheckType.KEYWORD.value,
+                parameters_json=json.dumps({"keywords": ["условие"]}),
+            )
+        )
+        document_id = document.id
+
+    report = AuditPersistence(
+        session_factory,
+        neural_interpreter=LLMInterpreter(StubLLMProvider()),
+        neural_mode="best-effort",
+    ).audit_document(document_id)
+
+    summary = json.loads(report.summary)
+    assert summary["neural"]["status"] == "completed"
+    assert summary["neural"]["model"] == "stub-v1"

@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from edm_auditor.audit_engine.persistence import AuditPersistence
+from edm_auditor.audit_engine import LLMInterpreter
 from edm_auditor.database import (
     DocumentRepository,
     create_engine_for,
@@ -23,6 +24,8 @@ from edm_auditor.database.enums import AuditSeverity, CheckType
 from edm_auditor.database.models import AuditReport, AuditRule, Document, LegalAct
 from edm_auditor.document_parser import parse_document
 from edm_auditor.document_parser.exceptions import DocumentParserError
+from edm_auditor.model_config import ModelSettings
+from edm_auditor.model_providers import create_llm_provider
 
 from .config import ApiSettings
 from .errors import ApiError, parser_error
@@ -60,6 +63,12 @@ def create_app(
     app = FastAPI(title="EDM-Auditor API", version="0.1.0", lifespan=lifespan)
     app.state.settings = config
     app.state.session_factory = session_factory
+    neural_interpreter = None
+    if config.neural_mode != "disabled":
+        model_settings = ModelSettings.from_toml(config.model_config)
+        neural_interpreter = LLMInterpreter(
+            create_llm_provider(model_settings.llm)
+        )
 
     @app.middleware("http")
     async def request_id_middleware(request, call_next):
@@ -127,7 +136,11 @@ def create_app(
     )
     def audit_document(document_id: int) -> AuditRequestResponse:
         try:
-            report = AuditPersistence(session_factory).audit_document(document_id)
+            report = AuditPersistence(
+                session_factory,
+                neural_interpreter=neural_interpreter,
+                neural_mode=config.neural_mode,
+            ).audit_document(document_id)
         except LookupError as exc:
             raise ApiError(404, "document_not_found", str(exc)) from exc
         except (ValueError, TypeError) as exc:
@@ -161,6 +174,7 @@ def create_app(
                 raise ApiError(404, "report_not_found", "Audit report does not exist")
             summary = _parse_summary(report.summary)
             contexts = summary.get("rag_contexts", [])
+            neural = summary.get("neural", {})
             findings = [
                 FindingResponse(
                     id=finding.id,
@@ -189,6 +203,8 @@ def create_app(
                 summary=summary,
                 created_at=report.created_at,
                 findings=findings,
+                neural_status=neural.get("status", "not_requested"),
+                neural_analyses=neural.get("analyses", []),
             )
 
     @app.get("/api/rules", response_model=list[RuleResponse])
