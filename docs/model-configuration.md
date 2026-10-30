@@ -160,8 +160,35 @@ embedding-профиль с его endpoint и размерностью и ук�
 - Конфигурация моделей уже типизирована и провайдеры подключаются через
   registry-функции.
 - Production embedding-модель и её окончательная размерность ещё не выбраны.
-- LLM-адаптер доступен, но пока не встроен в `AuditEngine` и не принимает
-  юридические решения сам по себе.
+- LLM-адаптер встроен в persistence/API как вспомогательный слой и
+  интерпретирует только уже найденные findings; он не принимает юридические
+  решения сам по себе.
 - Базовые тесты используют `offline` и не требуют сети или API-ключей.
 - Нельзя хранить реальные ключи в `models.toml`, `.env.example`, Git или
   сообщениях об ошибках.
+
+## Neural-анализ API
+
+По умолчанию API работает с отключённым LLM:
+
+```bash
+EDM_NEURAL_MODE=disabled uvicorn edm_auditor.api.app:create_app --factory
+```
+
+Для локального LM Studio:
+
+```bash
+export EDM_NEURAL_MODE=best-effort
+export EDM_MODEL_CONFIG="$PWD/config/models.toml"
+export EDM_MODEL_PRESET=lm-studio
+uvicorn edm_auditor.api.app:create_app --factory --reload
+```
+
+Доступны режимы `disabled`, `best-effort` и `required`. В режиме `best-effort`
+детерминированные findings сохраняются даже при недоступности модели. В режиме
+`required` ошибка LLM не позволяет пометить аудит успешным.
+
+`GET /api/documents/{id}/report` содержит `neural_status` и
+`neural_analyses`. Модель получает только findings и связанные RAG-контексты;
+она не может изменить severity, диапазоны, rule IDs или добавить неизвестные
+нормативные ссылки.

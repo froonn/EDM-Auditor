@@ -3,4 +3,5 @@
 - [ ] feature/rag-indexer (offline-реализация готова; production embedding
   provider и стартовый датасет НПА ещё не реализованы)
 - [x] feature/audit-engine
-- [ ] feature/fastapi-api
+- [x] feature/fastapi-api
+- [ ] feature/neural-integration
