@@ -178,8 +178,11 @@ curl -s -X POST http://127.0.0.1:8000/api/legal-acts/upload \
   -F "code=TK-RB" \
   -F "title=Трудовой кодекс Республики Беларусь" \
   -F "number=218-З" \
-  -F "file=@backend/examples/legal_act.txt" | jq .
+  -F "file=@examples/legal_act.txt" | jq .
 ```
+
+Команду выше нужно выполнять из каталога `backend/`. Если текущий каталог —
+корень репозитория, используйте `-F "file=@backend/examples/legal_act.txt"`.
 
 > [!NOTE]
 > Если включен нейросетевой режим (`EDM_NEURAL_MODE=best-effort` или `required`), при загрузке текстового файла НПА

@@ -540,6 +540,20 @@ def create_app(
                 "Upload legal act: code='%s', title='%s', number='%s', neural_mode='%s'",
                 code, title, number, config.neural_mode,
             )
+            with session_factory.begin() as session:
+                legal_act = LegalAct(
+                    code=code,
+                    title=title,
+                    number=number,
+                    source_url=source_url,
+                    article_text=parsed.text,
+                )
+                session.add(legal_act)
+                session.flush()
+                legal_act_id = legal_act.id
+                response = LegalActResponse.model_validate(legal_act)
+            logger.info("Saved legal act id=%d. Extracting rules...", legal_act_id)
+
             generated_rules: tuple[dict[str, object], ...] = ()
             if rule_extractor is not None:
                 logger.info("Executing rule extractor (%s)...", type(rule_extractor).__name__)
@@ -565,16 +579,12 @@ def create_app(
                 )
 
             with session_factory.begin() as session:
-                legal_act = LegalAct(
-                    code=code,
-                    title=title,
-                    number=number,
-                    source_url=source_url,
-                    article_text=parsed.text,
-                )
-                session.add(legal_act)
-                session.flush()
-                logger.info("Saved legal act id=%d. Processing %d generated rules...", legal_act.id, len(generated_rules))
+                legal_act = session.get(LegalAct, legal_act_id)
+                if legal_act is None:
+                    raise ApiError(
+                        500, "legal_act_not_found", "Saved legal act is unavailable"
+                    )
+                logger.info("Processing %d generated rules...", len(generated_rules))
                 created_rules_count = 0
                 for index, generated in enumerate(generated_rules, start=1):
                     rule = _generated_rule(generated, index=index)
@@ -596,7 +606,6 @@ def create_app(
                     created_rules_count += 1
                     logger.info("Created rule #%d: %s (%s)", index, rule["rule_code"], rule["name"])
                 logger.info("Finished rule persistence. Total new rules created: %d", created_rules_count)
-                response = LegalActResponse.model_validate(legal_act)
             _rebuild_after_mutation(rebuild_rag_index)
             return response
         except ValueError as exc:
