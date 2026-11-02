@@ -67,6 +67,62 @@ def test_provider_entities_support_qualifying_words_in_durations() -> None:
     assert result.findings[0].quote == "14 календарных дней"
 
 
+def test_duration_rule_checks_date_interval_when_duration_is_not_written() -> None:
+    result = AuditEngine().audit(
+        "Изменение действует с 01.03.2027. Уведомление направлено 25.02.2027.",
+        [
+            RuleSpec(
+                rule_id=10,
+                rule_code="notice-period",
+                name="Notice period",
+                severity="high",
+                check_type="duration",
+                parameters={"min_days": 10},
+            )
+        ],
+    )
+
+    assert len(result.findings) == 1
+    assert result.findings[0].quote == "01.03.2027. Уведомление направлено 25.02.2027"
+
+
+def test_required_keyword_accepts_inflected_word_forms() -> None:
+    result = AuditEngine().audit(
+        "Соглашение о дистанционной работе предусматривает дистанционную работу.",
+        [
+            RuleSpec(
+                rule_id=11,
+                rule_code="required-remote-word",
+                name="Required remote wording",
+                severity="medium",
+                check_type="keyword",
+                parameters={"keywords": ["дистанционная"], "mode": "required"},
+            )
+        ],
+    )
+
+    assert result.findings == ()
+
+
+def test_required_keyword_reports_missing_wording() -> None:
+    result = AuditEngine().audit(
+        "Соглашение о работе.",
+        [
+            RuleSpec(
+                rule_id=12,
+                rule_code="required-remote-word",
+                name="Required remote wording",
+                severity="medium",
+                check_type="keyword",
+                parameters={"keywords": ["дистанционная"], "mode": "required"},
+            )
+        ],
+    )
+
+    assert len(result.findings) == 1
+    assert result.findings[0].quote is None
+
+
 def test_semantic_rule_returns_ranked_offline_normative_context(tmp_path: Path) -> None:
     fixture = (Path(__file__).parents[1] / "fixtures" / "legal_context.txt").read_text()
     provider = DeterministicEmbeddingProvider(dimension=16)

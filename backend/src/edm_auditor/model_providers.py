@@ -122,6 +122,14 @@ RULE_EXTRACTION_SCHEMA = {
                                 "type": "array",
                                 "items": {"type": "string"},
                             },
+                            "mode": {
+                                "type": "string",
+                                "enum": ["forbidden", "required"],
+                            },
+                            "match": {
+                                "type": "string",
+                                "enum": ["literal", "stem", "regex"],
+                            },
                             "pattern": {"type": "string"},
                             "query": {"type": "string"},
                             "k": {"type": "integer"},
@@ -314,7 +322,7 @@ class StubRuleExtractionProvider:
                     "description": sentence,
                     "severity": "medium",
                     "check_type": "keyword",
-                    "parameters": {"keywords": [kw]},
+                    "parameters": {"keywords": [kw], "mode": "required", "match": "stem"},
                 })
                 rule_idx += 1
                 continue
@@ -507,7 +515,9 @@ class OpenAICompatibleRuleExtractionProvider:
             '- date: parameters must contain "before" and/or "after" as ISO dates '
             "(YYYY-MM-DD).\n"
             '- keyword: parameters must contain a non-empty "keywords" array of '
-            "strings.\n"
+            "strings. Use mode \"required\" when the document must contain the "
+            "keyword; use mode \"forbidden\" for prohibited wording. Use match "
+            "\"stem\" for inflected word forms.\n"
             '- regex: parameters must contain a non-empty "pattern" string. Use '
             "this only when an exact regular-expression requirement is stated.\n"
             '- semantic: parameters must contain the semantic rule configuration '
@@ -666,7 +676,9 @@ class GoogleAIStudioRuleExtractionProvider:
             "legal act. Do not infer or invent rules. Use the exact validator "
             'contracts: duration uses min_days/max_days; numeric uses entity '
             "plus min/max; date uses before/after ISO dates; keyword uses "
-            "keywords; regex uses pattern; semantic uses supported RAG settings. "
+            "keywords plus optional mode (forbidden/required) and match "
+            "(literal/stem/regex); regex uses pattern; semantic uses supported "
+            "RAG settings. "
             "Never use generic field/operator/unit/value parameters. Return exactly "
             'one JSON object with a "rules" array; do not return a bare array. '
             f"JSON.\nDocument:\n{text}"
