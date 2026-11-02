@@ -36,6 +36,13 @@ class LLMInterpreter:
         document_type: str | None = None,
     ) -> NeuralResult:
         selected = tuple(findings[: self.max_findings])
+        if not selected:
+            return NeuralResult(
+                status="completed",
+                model=self.provider.model_name,
+                prompt_version=PROMPT_VERSION,
+                general_summary="No deterministic findings require neural analysis.",
+            )
         known_keys = {item.key for item in selected}
         raw = self.provider.generate(
             system_prompt=SYSTEM_PROMPT,

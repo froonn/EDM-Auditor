@@ -10,6 +10,10 @@ from sqlalchemy.orm import Session, sessionmaker
 def create_engine_for(url: str, *, echo: bool = False) -> Engine:
     """Create an engine and enable SQLite foreign keys on every connection."""
     connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
+    if url.startswith("sqlite:///"):
+        database_path = url.removeprefix("sqlite:///")
+        if database_path != ":memory:":
+            Path(database_path).parent.mkdir(parents=True, exist_ok=True)
     engine = create_engine(url, echo=echo, connect_args=connect_args)
 
     if url.startswith("sqlite"):

@@ -154,7 +154,8 @@ def _parse_date(value: str) -> date:
 
 def _duration_days(value: str) -> float:
     match = re.search(
-        r"(\d+(?:[.,]\d+)?)\s*(дн(?:я|ей)?|месяц(?:а|ев)?|лет?|год(?:а|ов)?)",
+        r"(\d+(?:[.,]\d+)?)\s*(?:[а-я-]+\s+){0,3}"
+        r"(дн(?:я|ей)?|месяц(?:а|ев)?|лет?|год(?:а|ов)?)",
         value.casefold(),
     )
     if match is None:

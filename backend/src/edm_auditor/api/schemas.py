@@ -33,6 +33,19 @@ class AuditRequestResponse(BaseModel):
     status: str
 
 
+class ReportListResponse(BaseModel):
+    id: int
+    document_id: int
+    document_title: str
+    total_findings: int
+    critical_count: int
+    high_count: int
+    medium_count: int
+    low_count: int
+    created_at: datetime
+    neural_status: str = "not_requested"
+
+
 class FindingResponse(BaseModel):
     id: int
     rule_id: int | None
@@ -103,3 +116,23 @@ class LegalActResponse(BaseModel):
     title: str
     number: str | None
     source_url: str | None
+
+
+class LegalActDetailResponse(LegalActResponse):
+    article_text: str
+
+
+class LegalActCreate(BaseModel):
+    code: str = Field(min_length=1, max_length=100)
+    title: str = Field(min_length=1, max_length=500)
+    article_text: str
+    number: str | None = Field(default=None, max_length=100)
+    source_url: str | None = Field(default=None, max_length=1000)
+
+
+class LegalActUpdate(BaseModel):
+    code: str | None = Field(default=None, min_length=1, max_length=100)
+    title: str | None = Field(default=None, min_length=1, max_length=500)
+    article_text: str | None = None
+    number: str | None = Field(default=None, max_length=100)
+    source_url: str | None = Field(default=None, max_length=1000)
