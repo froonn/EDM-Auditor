@@ -33,6 +33,19 @@ class AuditRequestResponse(BaseModel):
     status: str
 
 
+class ReportListResponse(BaseModel):
+    id: int
+    document_id: int
+    document_title: str
+    total_findings: int
+    critical_count: int
+    high_count: int
+    medium_count: int
+    low_count: int
+    created_at: datetime
+    neural_status: str = "not_requested"
+
+
 class FindingResponse(BaseModel):
     id: int
     rule_id: int | None
@@ -46,6 +59,14 @@ class FindingResponse(BaseModel):
     source_context: dict[str, Any] | None = None
 
 
+class NeuralAnalysisResponse(BaseModel):
+    finding_key: str
+    explanation: str
+    recommendation: str
+    confidence: float
+    legal_basis: list[dict[str, Any]]
+
+
 class ReportResponse(BaseModel):
     id: int
     document_id: int
@@ -57,6 +78,8 @@ class ReportResponse(BaseModel):
     summary: dict[str, Any]
     created_at: datetime
     findings: list[FindingResponse]
+    neural_status: str = "not_requested"
+    neural_analyses: list[NeuralAnalysisResponse] = Field(default_factory=list)
 
 
 class RuleCreate(BaseModel):
@@ -93,3 +116,23 @@ class LegalActResponse(BaseModel):
     title: str
     number: str | None
     source_url: str | None
+
+
+class LegalActDetailResponse(LegalActResponse):
+    article_text: str
+
+
+class LegalActCreate(BaseModel):
+    code: str = Field(min_length=1, max_length=100)
+    title: str = Field(min_length=1, max_length=500)
+    article_text: str
+    number: str | None = Field(default=None, max_length=100)
+    source_url: str | None = Field(default=None, max_length=1000)
+
+
+class LegalActUpdate(BaseModel):
+    code: str | None = Field(default=None, min_length=1, max_length=100)
+    title: str | None = Field(default=None, min_length=1, max_length=500)
+    article_text: str | None = None
+    number: str | None = Field(default=None, max_length=100)
+    source_url: str | None = Field(default=None, max_length=1000)

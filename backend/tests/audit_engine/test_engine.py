@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from edm_auditor.audit_engine import (
     AuditEngine,
+    LLMInterpreter,
     AuditPersistence,
     RuleSpec,
     extract_entities,
@@ -13,6 +14,7 @@ from edm_auditor.audit_engine import (
 from edm_auditor.database.connection import create_engine_for, create_session_factory
 from edm_auditor.database.enums import AuditSeverity, CheckType, DocumentStatus
 from edm_auditor.database.models import AuditReport, AuditRule, Base, Document
+from edm_auditor.model_providers import StubLLMProvider, StubRuleExtractionProvider
 
 
 def test_extract_entities_preserves_source_ranges() -> None:
@@ -109,6 +111,67 @@ def test_numeric_rule_reports_values_outside_bounds() -> None:
     )
 
     assert result.findings[0].quote == "14 дней"
+
+
+def test_engine_keeps_deterministic_entities_when_provider_returns_none() -> None:
+    result = AuditEngine(entity_extractor=lambda _: ()).audit(
+        "Компенсация составляет 35 рублей.",
+        [
+            RuleSpec(
+                rule_id=5,
+                rule_code="minimum-compensation",
+                name="Minimum compensation",
+                severity="high",
+                check_type="numeric",
+                parameters={"entity": "money", "min": 50},
+            )
+        ],
+    )
+
+    assert result.findings[0].quote == "35 рублей"
+
+
+def test_engine_unions_provider_entities_with_deterministic_entities() -> None:
+    result = AuditEngine(
+        entity_extractor=lambda _: ({"kind": "duration", "value": "14 календарных дней"},)
+    ).audit(
+        "Отпуск 14 календарных дней.",
+        [
+            RuleSpec(
+                rule_id=6,
+                rule_code="minimum-leave",
+                name="Minimum leave",
+                severity="high",
+                check_type="duration",
+                parameters={"min_days": 24},
+            )
+        ],
+    )
+
+    assert result.findings[0].quote == "14 календарных дней"
+
+
+def test_remote_work_gold_documents_report_findings_without_external_models() -> None:
+    examples = Path(__file__).parents[2] / "examples"
+    legal_act = (examples / "legal_act_remote_work.txt").read_text(encoding="utf-8")
+    agreement = (examples / "remote_work_agreement.txt").read_text(encoding="utf-8")
+    extracted_rules = StubRuleExtractionProvider().extract_rules(legal_act)
+    rules = tuple(
+        RuleSpec(
+            rule_id=index,
+            rule_code=str(item["rule_code"]),
+            name=str(item["name"]),
+            description=str(item["description"]),
+            severity=str(item["severity"]),
+            check_type=str(item["check_type"]),
+            parameters=dict(item["parameters"]),
+        )
+        for index, item in enumerate(extracted_rules, start=1)
+    )
+
+    result = AuditEngine().audit(agreement, rules)
+
+    assert result.findings
 
 
 @pytest.fixture
@@ -227,3 +290,35 @@ def test_persistence_audits_synthetic_employment_contract(session_factory) -> No
             "01.02.2026",
             "испытательный срок",
         }
+
+
+def test_persistence_stores_neural_analysis_status(session_factory) -> None:
+    with session_factory.begin() as session:
+        document = Document(
+            title="Neural contract",
+            file_type="txt",
+            file_path="neural.txt",
+            raw_text="Условие присутствует.",
+        )
+        session.add(document)
+        session.flush()
+        session.add(
+            AuditRule(
+                rule_code="condition-present",
+                name="Condition",
+                severity=AuditSeverity.LOW.value,
+                check_type=CheckType.KEYWORD.value,
+                parameters_json=json.dumps({"keywords": ["условие"]}),
+            )
+        )
+        document_id = document.id
+
+    report = AuditPersistence(
+        session_factory,
+        neural_interpreter=LLMInterpreter(StubLLMProvider()),
+        neural_mode="best-effort",
+    ).audit_document(document_id)
+
+    summary = json.loads(report.summary)
+    assert summary["neural"]["status"] == "completed"
+    assert summary["neural"]["model"] == "stub-v1"

@@ -314,13 +314,92 @@ pipeline; external LLM and embedding providers are not required.
 Available endpoints:
 
 - `GET /health`
+- `GET /` — локальный web-интерфейс для ручной проверки
 - `POST /api/documents/upload`
+- `GET /api/documents`
 - `GET /api/documents/{id}`
 - `POST /api/documents/{id}/audit`
 - `GET /api/documents/{id}/report`
+- `GET /api/reports`
 - `GET /api/rules` and `POST /api/rules`
 - `GET /api/legal-acts`
+- `POST /api/legal-acts`
+- `POST /api/legal-acts/upload`
+- `GET /api/legal-acts/{id}`
+- `PATCH /api/legal-acts/{id}`
+- `DELETE /api/legal-acts/{id}`
 
 OpenAPI documentation is available at `/docs`. The local API does not include
 authentication yet and should not be exposed outside a trusted development
 environment.
+
+Open `http://127.0.0.1:8000/` after starting the server to use the browser
+interface. It supports uploading and deleting UTF-8 TXT legal acts, uploading
+TXT/PDF/DOCX documents, starting audits, and opening saved audit reports.
+
+The application automatically loads `.env` from the current working directory
+when the API starts. For example, create `backend/.env`:
+
+```bash
+EDM_NEURAL_MODE=required
+EDM_MODEL_CONFIG=config/models.toml
+EDM_MODEL_PRESET=google-ai-studio
+GEMINI_API_KEY=your-api-key
+```
+
+Then start the API normally:
+
+```bash
+uvicorn edm_auditor.api.app:create_app --factory --reload
+```
+
+Environment variables already exported in the shell take precedence over values
+from `.env`. Never commit `.env` or real API keys.
+### Complete local check
+
+Legal acts can be managed over HTTP. The list endpoint intentionally omits
+`article_text`; use the detail endpoint when the full text is needed. After
+creating, changing, or deleting an act, the API automatically rebuilds the
+RAG index before returning a successful response. The same applies to newly
+created rules. When neural mode is enabled, uploading a TXT legal act sends its
+text to the configured structured-output model, which may generate only
+explicit, auditable requirements. Generated rules are linked to the uploaded
+act and appear in `GET /api/rules`; regexes and other deterministic extractors
+are not used to create rules.
+Deleting an act removes its generated and linked rules. Existing findings are
+preserved, but their references to the deleted act and its rules are cleared.
+The RAG index is rebuilt after the deletion.
+
+For a local end-to-end check, load an example legal act directly into the same
+SQLite database, rebuild the local RAG index, upload a document, run the audit,
+and print the complete report with:
+
+```bash
+python examples/api_check.py \
+  examples/legal_act.txt \
+  --legal-act examples/legal_act.txt \
+  --legal-code EXAMPLE-1 \
+  --legal-title "Example employment requirements"
+```
+
+The `--legal-act` option is optional if the database and RAG index are already
+prepared. The script uses the same default paths as the API:
+`sqlite:///data/edm_auditor.sqlite3` and `data/rag-index.sqlite3`. If the server
+was started with custom paths, pass the matching `--database-url`,
+`--database-path`, and `--index-path` values. It prints the uploaded document,
+audit summary, findings, and neural-analysis fields as JSON.
+
+For a quick offline example, create two UTF-8 text files before running the
+script:
+
+```bash
+printf 'Отпуск предоставляется продолжительностью 14 календарных дней.\n' \
+  > examples/legal_act.txt
+printf 'Работнику предоставляется отпуск 14 дней.\n' > examples/contract.txt
+python examples/api_check.py examples/contract.txt \
+  --legal-act examples/legal_act.txt
+```
+
+The example is intentionally synthetic and does not represent legal advice.
+Real НПА texts should be checked for source, version, and applicable
+jurisdiction before being indexed.

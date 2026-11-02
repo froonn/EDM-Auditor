@@ -1,7 +1,9 @@
 """Deterministic document audit engine."""
 
 from .engine import AuditEngine
-from .extractors import extract_entities
+from .extractors import entities_from_provider, extract_entities
+from .llm_interpreter import LLMInterpreter
+from .neural_models import NeuralFinding, NeuralResult
 from .persistence import AuditPersistence
 from .models import (
     AuditRequest,
@@ -16,6 +18,9 @@ from .validators import validate_rule
 
 __all__ = [
     "AuditEngine",
+    "LLMInterpreter",
+    "NeuralFinding",
+    "NeuralResult",
     "AuditPersistence",
     "AuditRequest",
     "AuditResult",
@@ -24,6 +29,7 @@ __all__ = [
     "RuleDiagnostic",
     "RuleSpec",
     "extract_entities",
+    "entities_from_provider",
     "validate_rule",
     "ContextSearcher",
     "validate_semantic_rule",

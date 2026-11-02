@@ -108,8 +108,14 @@ class LegalAct(Base):
     article_text: Mapped[str] = mapped_column(Text, default="")
     source_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
 
-    rules: Mapped[list["AuditRule"]] = relationship(back_populates="legal_act")
-    findings: Mapped[list["AuditFinding"]] = relationship(back_populates="legal_act")
+    rules: Mapped[list["AuditRule"]] = relationship(
+        back_populates="legal_act",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    findings: Mapped[list["AuditFinding"]] = relationship(
+        back_populates="legal_act", passive_deletes=True
+    )
 
 
 class AuditRule(Base):
@@ -125,7 +131,7 @@ class AuditRule(Base):
     parameters_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True)
     legal_act_id: Mapped[int | None] = mapped_column(
-        ForeignKey("legal_acts.id", ondelete="SET NULL"), nullable=True
+        ForeignKey("legal_acts.id", ondelete="CASCADE"), nullable=True
     )
 
     legal_act: Mapped[LegalAct | None] = relationship(back_populates="rules")

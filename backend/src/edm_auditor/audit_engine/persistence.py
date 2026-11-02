@@ -11,7 +11,9 @@ from edm_auditor.database.enums import DocumentStatus
 from edm_auditor.database.models import AuditFinding, AuditReport, AuditRule, Document
 
 from .engine import AuditEngine
-from .models import RuleSpec
+from .llm_interpreter import LLMInterpreter
+from .models import FindingDraft, RuleSpec
+from .neural_models import NeuralFinding, NeuralResult
 
 
 class AuditPersistence:
@@ -21,9 +23,15 @@ class AuditPersistence:
         self,
         session_factory: Callable[[], Session],
         engine: AuditEngine | None = None,
+        neural_interpreter: LLMInterpreter | None = None,
+        neural_mode: str = "disabled",
     ) -> None:
         self._session_factory = session_factory
         self._engine = engine or AuditEngine()
+        if neural_mode not in {"disabled", "best-effort", "required"}:
+            raise ValueError("neural_mode must be disabled, best-effort, or required")
+        self._neural_interpreter = neural_interpreter
+        self._neural_mode = neural_mode
 
     def audit_document(self, document_id: int) -> AuditReport:
         try:
@@ -48,6 +56,7 @@ class AuditPersistence:
                     (_to_rule_spec(rule) for rule in rules),
                     document_type=document.classified_type,
                 )
+                neural = self._analyze(result.findings, document.classified_type)
                 counts = result.counts
                 summary = {
                     "diagnostics": [
@@ -59,6 +68,7 @@ class AuditPersistence:
                         for finding in result.findings
                         if finding.source_context is not None
                     ],
+                    "neural": neural.as_dict(),
                 }
                 report = AuditReport(
                     document_id=document.id,
@@ -90,6 +100,41 @@ class AuditPersistence:
             self._mark_error(document_id)
             raise
 
+    def _analyze(
+        self, findings: tuple[FindingDraft, ...], document_type: str | None
+    ) -> NeuralResult:
+        if self._neural_mode == "disabled":
+            return NeuralResult(status="not_requested")
+        if self._neural_interpreter is None:
+            if self._neural_mode == "required":
+                raise ValueError("neural analysis is required but not configured")
+            return NeuralResult(
+                status="failed", diagnostic="neural analysis is not configured"
+            )
+        neural_findings = tuple(
+            NeuralFinding(
+                key=_finding_key(finding),
+                rule_code=finding.rule_code,
+                severity=finding.severity,
+                description=finding.description,
+                quote=finding.quote,
+                context=(
+                    (finding.source_context,)
+                    if finding.source_context is not None
+                    else ()
+                ),
+            )
+            for finding in findings
+        )
+        try:
+            return self._neural_interpreter.analyze(
+                neural_findings, document_type=document_type
+            )
+        except (RuntimeError, ValueError, TypeError) as exc:
+            if self._neural_mode == "required":
+                raise
+            return NeuralResult(status="failed", diagnostic=str(exc)[:500])
+
     def _mark_error(self, document_id: int) -> None:
         with self._session_factory.begin() as session:
             document = session.get(Document, document_id)
@@ -113,3 +158,9 @@ def _to_rule_spec(rule: AuditRule) -> RuleSpec:
         legal_act_id=rule.legal_act_id,
         is_active=rule.is_active,
     )
+
+
+def _finding_key(finding: FindingDraft) -> str:
+    start = "" if finding.start_char is None else finding.start_char
+    end = "" if finding.end_char is None else finding.end_char
+    return f"{finding.rule_code}:{start}:{end}"

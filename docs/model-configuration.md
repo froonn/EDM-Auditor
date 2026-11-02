@@ -16,14 +16,38 @@
 [profiles.llm.<name>]
 ...
 
+[profiles.extractor.<name>]
+...
+
 [presets.<name>]
 embedding = "<embedding-profile>"
 llm = "<llm-profile>"
+extractor = "<extractor-profile>"
 ```
 
-Профиль описывает одну модель, а preset связывает одну embedding-модель с одной
-LLM. Приложение выбирает preset через `EDM_MODEL_PRESET`. По умолчанию
-используется `offline`.
+Профиль описывает одну модель, а preset связывает embedding-модель, LLM и
+необязательную модель извлечения сущностей и правил. Приложение выбирает preset через
+`EDM_MODEL_PRESET`. По умолчанию используется `offline`.
+
+## Профиль извлечения сущностей
+
+NuExtract3 можно подключить через OpenAI-compatible endpoint LM Studio:
+
+```toml
+[profiles.extractor.nuextract]
+provider = "openai-compatible"
+model = "numind/NuExtract3"
+base_url = "http://localhost:1234/v1"
+temperature = 0.2
+max_tokens = 2000
+```
+
+Модель получает текст документа и JSON-шаблон, а затем возвращает сущности с
+verbatim-значениями. Их позиции восстанавливаются по исходному тексту, поэтому
+формулировки вроде `14 календарных дней` сохраняются без потери контекста.
+Если модель недоступна или возвращает некорректный JSON, аудит использует
+локальный extractor и добавляет диагностическое сообщение
+`entity-extraction` в отчёт.
 
 ## Профиль embedding-модели
 
@@ -39,19 +63,21 @@ dimension = 768
 
 Поля:
 
-| Поле          |             Обязательно | Описание                                       |
-|---------------|------------------------:|------------------------------------------------|
-| `provider`    |                      да | `deterministic` или `openai-compatible`        |
-| `model`       |                      да | Точное имя модели на выбранном сервере         |
-| `base_url`    | для `openai-compatible` | Адрес OpenAI-compatible API без `/embeddings`  |
-| `dimension`   |        да для embedding | Размерность вектора, которую возвращает модель |
-| `api_key_env` |                     нет | Имя переменной окружения с API-ключом          |
+| Поле          |             Обязательно | Описание                                                    |
+|---------------|------------------------:|-------------------------------------------------------------|
+| `provider`    |                      да | `deterministic`, `openai-compatible` или `google-ai-studio` |
+| `model`       |                      да | Точное имя модели на выбранном сервере                      |
+| `base_url`    | для `openai-compatible` | Адрес OpenAI-compatible API без `/embeddings`               |
+| `dimension`   |        да для embedding | Размерность вектора, которую возвращает модель              |
+| `api_key_env` |                     нет | Имя переменной окружения с API-ключом                       |
 
 `dimension` должна точно соответствовать ответу модели. После смены модели или
 размерности существующий RAG-индекс необходимо пересобрать: старый индекс
 намеренно отклоняется как несовместимый.
 
-Для `deterministic` используется offline-провайдер. Он предназначен для тестов
+Для `google-ai-studio` используется официальный пакет `google-genai`, модель
+`gemini-embedding-2` и API-ключ из `GEMINI_API_KEY`. Для `deterministic`
+используется offline-провайдер. Он предназначен для тестов
 и локальной разработки, а не для production-поиска.
 
 ## Профиль LLM
@@ -66,21 +92,68 @@ base_url = "https://openrouter.ai/api/v1"
 api_key_env = "OPENROUTER_API_KEY"
 temperature = 0.1
 max_tokens = 2000
+structured_output = "json_schema"
 ```
+
+Google AI Studio использует официальный SDK, а не OpenAI-compatible endpoint:
+
+```toml
+[profiles.llm.google-ai-studio]
+provider = "google-ai-studio"
+model = "gemma-4-31b-it"
+api_key_env = "GEMINI_API_KEY"
+structured_output = "json_schema"
+```
+
+Для включения Google AI Studio используйте:
+
+```bash
+export GEMINI_API_KEY="your-api-key"
+export EDM_MODEL_PRESET="google-ai-studio"
+```
+
+Этот preset использует `gemma-4-31b-it` для анализа, извлечения сущностей и
+создания правил из НПА, а `gemini-embedding-2` — для RAG-индекса. После смены
+embedding-модели старый RAG-индекс нужно пересобрать.
 
 Поля:
 
-| Поле          |             Обязательно | Описание                                                      |
-|---------------|------------------------:|---------------------------------------------------------------|
-| `provider`    |                      да | `stub` или `openai-compatible`                                |
-| `model`       |                      да | Имя модели в LM Studio, OpenRouter или другом совместимом API |
-| `base_url`    | для `openai-compatible` | Адрес API без `/chat/completions`                             |
-| `api_key_env` |       для облачного API | Имя переменной с ключом                                       |
-| `temperature` |                     нет | Температура генерации, по умолчанию `0.1`                     |
-| `max_tokens`  |                     нет | Максимальный размер ответа, по умолчанию `2000`               |
+| Поле                |             Обязательно | Описание                                                      |
+|---------------------|------------------------:|---------------------------------------------------------------|
+| `provider`          |                      да | `stub`, `openai-compatible` или `google-ai-studio`            |
+| `model`             |                      да | Имя модели в LM Studio, OpenRouter или другом совместимом API |
+| `base_url`          | для `openai-compatible` | Адрес API без `/chat/completions`                             |
+| `api_key_env`       |       для облачного API | Имя переменной с ключом                                       |
+| `temperature`       |                     нет | Температура генерации, по умолчанию `0.1`                     |
+| `max_tokens`        |                     нет | Максимальный размер ответа, по умолчанию `2000`               |
+| `structured_output` |                      да | `false`, `"json_object"` или `"json_schema"`                  |
 
-`stub` не выполняет сетевые запросы и возвращает технический ответ
-`not_configured`. Это безопасный вариант для тестов.
+`structured_output` обязателен для каждого LLM-профиля. Для Gemma 4 в LM
+Studio используйте `"json_schema"`:
+
+```json
+{
+  "response_format": {
+    "type": "json_schema",
+    "json_schema": {
+      "name": "audit_analysis",
+      "strict": true,
+      "schema": "..."
+    }
+  }
+}
+```
+
+Значение `"json_object"` используется только для endpoint, который поддерживает
+JSON mode без схемы. Значение `false` отключает параметр. Приложение всё равно
+валидирует ответ самостоятельно и не доверяет модели без проверки.
+
+Если детерминированный аудит не нашёл findings, запрос к LLM не выполняется:
+нейросетевой результат сразу получает статус `completed` с пустым списком
+анализа. Это предотвращает генерацию моделью вымышленных `finding_key`.
+
+`stub` не выполняет сетевые запросы и возвращает валидный структурированный
+ответ. Это безопасный вариант для тестов.
 
 ## Пресеты
 
@@ -98,10 +171,11 @@ llm = "stub"
 [presets.local-dev]
 embedding = "local-multilingual"
 llm = "lm-studio"
+extractor = "nuextract"
 ```
 
-Имена в `embedding` и `llm` должны точно совпадать с именами профилей
-соответствующего раздела. Один preset не должен ссылаться на embedding-профиль
+Имена в `embedding`, `llm` и `extractor` должны точно совпадать с именами
+профилей соответствующего раздела. Один preset не должен ссылаться на embedding-профиль
 как на LLM-профиль или наоборот.
 
 ## Секреты и запуск
@@ -121,9 +195,9 @@ export EDM_MODEL_CONFIG=/absolute/path/to/models.toml
 ```
 
 Путь по умолчанию: `backend/config/models.toml`. Файл `.env.example` содержит
-только имена переменных и не является хранилищем ключей. В текущей реализации
-`.env` автоматически не загружается, поэтому переменные нужно экспортировать
-через оболочку, IDE или менеджер секретов.
+только имена переменных и не является хранилищем ключей. При запуске API файл
+`backend/.env` загружается автоматически. Уже экспортированные переменные
+окружения имеют приоритет над значениями из `.env`.
 
 ## LM Studio
 
@@ -160,8 +234,35 @@ embedding-профиль с его endpoint и размерностью и ук�
 - Конфигурация моделей уже типизирована и провайдеры подключаются через
   registry-функции.
 - Production embedding-модель и её окончательная размерность ещё не выбраны.
-- LLM-адаптер доступен, но пока не встроен в `AuditEngine` и не принимает
-  юридические решения сам по себе.
+- LLM-адаптер встроен в persistence/API как вспомогательный слой и
+  интерпретирует только уже найденные findings; он не принимает юридические
+  решения сам по себе.
 - Базовые тесты используют `offline` и не требуют сети или API-ключей.
 - Нельзя хранить реальные ключи в `models.toml`, `.env.example`, Git или
   сообщениях об ошибках.
+
+## Neural-анализ API
+
+По умолчанию API работает с отключённым LLM:
+
+```bash
+EDM_NEURAL_MODE=disabled uvicorn edm_auditor.api.app:create_app --factory
+```
+
+Для локального LM Studio:
+
+```bash
+export EDM_NEURAL_MODE=best-effort
+export EDM_MODEL_CONFIG="$PWD/config/models.toml"
+export EDM_MODEL_PRESET=lm-studio
+uvicorn edm_auditor.api.app:create_app --factory --reload
+```
+
+Доступны режимы `disabled`, `best-effort` и `required`. В режиме `best-effort`
+детерминированные findings сохраняются даже при недоступности модели. В режиме
+`required` ошибка LLM не позволяет пометить аудит успешным.
+
+`GET /api/documents/{id}/report` содержит `neural_status` и
+`neural_analyses`. Модель получает только findings и связанные RAG-контексты;
+она не может изменить severity, диапазоны, rule IDs или добавить неизвестные
+нормативные ссылки.
