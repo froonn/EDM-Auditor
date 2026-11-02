@@ -4,10 +4,13 @@ import pytest
 
 from edm_auditor.database.connection import create_engine_for, create_session_factory
 from edm_auditor.database.models import (
+    AuditFinding,
+    AuditReport,
     AuditRule,
     Base,
     Document,
     DocumentParagraph,
+    LegalAct,
     User,
 )
 
@@ -111,6 +114,51 @@ def test_foreign_keys_and_document_cascade_are_enabled(session_factory) -> None:
 
     with session_factory() as session:
         assert session.query(DocumentParagraph).count() == 0
+
+
+def test_legal_act_deletion_cascades_rules_and_nulls_findings(session_factory) -> None:
+    with session_factory.begin() as session:
+        legal_act = LegalAct(code="TK-RB", title="Labour Code", article_text="Article 1")
+        rule = AuditRule(
+            rule_code="RULE-LINKED",
+            name="Linked rule",
+            severity="low",
+            check_type="keyword",
+            legal_act=legal_act,
+        )
+        report = AuditReport(
+            document=Document(
+                title="Contract",
+                file_type="txt",
+                file_path="contract.txt",
+                raw_text="Annual leave",
+                status="audited",
+            ),
+            total_findings=1,
+            summary="{}",
+        )
+        finding = AuditFinding(
+            report=report,
+            rule=rule,
+            legal_act=legal_act,
+            severity="low",
+            description="Existing finding",
+        )
+        session.add_all([legal_act, rule, finding])
+        session.flush()
+        legal_act_id = legal_act.id
+        rule_id = rule.id
+        finding_id = finding.id
+
+    with session_factory.begin() as session:
+        session.delete(session.get(LegalAct, legal_act_id))
+
+    with session_factory() as session:
+        assert session.get(AuditRule, rule_id) is None
+        finding = session.get(AuditFinding, finding_id)
+        assert finding is not None
+        assert finding.rule_id is None
+        assert finding.legal_act_id is None
 
 
 def test_rule_code_and_json_constraints_are_enforced(session_factory) -> None:

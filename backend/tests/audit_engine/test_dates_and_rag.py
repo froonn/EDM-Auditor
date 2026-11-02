@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from edm_auditor.audit_engine import AuditEngine, RuleSpec
+from edm_auditor.audit_engine import entities_from_provider
 from edm_auditor.rag import (
     DeterministicEmbeddingProvider,
     IndexSource,
@@ -39,6 +40,31 @@ def test_date_and_duration_rules_compare_normalized_values() -> None:
     ]
     assert result.findings[0].quote == "01.02.2026"
     assert result.findings[1].quote == "4 месяца"
+
+
+def test_provider_entities_support_qualifying_words_in_durations() -> None:
+    text = "Работнику предоставляется отпуск 14 календарных дней."
+    entities = entities_from_provider(
+        text, [{"kind": "duration", "value": "14 календарных дней"}]
+    )
+
+    result = AuditEngine(
+        entity_extractor=lambda _: entities
+    ).audit(
+        text,
+        [
+            RuleSpec(
+                rule_id=9,
+                rule_code="annual-leave-minimum",
+                name="Minimum annual leave",
+                severity="high",
+                check_type="duration",
+                parameters={"min_days": 24},
+            )
+        ],
+    )
+
+    assert result.findings[0].quote == "14 календарных дней"
 
 
 def test_semantic_rule_returns_ranked_offline_normative_context(tmp_path: Path) -> None:
