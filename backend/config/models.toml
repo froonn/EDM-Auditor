@@ -7,20 +7,22 @@ dimension = 32
 
 [profiles.embedding.local-multilingual]
 provider = "openai-compatible"
-model = "text-embedding-model"
+model = "text-embedding-nomic-embed-text-v1.5"
 base_url = "http://localhost:1234/v1"
 dimension = 768
 
 [profiles.llm.stub]
 provider = "stub"
 model = "stub-v1"
+structured_output = false
 
 [profiles.llm.lm-studio]
 provider = "openai-compatible"
-model = "google/gemma-3-12b"
+model = "google/gemma-4-e4b"
 base_url = "http://localhost:1234/v1"
 temperature = 0.1
 max_tokens = 2000
+structured_output = "json_schema"
 
 [profiles.llm.openrouter]
 provider = "openai-compatible"
@@ -29,15 +31,59 @@ base_url = "https://openrouter.ai/api/v1"
 api_key_env = "OPENROUTER_API_KEY"
 temperature = 0.1
 max_tokens = 2000
+structured_output = false
+
+[profiles.extractor.gemma]
+provider = "openai-compatible"
+model = "google/gemma-4-e4b"
+base_url = "http://localhost:1234/v1"
+temperature = 0.2
+max_tokens = 2000
+structured_output = "json_schema"
 
 [presets.offline]
 embedding = "deterministic"
 llm = "stub"
+extractor = "stub"
+
+[profiles.extractor.stub]
+provider = "stub"
+model = "stub-v1"
+structured_output = false
 
 [presets.lm-studio]
 embedding = "local-multilingual"
 llm = "lm-studio"
+extractor = "gemma"
 
 [presets.openrouter]
 embedding = "local-multilingual"
 llm = "openrouter"
+
+
+[profiles.embedding.google-ai-studio]
+provider = "google-ai-studio"
+model = "gemini-embedding-2"
+api_key_env = "GEMINI_API_KEY"
+dimension = 3072
+
+[profiles.llm.google-ai-studio]
+provider = "google-ai-studio"
+model = "gemini-3.1-flash-lite"
+api_key_env = "GEMINI_API_KEY"
+temperature = 0.1
+max_tokens = 2000
+structured_output = "json_schema"
+
+[profiles.extractor.google-ai-studio]
+provider = "google-ai-studio"
+model = "gemini-3.1-flash-lite"
+api_key_env = "GEMINI_API_KEY"
+temperature = 0.2
+max_tokens = 2000
+structured_output = "json_schema"
+
+[presets.google-ai-studio]
+embedding = "google-ai-studio"
+llm = "google-ai-studio"
+extractor = "google-ai-studio"

@@ -5,6 +5,10 @@ __pycache__/
 .idea/
 .venv/
 .junie
+.env
 backend/data/*.sqlite3
 backend/data/legal-acts/
+backend/data/uploads/
+*.log
+logs/
 report

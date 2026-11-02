@@ -1,9 +1,10 @@
 """Audit orchestration independent of the database implementation."""
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
+from typing import Any
 
-from .extractors import extract_entities
-from .models import AuditResult, FindingDraft, RuleDiagnostic, RuleSpec
+from .extractors import entities_from_provider, extract_entities
+from .models import AuditResult, ExtractedEntity, FindingDraft, RuleDiagnostic, RuleSpec
 from .validators import validate_rule
 from .rag_validator import ContextSearcher, validate_semantic_rule
 
@@ -11,8 +12,13 @@ from .rag_validator import ContextSearcher, validate_semantic_rule
 class AuditEngine:
     """Run active rules and produce stable, source-preserving findings."""
 
-    def __init__(self, rag_searcher: ContextSearcher | None = None) -> None:
+    def __init__(
+        self,
+        rag_searcher: ContextSearcher | None = None,
+        entity_extractor: Callable[[str], tuple[ExtractedEntity, ...]] | None = None,
+    ) -> None:
         self._rag_searcher = rag_searcher
+        self._entity_extractor = entity_extractor
 
     def audit(
         self,
@@ -21,9 +27,19 @@ class AuditEngine:
         *,
         document_type: str | None = None,
     ) -> AuditResult:
-        entities = extract_entities(text)
         findings: list[FindingDraft] = []
         diagnostics: list[RuleDiagnostic] = []
+        entities = extract_entities(text)
+        if self._entity_extractor is not None:
+            try:
+                provider_entities = self._entity_extractor(text)
+                if provider_entities and isinstance(provider_entities[0], dict):
+                    provider_entities = entities_from_provider(text, provider_entities)
+                entities = _merge_entities(entities, provider_entities)
+            except (RuntimeError, ValueError, TypeError) as exc:
+                diagnostics.append(
+                    RuleDiagnostic("entity-extraction", f"provider failed: {exc}")
+                )
         for rule in rules:
             if not rule.is_active or (
                 rule.document_type is not None and rule.document_type != document_type
@@ -50,3 +66,21 @@ class AuditEngine:
             )
         )
         return AuditResult(ordered, tuple(sorted(diagnostics, key=lambda item: item.rule_code)))
+
+
+def _merge_entities(
+    deterministic: tuple[ExtractedEntity, ...],
+    provider: tuple[Any, ...],
+) -> tuple:
+    """Keep deterministic entities and add non-duplicate provider entities."""
+    merged = {
+        (entity.kind, entity.start_char, entity.end_char): entity
+        for entity in deterministic
+    }
+    merged.update({
+        (entity.kind, entity.start_char, entity.end_char): entity
+        for entity in provider
+    })
+    return tuple(
+        sorted(merged.values(), key=lambda entity: (entity.start_char, entity.kind))
+    )

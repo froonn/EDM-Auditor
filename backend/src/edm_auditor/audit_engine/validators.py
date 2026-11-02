@@ -38,11 +38,35 @@ def _keyword_findings(rule: RuleSpec, text: str) -> tuple[FindingDraft, ...]:
         keywords = [keywords]
     if not isinstance(keywords, list) or not all(isinstance(item, str) and item for item in keywords):
         raise InvalidRuleConfiguration("keyword rule requires a non-empty 'keywords' list")
+    mode = rule.parameters.get("mode", "forbidden")
+    if mode not in {"forbidden", "required"}:
+        raise InvalidRuleConfiguration("keyword 'mode' must be 'forbidden' or 'required'")
+    match_mode = rule.parameters.get("match", "literal")
+    if match_mode not in {"literal", "stem", "regex"}:
+        raise InvalidRuleConfiguration("keyword 'match' must be 'literal', 'stem', or 'regex'")
     findings = []
     for keyword in keywords:
-        for match in re.finditer(re.escape(keyword), text, re.IGNORECASE):
+        pattern = _keyword_pattern(keyword, mode, match_mode)
+        try:
+            matches = tuple(re.finditer(pattern, text, re.IGNORECASE))
+        except re.error as exc:
+            raise InvalidRuleConfiguration(f"invalid keyword pattern: {exc}") from exc
+        if mode == "required":
+            if not matches:
+                findings.append(_draft(rule, text, None, None))
+            continue
+        for match in matches:
             findings.append(_draft(rule, text, match.start(), match.end()))
     return tuple(findings)
+
+
+def _keyword_pattern(keyword: str, mode: str, match_mode: str) -> str:
+    if match_mode == "regex":
+        return keyword
+    if match_mode == "stem" or mode == "required":
+        stem = keyword.rstrip("аяоеыиьъ")
+        return rf"\b{re.escape(stem)}[а-я-]*\b"
+    return re.escape(keyword)
 
 
 def _regex_findings(rule: RuleSpec, text: str) -> tuple[FindingDraft, ...]:
@@ -115,7 +139,10 @@ def _duration_findings(
     minimum_value = _number(minimum) if minimum is not None else None
     maximum_value = _number(maximum) if maximum is not None else None
     findings = []
-    for entity in entities:
+    duration_entities = [entity for entity in entities if entity.kind == "duration"]
+    if not duration_entities:
+        findings.extend(_date_interval_findings(rule, text, entities, minimum_value, maximum_value))
+    for entity in duration_entities:
         if entity.kind != "duration":
             continue
         value = _duration_days(entity.value)
@@ -123,6 +150,26 @@ def _duration_findings(
             maximum_value is not None and value > maximum_value
         ):
             findings.append(_draft(rule, text, entity.start_char, entity.end_char))
+    return tuple(findings)
+
+
+def _date_interval_findings(
+    rule: RuleSpec,
+    text: str,
+    entities: tuple[ExtractedEntity, ...],
+    minimum: float | None,
+    maximum: float | None,
+) -> tuple[FindingDraft, ...]:
+    dates = [entity for entity in entities if entity.kind == "date"]
+    findings = []
+    for start_entity, end_entity in zip(dates, dates[1:]):
+        delta = abs((_parse_date(end_entity.value) - _parse_date(start_entity.value)).days)
+        if (minimum is not None and delta < minimum) or (
+            maximum is not None and delta > maximum
+        ):
+            start = min(start_entity.start_char, end_entity.start_char)
+            end = max(start_entity.end_char, end_entity.end_char)
+            findings.append(_draft(rule, text, start, end))
     return tuple(findings)
 
 
@@ -154,7 +201,8 @@ def _parse_date(value: str) -> date:
 
 def _duration_days(value: str) -> float:
     match = re.search(
-        r"(\d+(?:[.,]\d+)?)\s*(дн(?:я|ей)?|месяц(?:а|ев)?|лет?|год(?:а|ов)?)",
+        r"(\d+(?:[.,]\d+)?)\s*(?:[а-я-]+\s+){0,3}"
+        r"(дн(?:я|ей)?|месяц(?:а|ев)?|лет?|год(?:а|ов)?)",
         value.casefold(),
     )
     if match is None:
@@ -177,8 +225,10 @@ def _number(value: Any) -> float:
         raise InvalidRuleConfiguration("numeric limits must be numbers") from exc
 
 
-def _draft(rule: RuleSpec, text: str, start: int, end: int) -> FindingDraft:
-    quote = text[start:end]
+def _draft(
+    rule: RuleSpec, text: str, start: int | None, end: int | None
+) -> FindingDraft:
+    quote = text[start:end] if start is not None and end is not None else None
     description = rule.description or rule.name
     return FindingDraft(
         rule_id=rule.rule_id,
