@@ -10,11 +10,14 @@
 В файле также задаются общие ограничения обработки НПА:
 
 ```toml
-[processing]
-max_chunk_chars = 4000
+[legal_act_processing.chunking]
+max_chars = 4000
+overlap_chars = 0
+max_rules_per_chunk = 20
+
+[legal_act_processing]
 max_prompt_chars = 12000
 max_response_tokens = 2000
-max_rules_per_chunk = 20
 source_language = "auto"
 extraction_schema_version = "1"
 prompt_version = "1"
@@ -24,6 +27,11 @@ processing_version = "1"
 `source_language` принимает `auto`, `ru` или `en`. Для доверенного локального
 запуска его можно переопределить через `EDM_SOURCE_LANGUAGE`. Неподдерживаемые
 значения отклоняются до запуска обработки.
+
+Профили экстракторов также поддерживают `request_timeout_seconds`,
+`retry_attempts`, `retry_backoff_factor` и `inter_chunk_delay_seconds`. Эти
+параметры валидируются при загрузке конфигурации и будут использоваться
+orchestration-слоем обработки chunks.
 
 В файле используются следующие разделы:
 

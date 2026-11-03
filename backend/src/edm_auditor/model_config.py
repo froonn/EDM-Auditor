@@ -22,6 +22,10 @@ class ModelConfig:
     temperature: float = 0.1
     max_tokens: int = 2000
     structured_output: bool | str = False
+    request_timeout_seconds: float = 30.0
+    retry_attempts: int = 3
+    retry_backoff_factor: float = 1.0
+    inter_chunk_delay_seconds: float = 0.0
 
     def __post_init__(self) -> None:
         if not self.provider.strip() or not self.model.strip():
@@ -30,6 +34,14 @@ class ModelConfig:
             raise ValueError("dimension must be positive")
         if self.max_tokens <= 0:
             raise ValueError("max_tokens must be positive")
+        if self.request_timeout_seconds <= 0:
+            raise ValueError("request_timeout_seconds must be positive")
+        if self.retry_attempts < 0:
+            raise ValueError("retry_attempts must not be negative")
+        if self.retry_backoff_factor < 0:
+            raise ValueError("retry_backoff_factor must not be negative")
+        if self.inter_chunk_delay_seconds < 0:
+            raise ValueError("inter_chunk_delay_seconds must not be negative")
 
     def api_key(self) -> str | None:
         """Read the secret named by the config without storing the secret itself."""
@@ -46,25 +58,38 @@ class ModelPreset:
 
 
 @dataclass(frozen=True, slots=True)
+class LegalActChunkingConfig:
+    """Source-preserving chunk limits for legal-act extraction."""
+
+    max_chars: int = 4000
+    overlap_chars: int = 0
+    max_rules_per_chunk: int = 20
+
+    def __post_init__(self) -> None:
+        if self.max_chars <= 0:
+            raise ValueError("chunking.max_chars must be positive")
+        if self.overlap_chars < 0 or self.overlap_chars >= self.max_chars:
+            raise ValueError(
+                "chunking.overlap_chars must be in [0, max_chars)"
+            )
+        if self.max_rules_per_chunk <= 0:
+            raise ValueError("chunking.max_rules_per_chunk must be positive")
+
+
+@dataclass(frozen=True, slots=True)
 class LegalActProcessingConfig:
     """Limits and versions for reproducible legal-act rule extraction."""
 
-    max_chunk_chars: int = 4000
+    chunking: LegalActChunkingConfig = LegalActChunkingConfig()
     max_prompt_chars: int = 12000
     max_response_tokens: int = 2000
-    max_rules_per_chunk: int = 20
     source_language: str = "auto"
     extraction_schema_version: str = "1"
     prompt_version: str = "1"
     processing_version: str = "1"
 
     def __post_init__(self) -> None:
-        for name in (
-            "max_chunk_chars",
-            "max_prompt_chars",
-            "max_response_tokens",
-            "max_rules_per_chunk",
-        ):
+        for name in ("max_prompt_chars", "max_response_tokens"):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be positive")
         if self.source_language not in {"auto", "ru", "en"}:
@@ -110,7 +135,9 @@ class ModelSettings:
         embedding_profiles = profiles.get("embedding", {})
         llm_profiles = profiles.get("llm", {})
         presets = data.get("presets", {})
-        processing = _processing_config(data.get("processing", {}))
+        processing = _processing_config(
+            data.get("legal_act_processing", data.get("processing", {}))
+        )
         if source_language is not None:
             processing = replace(processing, source_language=source_language)
         selected_name = preset_name or os.getenv("EDM_MODEL_PRESET", "offline")
@@ -174,15 +201,27 @@ def _model_config(
         temperature=float(values.get("temperature", 0.1)),
         max_tokens=int(values.get("max_tokens", 2000)),
         structured_output=structured_output,
+        request_timeout_seconds=float(values.get("request_timeout_seconds", 30)),
+        retry_attempts=int(values.get("retry_attempts", 3)),
+        retry_backoff_factor=float(values.get("retry_backoff_factor", 1.0)),
+        inter_chunk_delay_seconds=float(
+            values.get("inter_chunk_delay_seconds", 0)
+        ),
     )
 
 
 def _processing_config(values: dict[str, Any]) -> LegalActProcessingConfig:
+    chunking_values = values.get("chunking", values)
     return LegalActProcessingConfig(
-        max_chunk_chars=int(values.get("max_chunk_chars", 4000)),
+        chunking=LegalActChunkingConfig(
+            max_chars=int(chunking_values.get("max_chars", 4000)),
+            overlap_chars=int(chunking_values.get("overlap_chars", 0)),
+            max_rules_per_chunk=int(
+                chunking_values.get("max_rules_per_chunk", 20)
+            ),
+        ),
         max_prompt_chars=int(values.get("max_prompt_chars", 12000)),
         max_response_tokens=int(values.get("max_response_tokens", 2000)),
-        max_rules_per_chunk=int(values.get("max_rules_per_chunk", 20)),
         source_language=str(values.get("source_language", "auto")),
         extraction_schema_version=str(values.get("extraction_schema_version", "1")),
         prompt_version=str(values.get("prompt_version", "1")),

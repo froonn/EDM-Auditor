@@ -55,12 +55,16 @@ def test_google_ai_studio_preset_uses_official_provider() -> None:
 def test_processing_config_is_loaded_from_model_config() -> None:
     settings = ModelSettings.from_toml(CONFIG_PATH, preset_name="offline")
 
-    assert settings.processing.max_chunk_chars == 4000
+    assert settings.processing.chunking.max_chars == 4000
+    assert settings.processing.chunking.overlap_chars == 0
     assert settings.processing.max_prompt_chars == 12000
     assert settings.processing.max_response_tokens == 2000
-    assert settings.processing.max_rules_per_chunk == 20
+    assert settings.processing.chunking.max_rules_per_chunk == 20
     assert settings.processing.source_language == "auto"
     assert settings.processing.processing_version == "1"
+    assert settings.extractor is not None
+    assert settings.extractor.request_timeout_seconds == 30
+    assert settings.extractor.retry_attempts == 0
 
 
 def test_processing_config_rejects_invalid_language() -> None:

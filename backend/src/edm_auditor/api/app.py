@@ -558,7 +558,7 @@ def create_app(
                 logger.info("Executing rule extractor (%s)...", type(rule_extractor).__name__)
                 try:
                     raw_extracted = rule_extractor.extract_rules(parsed.text)
-                    logger.info("Rule extractor returned %d raw items: %s", len(raw_extracted), raw_extracted)
+                    logger.info("Rule extractor returned %d raw items", len(raw_extracted))
                     generated_rules = tuple(
                         item for item in raw_extracted
                         if isinstance(item, dict)
@@ -591,7 +591,7 @@ def create_app(
                 for index, generated in enumerate(generated_rules, start=1):
                     rule = _generated_rule(generated, index=index)
                     if rule is None:
-                        logger.warning("Generated rule #%d was rejected by validator: %s", index, generated)
+                        logger.warning("Generated rule #%d was rejected by validator", index)
                         continue
                     existing = session.scalar(
                         select(AuditRule.id).where(
@@ -606,7 +606,7 @@ def create_app(
                         continue
                     session.add(AuditRule(legal_act_id=legal_act.id, **rule))
                     created_rules_count += 1
-                    logger.info("Created rule #%d: %s (%s)", index, rule["rule_code"], rule["name"])
+                    logger.info("Created generated rule #%d", index)
                 logger.info("Finished rule persistence. Total new rules created: %d", created_rules_count)
             _rebuild_after_mutation(rebuild_rag_index)
             return response

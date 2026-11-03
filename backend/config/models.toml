@@ -1,10 +1,13 @@
 # Safe defaults for local development. Secrets are read from environment variables.
 
-[processing]
-max_chunk_chars = 4000
+[legal_act_processing.chunking]
+max_chars = 4000
+overlap_chars = 0
+max_rules_per_chunk = 20
+
+[legal_act_processing]
 max_prompt_chars = 12000
 max_response_tokens = 2000
-max_rules_per_chunk = 20
 source_language = "auto"
 extraction_schema_version = "1"
 prompt_version = "1"
@@ -50,6 +53,10 @@ base_url = "http://localhost:1234/v1"
 temperature = 0.2
 max_tokens = 2000
 structured_output = "json_schema"
+request_timeout_seconds = 30
+retry_attempts = 3
+retry_backoff_factor = 1.0
+inter_chunk_delay_seconds = 0
 
 [presets.offline]
 embedding = "deterministic"
@@ -60,6 +67,10 @@ extractor = "stub"
 provider = "stub"
 model = "stub-v1"
 structured_output = false
+request_timeout_seconds = 30
+retry_attempts = 0
+retry_backoff_factor = 0
+inter_chunk_delay_seconds = 0
 
 [presets.lm-studio]
 embedding = "local-multilingual"
@@ -79,6 +90,10 @@ api_key_env = "OPENROUTER_API_KEY"
 temperature = 0.2
 max_tokens = 2000
 structured_output = false
+request_timeout_seconds = 30
+retry_attempts = 3
+retry_backoff_factor = 1.0
+inter_chunk_delay_seconds = 0
 
 
 [profiles.embedding.google-ai-studio]
@@ -102,6 +117,10 @@ api_key_env = "GEMINI_API_KEY"
 temperature = 0.2
 max_tokens = 2000
 structured_output = "json_schema"
+request_timeout_seconds = 30
+retry_attempts = 3
+retry_backoff_factor = 1.0
+inter_chunk_delay_seconds = 0
 
 [presets.google-ai-studio]
 embedding = "google-ai-studio"

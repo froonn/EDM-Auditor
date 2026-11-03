@@ -647,7 +647,10 @@ class GoogleAIStudioEntityExtractionProvider:
                 config=_google_generation_config(self._config, schema=ENTITY_EXTRACTION_SCHEMA),
             )
             raw_text = getattr(response, "text", "")
-            trace_logger.info("Google AI Studio entity extraction raw response:\n%s", raw_text)
+            trace_logger.info(
+                "Google AI Studio entity extraction response length: %d",
+                len(raw_text),
+            )
             payload = _parse_json_response(response)
             entities = payload.get("entities")
             if not isinstance(entities, list):
@@ -717,14 +720,17 @@ class GoogleAIStudioRuleExtractionProvider:
                     config=_google_generation_config(self._config, json_only=True),
                 )
             raw_text = getattr(response, "text", "")
-            trace_logger.info("Google AI Studio rule extraction raw response:\n%s", raw_text)
+            trace_logger.info(
+                "Google AI Studio rule extraction response length: %d",
+                len(raw_text),
+            )
             payload = _parse_rule_response(response)
             rules = payload.get("rules")
             if not isinstance(rules, list):
-                logger.error("Parsed rule response has no 'rules' array: %s", payload)
+                logger.error("Parsed rule response has no 'rules' array")
                 raise ValueError("rule extraction provider returned invalid JSON")
             result = tuple(item for item in rules if isinstance(item, dict))
-            logger.info("Google AI Studio successfully extracted %d rules: %s", len(result), result)
+            logger.info("Google AI Studio successfully extracted %d rules", len(result))
             return result
         except Exception as exc:
             logger.warning(
@@ -732,7 +738,10 @@ class GoogleAIStudioRuleExtractionProvider:
                 exc,
             )
             fallback = StubRuleExtractionProvider().extract_rules(text)
-            logger.info("Fallback StubRuleExtractionProvider produced %d rules: %s", len(fallback), fallback)
+            logger.info(
+                "Fallback StubRuleExtractionProvider produced %d rules",
+                len(fallback),
+            )
             return fallback
 
 
