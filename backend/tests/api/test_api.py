@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
 
@@ -15,6 +16,7 @@ from edm_auditor.database.models import (
     RuleExtractionResult,
 )
 from edm_auditor.rag import SQLiteVectorStore
+from edm_auditor.rag.models import TextChunk
 
 
 def test_api_settings_use_defaults_without_environment(monkeypatch) -> None:
@@ -41,6 +43,27 @@ def test_api_settings_load_dotenv_file(tmp_path: Path, monkeypatch) -> None:
     settings = ApiSettings.from_env()
 
     assert settings.rag_index_path == Path("custom/index.sqlite3")
+
+
+def test_app_rejects_offline_preset_for_legal_act_processing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from dataclasses import replace
+    from edm_auditor.model_config import ModelSettings
+
+    configured = ModelSettings.from_toml(preset_name="offline")
+    monkeypatch.setattr(
+        "edm_auditor.api.app.ModelSettings.from_toml",
+        lambda *args, **kwargs: replace(configured, extractor=None),
+    )
+    settings = ApiSettings(
+        upload_dir=tmp_path / "uploads",
+        max_upload_bytes=1024,
+        rag_index_path=tmp_path / "rag-index.sqlite3",
+    )
+
+    with pytest.raises(ValueError, match="online extractor"):
+        create_app(settings=settings)
 
 
 def make_client(tmp_path: Path) -> TestClient:
@@ -437,6 +460,70 @@ def test_reprocess_replaces_generated_rules_atomically(tmp_path: Path, monkeypat
             )
         )
         assert result.status == "accepted"
+
+
+def test_failed_chunk_is_persisted_without_publishing_partial_rules(
+    tmp_path: Path, monkeypatch
+) -> None:
+    calls = []
+
+    class FakeRuleExtractor:
+        def extract_rules(self, text: str, *, source_language: str, source_location: str):
+            calls.append(source_location)
+            if source_location.endswith("chunk-1"):
+                raise RuntimeError("provider unavailable")
+            return ()
+
+    def fake_chunks(text, *, legal_act_id, **kwargs):
+        return [
+            TextChunk(
+                f"legal-act-{legal_act_id}:chunk-{index}",
+                legal_act_id,
+                None,
+                part,
+                index,
+                start,
+                start + len(part),
+                "paragraph-v1",
+                "hash",
+            )
+            for index, (part, start) in enumerate(
+                (("First article", 0), ("Second article", 14))
+            )
+        ]
+
+    monkeypatch.setattr("edm_auditor.api.app.chunk_text", fake_chunks)
+    monkeypatch.setattr(
+        "edm_auditor.api.app.create_rule_extraction_provider",
+        lambda config: FakeRuleExtractor(),
+    )
+    from edm_auditor.rag.embeddings import DeterministicEmbeddingProvider
+
+    monkeypatch.setattr(
+        "edm_auditor.api.app.create_embedding_provider",
+        lambda config: DeterministicEmbeddingProvider(),
+    )
+    monkeypatch.setenv("EDM_MODEL_PRESET", "lm-studio")
+    client = make_client(tmp_path)
+
+    response = client.post(
+        "/api/legal-acts/upload",
+        data={"code": "ACT-FAILED-CHUNK", "title": "Act"},
+        files={"file": ("act.txt", b"First article Second article", "text/plain")},
+    )
+
+    assert response.status_code == 503
+    legal_act_id = client.get("/api/legal-acts").json()[0]["id"]
+    assert calls == [
+        f"legal-act-{legal_act_id}:chunk-0",
+        f"legal-act-{legal_act_id}:chunk-1",
+    ]
+    diagnostics = client.get(f"/api/legal-acts/{legal_act_id}/diagnostics").json()
+    assert diagnostics["processing_status"] == "failed"
+    assert [item["status"] for item in diagnostics["diagnostics"]] == [
+        "accepted",
+        "failed",
+    ]
 
 
 def test_delete_rule_preserves_existing_findings_and_rebuilds_index(tmp_path: Path) -> None:

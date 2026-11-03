@@ -78,6 +78,7 @@ def test_duplicate_quote_is_rejected_as_ambiguous() -> None:
         ("regex", {"pattern": "["}),
         ("date", {"before": "tomorrow"}),
         ("semantic", {"query": ""}),
+        ("duration", {"field": "days", "operator": "gte", "value": 24}),
     ],
 )
 def test_validator_enforces_check_type_contract(check_type, parameters) -> None:
@@ -95,3 +96,26 @@ def test_validator_enforces_check_type_contract(check_type, parameters) -> None:
         )
 
     assert error.value.code == "invalid_parameters"
+
+
+@pytest.mark.parametrize(
+    ("check_type", "parameters"),
+    [
+        ("duration", {"max_days": 30}),
+        ("numeric", {"entity": "money", "min": 100}),
+        ("date", {"after": "2026-01-01"}),
+        ("keyword", {"keywords": ["отпуск"], "mode": "required"}),
+        ("regex", {"pattern": r"\bотпуск\b"}),
+        ("semantic", {"query": "срок отпуска", "k": 3, "threshold": 0.7}),
+    ],
+)
+def test_validator_accepts_supported_parameter_contracts(check_type, parameters) -> None:
+    result = validate_generated_rule(
+        _rule(check_type=check_type, parameters=parameters),
+        source_text="Отпуск должен быть не менее 24 дней.",
+        source_language="ru",
+        source_location="act:chunk-0",
+        index=1,
+    )
+
+    assert result["check_type"] == check_type

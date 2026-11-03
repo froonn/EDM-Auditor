@@ -1,3 +1,8 @@
+from io import BytesIO
+from urllib.error import HTTPError
+
+import pytest
+
 from edm_auditor.model_config import ModelConfig
 from edm_auditor.model_providers import (
     GoogleAIStudioRuleExtractionProvider,
@@ -7,6 +12,7 @@ from edm_auditor.model_providers import (
     RULE_EXTRACTION_SCHEMA,
     _google_generation_config,
     _google_schema,
+    _post_json,
 )
 
 
@@ -52,6 +58,79 @@ def test_llm_requests_json_schema_when_configured(monkeypatch) -> None:
     response_format = captured["response_format"]
     assert response_format["type"] == "json_schema"
     assert response_format["json_schema"]["name"] == "audit_analysis"
+
+
+def test_openai_request_retries_rate_limit_with_backoff(monkeypatch) -> None:
+    attempts = 0
+    sleeps = []
+
+    def fake_urlopen(*args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise HTTPError(
+                "https://example.test",
+                429,
+                "rate limited",
+                {},
+                BytesIO(b"try again"),
+            )
+        return _ResponseContext({"ok": True})
+
+    class _ResponseContext:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def __enter__(self):
+            return BytesIO(b'{"ok": true}')
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr("edm_auditor.model_providers.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("edm_auditor.model_providers.time.sleep", sleeps.append)
+    result = _post_json(
+        ModelConfig(
+            provider="openai-compatible",
+            model="test",
+            base_url="https://example.test",
+            retry_attempts=2,
+            retry_backoff_factor=0.25,
+        ),
+        "chat/completions",
+        {},
+        1,
+    )
+
+    assert result == {"ok": True}
+    assert attempts == 2
+    assert sleeps == [0.25]
+
+
+def test_openai_request_reports_exhausted_rate_limit(monkeypatch) -> None:
+    def fake_urlopen(*args, **kwargs):
+        raise HTTPError(
+            "https://example.test",
+            429,
+            "rate limited",
+            {},
+            BytesIO(b"try again"),
+        )
+
+    monkeypatch.setattr("edm_auditor.model_providers.request.urlopen", fake_urlopen)
+    with pytest.raises(RuntimeError, match="HTTP 429"):
+        _post_json(
+            ModelConfig(
+                provider="openai-compatible",
+                model="test",
+                base_url="https://example.test",
+                retry_attempts=1,
+                retry_backoff_factor=0,
+            ),
+            "chat/completions",
+            {},
+            1,
+        )
 
 
 def test_llm_requests_json_object_when_configured(monkeypatch) -> None:
