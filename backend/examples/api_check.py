@@ -13,7 +13,7 @@ from edm_auditor.database import create_engine_for, create_session_factory
 from edm_auditor.model_config import ModelSettings
 from edm_auditor.model_providers import create_embedding_provider
 from edm_auditor.rag import (
-    DatabaseIndexSourceLoader,
+    IndexSource,
     RAGIndexer,
     SQLiteVectorStore,
     TextLegalActIngestor,
@@ -91,8 +91,9 @@ def _load_legal_act(args: argparse.Namespace) -> int:
         dimension=model.dimension,
         chunking_version="paragraph-v1",
     )
-    count = RAGIndexer(store, model).build(
-        DatabaseIndexSourceLoader(session_factory).load()
+    count = RAGIndexer(store, model).build_atomic(
+        [IndexSource(legal_act_id=legal_act.id, text=legal_act.article_text)],
+        rag_settings.index_path,
     )
     print(f"loaded legal act {legal_act.id} and indexed {count} chunks", file=sys.stderr)
     return legal_act.id
