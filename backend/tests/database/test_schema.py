@@ -36,6 +36,7 @@ def test_schema_contains_all_tables(session_factory) -> None:
         "audit_rules",
         "audit_reports",
         "audit_findings",
+        "rule_extraction_results",
     }
 
 

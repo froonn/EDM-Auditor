@@ -1,6 +1,7 @@
 """FastAPI application factory and endpoint implementation."""
 
 import json
+import hashlib
 import inspect
 import logging
 import time
@@ -31,6 +32,7 @@ from edm_auditor.database.models import (
     AuditRule,
     Document,
     LegalAct,
+    RuleExtractionResult,
 )
 from edm_auditor.document_parser import parse_document
 from edm_auditor.document_parser.exceptions import DocumentParserError
@@ -158,6 +160,193 @@ def create_app(
     provider = create_entity_extraction_provider(model_settings.extractor)
     entity_extractor = lambda text: entities_from_provider(text, provider.extract(text))
     rule_extractor = create_rule_extraction_provider(model_settings.extractor)
+
+    def process_legal_act(legal_act_id: int) -> None:
+        """Extract, validate, and atomically publish generated rules."""
+        with session_factory() as session:
+            legal_act = session.get(LegalAct, legal_act_id)
+            if legal_act is None:
+                raise ApiError(404, "legal_act_not_found", "Legal act does not exist")
+            source_text = legal_act.article_text
+            source_code = legal_act.code
+
+        source_language = model_settings.processing.source_language
+        if source_language == "auto":
+            source_language = detect_source_language(source_text)
+        chunks = chunk_text(
+            source_text,
+            legal_act_id=legal_act_id,
+            max_chars=model_settings.processing.chunking.max_chars,
+            overlap_chars=model_settings.processing.chunking.overlap_chars,
+        )
+        processing_version = model_settings.processing.processing_version
+        with session_factory.begin() as session:
+            legal_act = session.get(LegalAct, legal_act_id)
+            legal_act.processing_status = "processing"
+            legal_act.processing_version = processing_version
+            legal_act.chunks_total = len(chunks)
+            legal_act.chunks_processed = 0
+            legal_act.rules_accepted = 0
+            legal_act.rules_rejected = 0
+            session.execute(
+                delete(RuleExtractionResult).where(
+                    RuleExtractionResult.legal_act_id == legal_act_id
+                )
+            )
+
+        validated_rules: list[dict[str, object]] = []
+        supports_metadata = "source_language" in inspect.signature(
+            rule_extractor.extract_rules
+        ).parameters
+        failed_chunks = 0
+        for chunk_index, chunk in enumerate(chunks):
+            if chunk_index:
+                delay = model_settings.extractor.inter_chunk_delay_seconds
+                if delay:
+                    time.sleep(delay)
+            chunk_rules: list[dict[str, object]] = []
+            chunk_error: RuleValidationError | None = None
+            try:
+                if supports_metadata:
+                    raw_extracted = rule_extractor.extract_rules(
+                        chunk.text,
+                        source_language=source_language,
+                        source_location=chunk.chunk_id,
+                    )
+                else:
+                    raw_extracted = rule_extractor.extract_rules(chunk.text)
+                for item in raw_extracted:
+                    if not isinstance(item, dict):
+                        chunk_error = RuleValidationError(
+                            "invalid_schema", "provider returned a non-object rule"
+                        )
+                        break
+                    normalized = validate_generated_rule(
+                        item,
+                        source_text=chunk.text,
+                        source_language=source_language,
+                        source_location=chunk.chunk_id,
+                        index=len(chunk_rules) + 1,
+                    )
+                    normalized["source_start"] = chunk.start_char + normalized["source_start"]
+                    normalized["source_end"] = chunk.start_char + normalized["source_end"]
+                    normalized["_chunk_id"] = chunk.chunk_id
+                    normalized["_chunk_index"] = chunk_index
+                    chunk_rules.append(normalized)
+            except (RuntimeError, ValueError, TypeError) as exc:
+                chunk_error = (
+                    exc if isinstance(exc, RuleValidationError)
+                    else RuleValidationError("extraction_failed", type(exc).__name__)
+                )
+            if chunk_error is not None:
+                failed_chunks += 1
+                with session_factory.begin() as session:
+                    session.add(
+                        RuleExtractionResult(
+                            legal_act_id=legal_act_id,
+                            chunk_id=chunk.chunk_id,
+                            status="failed",
+                            error_code=chunk_error.code,
+                            diagnostic_message=str(chunk_error)[:1000],
+                            rules_total=0,
+                            processing_version=processing_version,
+                        )
+                    )
+                continue
+            validated_rules.extend(chunk_rules)
+            with session_factory.begin() as session:
+                session.add(
+                    RuleExtractionResult(
+                        legal_act_id=legal_act_id,
+                        chunk_id=chunk.chunk_id,
+                        status="accepted",
+                        rules_total=len(chunk_rules),
+                        rules_accepted=len(chunk_rules),
+                        processing_version=processing_version,
+                    )
+                )
+
+        if failed_chunks:
+            with session_factory.begin() as session:
+                legal_act = session.get(LegalAct, legal_act_id)
+                legal_act.processing_status = "failed"
+                legal_act.chunks_processed = len(chunks) - failed_chunks
+            raise ApiError(
+                503,
+                "rule_extraction_error",
+                f"Online rule extraction failed for {failed_chunks} chunk(s)",
+            )
+
+        with session_factory.begin() as session:
+            legal_act = session.get(LegalAct, legal_act_id)
+            old_rule_ids = session.scalars(
+                select(AuditRule.id).where(
+                    AuditRule.legal_act_id == legal_act_id,
+                    AuditRule.is_generated.is_(True),
+                )
+            ).all()
+            if old_rule_ids:
+                session.execute(
+                    update(AuditFinding)
+                    .where(AuditFinding.rule_id.in_(old_rule_ids))
+                    .values(rule_id=None)
+                )
+                session.execute(
+                    delete(AuditRule).where(AuditRule.id.in_(old_rule_ids))
+                )
+            published = 0
+            duplicates = 0
+            for index, generated in enumerate(validated_rules, start=1):
+                parameters_json = generated["parameters_json"]
+                deduplication_key = hashlib.sha256(
+                    f"{legal_act_id}|{generated['source_start']}|{generated['source_end']}|"
+                    f"{generated['check_type']}|{parameters_json}".encode("utf-8")
+                ).hexdigest()
+                existing = session.scalar(
+                    select(AuditRule.id).where(
+                        AuditRule.deduplication_key == deduplication_key
+                    )
+                )
+                if existing is not None:
+                    duplicates += 1
+                    continue
+                chunk_id = str(generated["_chunk_id"])
+                rule_code = (
+                    f"{source_code}-{chunk_id.rsplit(':', 1)[-1]}-{index:03d}-"
+                    f"{deduplication_key[:8]}"
+                )[:100]
+                session.add(
+                    AuditRule(
+                        legal_act_id=legal_act_id,
+                        is_generated=True,
+                        deduplication_key=deduplication_key,
+                        source_quote=generated["source_quote"],
+                        source_location=chunk_id,
+                        source_start=generated["source_start"],
+                        source_end=generated["source_end"],
+                        rule_code=rule_code,
+                        name=generated["name"],
+                        severity=generated["severity"],
+                        description=generated["description"],
+                        check_type=generated["check_type"],
+                        parameters_json=parameters_json,
+                    )
+                )
+                published += 1
+            legal_act.processing_status = "completed" if duplicates == 0 else "partial"
+            legal_act.chunks_processed = len(chunks)
+            legal_act.rules_accepted = published
+            legal_act.rules_rejected = duplicates
+            if duplicates:
+                session.execute(
+                    update(RuleExtractionResult)
+                    .where(RuleExtractionResult.legal_act_id == legal_act_id)
+                    .values(
+                        status="partial",
+                        rules_rejected=duplicates,
+                        diagnostic_message="duplicate generated rules were not published",
+                    )
+                )
 
     @app.middleware("http")
     async def request_logging_middleware(request, call_next):
@@ -534,148 +723,13 @@ def create_app(
                 legal_act_id = legal_act.id
                 response = LegalActResponse.model_validate(legal_act)
             logger.info("Saved legal act id=%d. Extracting rules...", legal_act_id)
-
-            generated_rules: tuple[dict[str, object], ...] = ()
-            if rule_extractor is not None:
-                logger.info("Executing rule extractor (%s)...", type(rule_extractor).__name__)
-                try:
-                    source_language = model_settings.processing.source_language
-                    if source_language == "auto":
-                        source_language = detect_source_language(parsed.text)
-                    chunks = chunk_text(
-                        parsed.text,
-                        legal_act_id=legal_act_id,
-                        max_chars=model_settings.processing.chunking.max_chars,
-                        overlap_chars=model_settings.processing.chunking.overlap_chars,
-                    )
-                    validated_rules: list[dict[str, object]] = []
-                    validation_errors: list[RuleValidationError] = []
-                    failed_chunks = 0
-                    supports_metadata = "source_language" in inspect.signature(
-                        rule_extractor.extract_rules
-                    ).parameters
-                    for chunk_index, chunk in enumerate(chunks):
-                        if chunk_index:
-                            delay = model_settings.extractor.inter_chunk_delay_seconds
-                            if delay:
-                                time.sleep(delay)
-                        try:
-                            if supports_metadata:
-                                raw_extracted = rule_extractor.extract_rules(
-                                    chunk.text,
-                                    source_language=source_language,
-                                    source_location=chunk.chunk_id,
-                                )
-                            else:
-                                raw_extracted = rule_extractor.extract_rules(chunk.text)
-                            for item in raw_extracted:
-                                if not isinstance(item, dict):
-                                    validation_errors.append(
-                                        RuleValidationError(
-                                            "invalid_schema",
-                                            "provider returned a non-object rule",
-                                        )
-                                    )
-                                    continue
-                                try:
-                                    validated_rules.append(
-                                        validate_generated_rule(
-                                            item,
-                                            source_text=chunk.text,
-                                            source_language=source_language,
-                                            source_location=chunk.chunk_id,
-                                            index=len(validated_rules) + 1,
-                                        )
-                                    )
-                                except RuleValidationError as exc:
-                                    validation_errors.append(exc)
-                            logger.info(
-                                "Rule chunk %d/%d returned %d raw items and %d valid rules",
-                                chunk_index + 1,
-                                len(chunks),
-                                len(raw_extracted),
-                                len(validated_rules),
-                            )
-                        except (RuntimeError, ValueError, TypeError) as exc:
-                            failed_chunks += 1
-                            logger.warning(
-                                "Rule chunk %d/%d failed: %s",
-                                chunk_index + 1,
-                                len(chunks),
-                                type(exc).__name__,
-                            )
-                    if failed_chunks:
-                        raise ApiError(
-                            503,
-                            "rule_extraction_error",
-                            f"Online rule extraction failed for {failed_chunks} chunk(s)",
-                        )
-                    if validation_errors:
-                        categories = sorted({error.code for error in validation_errors})
-                        logger.warning(
-                            "Rejected %d generated rules: %s",
-                            len(validation_errors),
-                            ", ".join(categories),
-                        )
-                        raise ApiError(
-                            502,
-                            "rule_validation_error",
-                            "Online rule extraction returned invalid rules: "
-                            + ", ".join(categories),
-                        )
-                    generated_rules = tuple(validated_rules)
-                except (RuntimeError, ValueError, TypeError) as exc:
-                    logger.exception("Could not extract rules from legal act: %s", exc)
-                    raise ApiError(
-                        503,
-                        "rule_extraction_error",
-                        "Online rule extraction failed",
-                    ) from exc
-            else:
-                logger.warning(
-                    "rule_extractor is unavailable despite required online configuration",
-                )
+            if rule_extractor is None:
                 raise ApiError(
                     503,
                     "rule_extraction_unavailable",
                     "Online rule extraction is not configured",
                 )
-
-            with session_factory.begin() as session:
-                legal_act = session.get(LegalAct, legal_act_id)
-                if legal_act is None:
-                    raise ApiError(
-                        500, "legal_act_not_found", "Saved legal act is unavailable"
-                    )
-                logger.info("Processing %d generated rules...", len(generated_rules))
-                created_rules_count = 0
-                for index, generated in enumerate(generated_rules, start=1):
-                    rule = {
-                        key: generated[key]
-                        for key in (
-                            "rule_code",
-                            "name",
-                            "severity",
-                            "description",
-                            "check_type",
-                            "parameters_json",
-                        )
-                    }
-                    existing = session.scalar(
-                        select(AuditRule.id).where(
-                            AuditRule.rule_code == rule["rule_code"]
-                        )
-                    )
-                    if existing is not None:
-                        logger.warning(
-                            "Rule code '%s' already exists in database (rule id=%d)! Skipping to avoid duplicate.",
-                            rule["rule_code"], existing,
-                        )
-                        continue
-                    session.add(AuditRule(legal_act_id=legal_act.id, **rule))
-                    created_rules_count += 1
-                    logger.info("Created generated rule #%d", index)
-                logger.info("Finished rule persistence. Total new rules created: %d", created_rules_count)
+            process_legal_act(legal_act_id)
             _rebuild_after_mutation(rebuild_rag_index)
             return response
         except ValueError as exc:
@@ -684,6 +738,16 @@ def create_app(
             if path is not None:
                 path.unlink(missing_ok=True)
             raise parser_error(exc) from exc
+
+    @app.post("/api/legal-acts/{legal_act_id}/reprocess", response_model=LegalActResponse)
+    def reprocess_legal_act(legal_act_id: int) -> LegalActResponse:
+        with session_factory() as session:
+            if session.get(LegalAct, legal_act_id) is None:
+                raise ApiError(404, "legal_act_not_found", "Legal act does not exist")
+        process_legal_act(legal_act_id)
+        _rebuild_after_mutation(rebuild_rag_index)
+        with session_factory() as session:
+            return LegalActResponse.model_validate(session.get(LegalAct, legal_act_id))
 
     @app.patch("/api/legal-acts/{legal_act_id}", response_model=LegalActResponse)
     def update_legal_act(
@@ -743,6 +807,11 @@ def _rule_response(rule: AuditRule) -> RuleResponse:
         parameters=_parse_parameters(rule.parameters_json),
         is_active=rule.is_active,
         legal_act_id=rule.legal_act_id,
+        is_generated=rule.is_generated,
+        source_quote=rule.source_quote,
+        source_location=rule.source_location,
+        source_start=rule.source_start,
+        source_end=rule.source_end,
     )
 
 

@@ -107,6 +107,12 @@ class LegalAct(Base):
     number: Mapped[str | None] = mapped_column(String(100), nullable=True)
     article_text: Mapped[str] = mapped_column(Text, default="")
     source_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    processing_status: Mapped[str] = mapped_column(String(20), default="uploaded")
+    processing_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    chunks_total: Mapped[int] = mapped_column(Integer, default=0)
+    chunks_processed: Mapped[int] = mapped_column(Integer, default=0)
+    rules_accepted: Mapped[int] = mapped_column(Integer, default=0)
+    rules_rejected: Mapped[int] = mapped_column(Integer, default=0)
 
     rules: Mapped[list["AuditRule"]] = relationship(
         back_populates="legal_act",
@@ -115,6 +121,11 @@ class LegalAct(Base):
     )
     findings: Mapped[list["AuditFinding"]] = relationship(
         back_populates="legal_act", passive_deletes=True
+    )
+    extraction_results: Mapped[list["RuleExtractionResult"]] = relationship(
+        back_populates="legal_act",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
 
@@ -133,6 +144,14 @@ class AuditRule(Base):
     legal_act_id: Mapped[int | None] = mapped_column(
         ForeignKey("legal_acts.id", ondelete="CASCADE"), nullable=True
     )
+    is_generated: Mapped[bool] = mapped_column(default=False)
+    deduplication_key: Mapped[str | None] = mapped_column(
+        String(64), unique=True, nullable=True
+    )
+    source_quote: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     legal_act: Mapped[LegalAct | None] = relationship(back_populates="rules")
     findings: Mapped[list["AuditFinding"]] = relationship(back_populates="rule")
@@ -149,6 +168,34 @@ class AuditRule(Base):
         CheckConstraint(
             "parameters_json IS NULL OR json_valid(parameters_json)",
             name="ck_rules_parameters_json",
+        ),
+    )
+
+
+class RuleExtractionResult(Base):
+    __tablename__ = "rule_extraction_results"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    legal_act_id: Mapped[int] = mapped_column(
+        ForeignKey("legal_acts.id", ondelete="CASCADE"), index=True
+    )
+    chunk_id: Mapped[str] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(20))
+    error_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    diagnostic_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rules_total: Mapped[int] = mapped_column(Integer, default=0)
+    rules_accepted: Mapped[int] = mapped_column(Integer, default=0)
+    rules_rejected: Mapped[int] = mapped_column(Integer, default=0)
+    processing_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(default=utc_now)
+
+    legal_act: Mapped[LegalAct] = relationship(back_populates="extraction_results")
+
+    __table_args__ = (
+        UniqueConstraint("legal_act_id", "chunk_id", name="uq_extraction_result_chunk"),
+        CheckConstraint(
+            "status IN ('pending', 'accepted', 'failed', 'partial')",
+            name="ck_extraction_result_status",
         ),
     )
 

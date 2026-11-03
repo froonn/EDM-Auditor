@@ -106,6 +106,11 @@ class RuleResponse(BaseModel):
     parameters: dict[str, Any]
     is_active: bool
     legal_act_id: int | None
+    is_generated: bool = False
+    source_quote: str | None = None
+    source_location: str | None = None
+    source_start: int | None = None
+    source_end: int | None = None
 
 
 class LegalActResponse(BaseModel):

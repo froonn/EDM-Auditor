@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 
 from edm_auditor.api import create_app
 from edm_auditor.api.config import ApiSettings
@@ -12,6 +12,7 @@ from edm_auditor.database.models import (
     AuditRule,
     Document,
     LegalAct,
+    RuleExtractionResult,
 )
 from edm_auditor.rag import SQLiteVectorStore
 
@@ -326,13 +327,13 @@ def test_upload_legal_act_generates_neural_rule(
         "edm_auditor.api.app.create_rule_extraction_provider",
         lambda config: FakeRuleExtractor(),
     )
-    monkeypatch.setenv("EDM_MODEL_PRESET", "lm-studio")
     from edm_auditor.rag.embeddings import DeterministicEmbeddingProvider
 
     monkeypatch.setattr(
         "edm_auditor.api.app.create_embedding_provider",
         lambda config: DeterministicEmbeddingProvider(),
     )
+    monkeypatch.setenv("EDM_MODEL_PRESET", "lm-studio")
     settings = ApiSettings(
         upload_dir=tmp_path / "uploads",
         max_upload_bytes=1024,
@@ -361,9 +362,67 @@ def test_upload_legal_act_generates_neural_rule(
     assert response.status_code == 201
     rules = client.get("/api/rules").json()
     assert len(rules) == 1
-    assert rules[0]["rule_code"] == "leave-minimum"
+    assert rules[0]["rule_code"].startswith("ACT-LEAVE-0-001-")
+    assert rules[0]["is_generated"] is True
+    assert rules[0]["source_quote"].startswith("Отпуск предоставляется")
     assert rules[0]["legal_act_id"] == response.json()["id"]
     assert rules[0]["parameters"]["min_days"] == 24
+
+
+def test_reprocess_replaces_generated_rules_atomically(tmp_path: Path, monkeypatch) -> None:
+    calls = {"count": 0}
+
+    class FakeRuleExtractor:
+        def extract_rules(self, text: str, *, source_language: str, source_location: str):
+            calls["count"] += 1
+            return (
+                {
+                    "rule_code": "model-code",
+                    "name": "Минимальный срок",
+                    "description": "Срок не менее 24 дней.",
+                    "severity": "high",
+                    "check_type": "duration",
+                    "parameters": {"min_days": 24},
+                    "source_quote": "Срок не менее 24 дней.",
+                    "source_location": source_location,
+                },
+            )
+
+    monkeypatch.setattr(
+        "edm_auditor.api.app.create_rule_extraction_provider",
+        lambda config: FakeRuleExtractor(),
+    )
+    from edm_auditor.rag.embeddings import DeterministicEmbeddingProvider
+
+    monkeypatch.setattr(
+        "edm_auditor.api.app.create_embedding_provider",
+        lambda config: DeterministicEmbeddingProvider(),
+    )
+    monkeypatch.setenv("EDM_MODEL_PRESET", "lm-studio")
+    client = make_client(tmp_path)
+    response = client.post(
+        "/api/legal-acts/upload",
+        data={"code": "ACT-REPROCESS", "title": "Act"},
+        files={"file": ("act.txt", "Срок не менее 24 дней.".encode(), "text/plain")},
+    )
+    assert response.status_code == 201
+    legal_act_id = response.json()["id"]
+    first_code = client.get("/api/rules").json()[0]["rule_code"]
+
+    response = client.post(f"/api/legal-acts/{legal_act_id}/reprocess")
+
+    assert response.status_code == 200
+    assert calls["count"] == 2
+    rules = client.get("/api/rules").json()
+    assert len(rules) == 1
+    assert rules[0]["rule_code"] == first_code
+    with client.app.state.session_factory() as session:
+        result = session.scalar(
+            select(RuleExtractionResult).where(
+                RuleExtractionResult.legal_act_id == legal_act_id
+            )
+        )
+        assert result.status == "accepted"
 
 
 def test_delete_rule_preserves_existing_findings_and_rebuilds_index(tmp_path: Path) -> None:
