@@ -32,6 +32,24 @@ def test_generated_rule_is_normalized_and_quote_range_is_resolved() -> None:
     assert result["parameters_json"] == '{"min_days": 24}'
 
 
+def test_quote_matching_allows_normalized_whitespace_and_preserves_source_range() -> None:
+    source = "Работодатель обязан предоставить\n\nработнику письменное уведомление."
+    result = validate_generated_rule(
+        _rule(
+            description="Работодатель обязан предоставить работнику письменное уведомление.",
+            source_quote="Работодатель обязан предоставить работнику письменное уведомление.",
+        ),
+        source_text=source,
+        source_language="ru",
+        source_location="act:chunk-0",
+        index=1,
+    )
+
+    assert result["source_quote"] == source
+    assert result["source_start"] == 0
+    assert result["source_end"] == len(source)
+
+
 @pytest.mark.parametrize(
     ("field", "expected"),
     [

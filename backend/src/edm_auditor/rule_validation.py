@@ -71,7 +71,7 @@ def validate_generated_rule(
     rule_code = payload["rule_code"].strip()
     name = payload["name"].strip()
     description = payload["description"].strip()
-    quote = payload["source_quote"]
+    quote = payload["source_quote"].strip()
     location = payload["source_location"].strip()
     check_type = payload["check_type"]
     if not rule_code or not name or not description or not quote or not location:
@@ -85,11 +85,12 @@ def validate_generated_rule(
     if set(parameters) - _PARAMETER_FIELDS:
         raise RuleValidationError("invalid_parameters", "parameters contain unsupported fields")
 
-    start = source_text.find(quote)
-    if start < 0:
+    quote_matches = list(_find_quote_matches(source_text, quote))
+    if not quote_matches:
         raise RuleValidationError("quote_not_found", "source_quote is not present in the chunk")
-    if source_text.find(quote, start + 1) >= 0:
+    if len(quote_matches) > 1:
         raise RuleValidationError("quote_not_found", "source_quote has ambiguous matches in the chunk")
+    start, end = quote_matches[0]
 
     _validate_parameters(check_type, parameters)
     if source_language in {"ru", "en"}:
@@ -102,11 +103,20 @@ def validate_generated_rule(
         "description": description[:4000],
         "check_type": check_type,
         "parameters_json": json.dumps(parameters, ensure_ascii=False, sort_keys=True),
-        "source_quote": quote,
+        "source_quote": source_text[start:end],
         "source_location": location,
         "source_start": start,
-        "source_end": start + len(quote),
+        "source_end": end,
     }
+
+
+def _find_quote_matches(source_text: str, quote: str) -> list[tuple[int, int]]:
+    """Find a quote while treating whitespace runs as equivalent."""
+    parts = [re.escape(part) for part in re.split(r"\s+", quote) if part]
+    if not parts:
+        return []
+    pattern = re.compile(r"\s+".join(parts))
+    return [(match.start(), match.end()) for match in pattern.finditer(source_text)]
 
 
 def _validate_parameters(check_type: str, parameters: dict[str, Any]) -> None:
