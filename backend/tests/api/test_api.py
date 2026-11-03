@@ -20,12 +20,14 @@ def test_api_settings_use_defaults_without_environment(monkeypatch) -> None:
     monkeypatch.delenv("EDM_DATABASE_URL", raising=False)
     monkeypatch.delenv("EDM_UPLOAD_DIR", raising=False)
     monkeypatch.delenv("EDM_MAX_UPLOAD_BYTES", raising=False)
+    monkeypatch.delenv("EDM_SOURCE_LANGUAGE", raising=False)
 
     settings = ApiSettings.from_env()
 
     assert settings.database_url == "sqlite:///data/edm_auditor.sqlite3"
     assert settings.upload_dir == Path("data/uploads")
     assert settings.max_upload_bytes == 20 * 1024 * 1024
+    assert settings.source_language == "auto"
 
 
 def test_api_settings_load_dotenv_file(tmp_path: Path, monkeypatch) -> None:

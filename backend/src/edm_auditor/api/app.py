@@ -151,6 +151,7 @@ def create_app(
         model_settings = ModelSettings.from_toml(
             config.model_config,
             preset_name=None,
+            source_language=config.source_language,
         )
         provider = create_embedding_provider(model_settings.embedding)
         store = SQLiteVectorStore(
@@ -167,7 +168,10 @@ def create_app(
     app.state.rebuild_rag_index = rebuild_rag_index
     neural_interpreter = None
     entity_extractor = None
-    model_settings = ModelSettings.from_toml(config.model_config)
+    model_settings = ModelSettings.from_toml(
+        config.model_config,
+        source_language=config.source_language,
+    )
     neural_interpreter = LLMInterpreter(create_llm_provider(model_settings.llm))
     if model_settings.extractor is None:
         raise ValueError("configured model preset must declare an online extractor")
