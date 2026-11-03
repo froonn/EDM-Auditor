@@ -52,8 +52,9 @@ def main(argv: list[str] | None = None) -> int:
 
     store, provider, session_factory = _components()
     if args.command == "build":
-        count = RAGIndexer(store, provider).build(
-            DatabaseIndexSourceLoader(session_factory).load()
+        count = RAGIndexer(store, provider).build_atomic(
+            DatabaseIndexSourceLoader(session_factory).load(),
+            store.path,
         )
         print(f"indexed chunks: {count}")
     elif args.command == "count":

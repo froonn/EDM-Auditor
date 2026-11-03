@@ -56,7 +56,11 @@ class DatabaseIndexSourceLoader:
         from .indexer import IndexSource
 
         with self._session_factory() as session:
-            acts = session.scalars(select(LegalAct).order_by(LegalAct.id)).all()
+            acts = session.scalars(
+                select(LegalAct)
+                .where(LegalAct.processing_status.in_(("completed", "partial")))
+                .order_by(LegalAct.id)
+            ).all()
             sources: list[IndexSource] = []
             for act in acts:
                 sources.append(IndexSource(legal_act_id=act.id, text=act.article_text))

@@ -94,3 +94,31 @@ def test_rebuild_removes_stale_chunks(tmp_path: Path) -> None:
     assert store.count() == 1
     assert store.delete_legal_act(1) == 1
     assert store.count() == 0
+
+
+def test_atomic_build_preserves_active_index_when_embedding_fails(tmp_path: Path) -> None:
+    class FailingProvider(DeterministicEmbeddingProvider):
+        def embed_documents(self, texts):
+            raise RuntimeError("embedding service unavailable")
+
+    provider = DeterministicEmbeddingProvider(dimension=8)
+    path = tmp_path / "vectors.sqlite3"
+    store = SQLiteVectorStore(
+        path,
+        embedding_model=provider.model_name,
+        dimension=provider.dimension,
+        chunking_version="paragraph-v1",
+    )
+    indexer = RAGIndexer(store, provider)
+    indexer.build([IndexSource(legal_act_id=1, text="Existing act")])
+
+    failing_provider = FailingProvider(dimension=8)
+    failing_indexer = RAGIndexer(store, failing_provider)
+    with pytest.raises(RuntimeError, match="embedding service unavailable"):
+        failing_indexer.build_atomic(
+            [IndexSource(legal_act_id=2, text="Replacement act")],
+            path,
+        )
+
+    assert store.count() == 1
+    assert RAGSearch(store, provider).search("Existing act", k=1)[0].chunk.legal_act_id == 1

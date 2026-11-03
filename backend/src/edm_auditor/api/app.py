@@ -133,19 +133,19 @@ def create_app(
             source_language=config.source_language,
         )
         provider = create_embedding_provider(model_settings.embedding)
-        store = SQLiteVectorStore(
-            config.rag_index_path,
-            embedding_model=provider.model_name,
-            dimension=provider.dimension,
-            chunking_version="paragraph-v1",
-        )
         count = RAGIndexer(
-            store,
+            SQLiteVectorStore(
+                ":memory:",
+                embedding_model=provider.model_name,
+                dimension=provider.dimension,
+                chunking_version="paragraph-v1",
+            ),
             provider,
             max_chars=model_settings.processing.chunking.max_chars,
             overlap_chars=model_settings.processing.chunking.overlap_chars,
-        ).build(
-            DatabaseIndexSourceLoader(session_factory).load()
+        ).build_atomic(
+            DatabaseIndexSourceLoader(session_factory).load(),
+            config.rag_index_path,
         )
         logger.info("Rebuilt RAG index: %s chunks", count)
 
