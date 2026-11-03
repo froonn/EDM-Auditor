@@ -2,7 +2,11 @@ from pathlib import Path
 
 import pytest
 
-from edm_auditor.model_config import ModelConfig, ModelSettings
+from edm_auditor.model_config import (
+    LegalActProcessingConfig,
+    ModelConfig,
+    ModelSettings,
+)
 from edm_auditor.model_providers import (
     StubLLMProvider,
     create_embedding_provider,
@@ -46,6 +50,22 @@ def test_google_ai_studio_preset_uses_official_provider() -> None:
     assert settings.llm.provider == "google-ai-studio"
     assert settings.extractor is not None
     assert settings.extractor.api_key_env == "GEMINI_API_KEY"
+
+
+def test_processing_config_is_loaded_from_model_config() -> None:
+    settings = ModelSettings.from_toml(CONFIG_PATH, preset_name="offline")
+
+    assert settings.processing.max_chunk_chars == 4000
+    assert settings.processing.max_prompt_chars == 12000
+    assert settings.processing.max_response_tokens == 2000
+    assert settings.processing.max_rules_per_chunk == 20
+    assert settings.processing.source_language == "auto"
+    assert settings.processing.processing_version == "1"
+
+
+def test_processing_config_rejects_invalid_language() -> None:
+    with pytest.raises(ValueError, match="source_language"):
+        LegalActProcessingConfig(source_language="de")
 
 
 def test_invalid_model_config_is_rejected() -> None:

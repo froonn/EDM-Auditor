@@ -1,5 +1,10 @@
 """EDM-Auditor backend package."""
-from .model_config import ModelConfig, ModelPreset, ModelSettings
+from .model_config import (
+    LegalActProcessingConfig,
+    ModelConfig,
+    ModelPreset,
+    ModelSettings,
+)
 from .model_providers import (
     LLMProvider,
     OpenAICompatibleEmbeddingProvider,
@@ -14,6 +19,7 @@ __all__ = [
     "ModelConfig",
     "ModelPreset",
     "ModelSettings",
+    "LegalActProcessingConfig",
     "OpenAICompatibleEmbeddingProvider",
     "OpenAICompatibleLLMProvider",
     "StubLLMProvider",

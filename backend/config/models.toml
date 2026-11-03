@@ -1,5 +1,15 @@
 # Safe defaults for local development. Secrets are read from environment variables.
 
+[processing]
+max_chunk_chars = 4000
+max_prompt_chars = 12000
+max_response_tokens = 2000
+max_rules_per_chunk = 20
+source_language = "auto"
+extraction_schema_version = "1"
+prompt_version = "1"
+processing_version = "1"
+
 [profiles.embedding.deterministic]
 provider = "deterministic"
 model = "deterministic-v1"

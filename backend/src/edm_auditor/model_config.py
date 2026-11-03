@@ -45,12 +45,46 @@ class ModelPreset:
 
 
 @dataclass(frozen=True, slots=True)
+class LegalActProcessingConfig:
+    """Limits and versions for reproducible legal-act rule extraction."""
+
+    max_chunk_chars: int = 4000
+    max_prompt_chars: int = 12000
+    max_response_tokens: int = 2000
+    max_rules_per_chunk: int = 20
+    source_language: str = "auto"
+    extraction_schema_version: str = "1"
+    prompt_version: str = "1"
+    processing_version: str = "1"
+
+    def __post_init__(self) -> None:
+        for name in (
+            "max_chunk_chars",
+            "max_prompt_chars",
+            "max_response_tokens",
+            "max_rules_per_chunk",
+        ):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"{name} must be positive")
+        if self.source_language not in {"auto", "ru", "en"}:
+            raise ValueError("source_language must be auto, ru, or en")
+        for name in (
+            "extraction_schema_version",
+            "prompt_version",
+            "processing_version",
+        ):
+            if not getattr(self, name).strip():
+                raise ValueError(f"{name} must not be empty")
+
+
+@dataclass(frozen=True, slots=True)
 class ModelSettings:
     """Resolved embedding and LLM settings."""
 
     embedding: ModelConfig
     llm: ModelConfig
     extractor: ModelConfig | None = None
+    processing: LegalActProcessingConfig = LegalActProcessingConfig()
     preset_name: str = "offline"
 
     @classmethod
@@ -74,6 +108,7 @@ class ModelSettings:
         embedding_profiles = profiles.get("embedding", {})
         llm_profiles = profiles.get("llm", {})
         presets = data.get("presets", {})
+        processing = _processing_config(data.get("processing", {}))
         selected_name = preset_name or os.getenv("EDM_MODEL_PRESET", "offline")
         try:
             selected = presets[selected_name]
@@ -93,6 +128,7 @@ class ModelSettings:
             embedding=embedding,
             llm=llm,
             extractor=extractor,
+            processing=processing,
             preset_name=selected_name,
         )
 
@@ -130,4 +166,17 @@ def _model_config(
         temperature=float(values.get("temperature", 0.1)),
         max_tokens=int(values.get("max_tokens", 2000)),
         structured_output=structured_output,
+    )
+
+
+def _processing_config(values: dict[str, Any]) -> LegalActProcessingConfig:
+    return LegalActProcessingConfig(
+        max_chunk_chars=int(values.get("max_chunk_chars", 4000)),
+        max_prompt_chars=int(values.get("max_prompt_chars", 12000)),
+        max_response_tokens=int(values.get("max_response_tokens", 2000)),
+        max_rules_per_chunk=int(values.get("max_rules_per_chunk", 20)),
+        source_language=str(values.get("source_language", "auto")),
+        extraction_schema_version=str(values.get("extraction_schema_version", "1")),
+        prompt_version=str(values.get("prompt_version", "1")),
+        processing_version=str(values.get("processing_version", "1")),
     )
