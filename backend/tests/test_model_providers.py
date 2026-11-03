@@ -135,13 +135,20 @@ def test_rule_extractor_requests_json_schema_when_configured(monkeypatch) -> Non
         )
     )
 
-    rules = provider.extract_rules("Отпуск не менее 24 дней.")
+    rules = provider.extract_rules(
+        "Отпуск не менее 24 дней.",
+        source_language="ru",
+        source_location="legal-act-7:chunk-0",
+    )
 
     assert rules[0]["check_type"] == "duration"
     assert captured["response_format"]["json_schema"]["name"] == "rule_extraction"
     prompt = captured["messages"][0]["content"]
     assert '"min_days"' in prompt
     assert "Never use generic parameters" in prompt
+    assert "source_language=ru" in prompt
+    assert "source_location=legal-act-7:chunk-0" in prompt
+    assert "source_quote" in prompt
 
 
 def test_google_schema_omits_openai_only_additional_properties() -> None:
