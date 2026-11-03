@@ -302,16 +302,23 @@ def test_upload_legal_act_generates_neural_rule(
     tmp_path: Path, monkeypatch
 ) -> None:
     class FakeRuleExtractor:
-        def extract_rules(self, text: str):
+        def extract_rules(
+            self, text: str, *, source_language: str, source_location: str
+        ):
             assert "24" in text
             return (
                 {
                     "rule_code": "leave-minimum",
-                    "name": "Minimum leave",
-                    "description": "Leave must be at least 24 days.",
+                    "name": "Минимальная продолжительность отпуска",
+                    "description": "Отпуск предоставляется продолжительностью не менее 24 календарных дня.",
                     "severity": "high",
                     "check_type": "duration",
                     "parameters": {"min_days": 24},
+                    "source_quote": (
+                        "Отпуск предоставляется продолжительностью не менее "
+                        "24 календарных дня."
+                    ),
+                    "source_location": source_location,
                 },
             )
 

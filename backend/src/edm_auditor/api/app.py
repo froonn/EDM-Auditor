@@ -41,6 +41,7 @@ from edm_auditor.model_providers import (
     create_rule_extraction_provider,
 )
 from edm_auditor.model_providers import create_embedding_provider
+from edm_auditor.rule_validation import RuleValidationError, validate_generated_rule
 from edm_auditor.rag import (
     DatabaseIndexSourceLoader,
     RAGIndexer,
@@ -96,40 +97,6 @@ def _setup_file_logging(log_file: Path) -> None:
         trace_logger.addHandler(file_handler)
     except Exception as exc:
         logger.warning("Could not set up file logging at %s: %s", log_file, exc)
-
-
-def _generated_rule(
-    payload: dict[str, object], *, index: int
-) -> dict[str, object] | None:
-    """Validate one model-generated rule before persisting it."""
-    rule_code = payload.get("rule_code")
-    name = payload.get("name")
-    description = payload.get("description")
-    severity = payload.get("severity")
-    check_type = payload.get("check_type")
-    parameters = payload.get("parameters")
-    if not all(isinstance(value, str) for value in (rule_code, name, description)):
-        return None
-    if severity not in {item.value for item in AuditSeverity}:
-        return None
-    if check_type not in {item.value for item in CheckType}:
-        return None
-    if not isinstance(parameters, dict):
-        return None
-    normalized_code = rule_code.strip()[:100]
-    normalized_name = name.strip()[:255]
-    if not normalized_code or not normalized_name:
-        return None
-    return {
-        "rule_code": normalized_code or f"generated-rule-{index}",
-        "name": normalized_name,
-        "severity": severity,
-        "description": description[:4000],
-        "check_type": check_type,
-        "parameters_json": json.dumps(
-            parameters, ensure_ascii=False, sort_keys=True
-        ),
-    }
 
 
 def create_app(
@@ -581,7 +548,8 @@ def create_app(
                         max_chars=model_settings.processing.chunking.max_chars,
                         overlap_chars=model_settings.processing.chunking.overlap_chars,
                     )
-                    extracted_items: list[dict[str, object]] = []
+                    validated_rules: list[dict[str, object]] = []
+                    validation_errors: list[RuleValidationError] = []
                     failed_chunks = 0
                     supports_metadata = "source_language" in inspect.signature(
                         rule_extractor.extract_rules
@@ -600,14 +568,33 @@ def create_app(
                                 )
                             else:
                                 raw_extracted = rule_extractor.extract_rules(chunk.text)
-                            extracted_items.extend(
-                                item for item in raw_extracted if isinstance(item, dict)
-                            )
+                            for item in raw_extracted:
+                                if not isinstance(item, dict):
+                                    validation_errors.append(
+                                        RuleValidationError(
+                                            "invalid_schema",
+                                            "provider returned a non-object rule",
+                                        )
+                                    )
+                                    continue
+                                try:
+                                    validated_rules.append(
+                                        validate_generated_rule(
+                                            item,
+                                            source_text=chunk.text,
+                                            source_language=source_language,
+                                            source_location=chunk.chunk_id,
+                                            index=len(validated_rules) + 1,
+                                        )
+                                    )
+                                except RuleValidationError as exc:
+                                    validation_errors.append(exc)
                             logger.info(
-                                "Rule chunk %d/%d returned %d raw items",
+                                "Rule chunk %d/%d returned %d raw items and %d valid rules",
                                 chunk_index + 1,
                                 len(chunks),
                                 len(raw_extracted),
+                                len(validated_rules),
                             )
                         except (RuntimeError, ValueError, TypeError) as exc:
                             failed_chunks += 1
@@ -623,7 +610,20 @@ def create_app(
                             "rule_extraction_error",
                             f"Online rule extraction failed for {failed_chunks} chunk(s)",
                         )
-                    generated_rules = tuple(extracted_items)
+                    if validation_errors:
+                        categories = sorted({error.code for error in validation_errors})
+                        logger.warning(
+                            "Rejected %d generated rules: %s",
+                            len(validation_errors),
+                            ", ".join(categories),
+                        )
+                        raise ApiError(
+                            502,
+                            "rule_validation_error",
+                            "Online rule extraction returned invalid rules: "
+                            + ", ".join(categories),
+                        )
+                    generated_rules = tuple(validated_rules)
                 except (RuntimeError, ValueError, TypeError) as exc:
                     logger.exception("Could not extract rules from legal act: %s", exc)
                     raise ApiError(
@@ -650,10 +650,17 @@ def create_app(
                 logger.info("Processing %d generated rules...", len(generated_rules))
                 created_rules_count = 0
                 for index, generated in enumerate(generated_rules, start=1):
-                    rule = _generated_rule(generated, index=index)
-                    if rule is None:
-                        logger.warning("Generated rule #%d was rejected by validator", index)
-                        continue
+                    rule = {
+                        key: generated[key]
+                        for key in (
+                            "rule_code",
+                            "name",
+                            "severity",
+                            "description",
+                            "check_type",
+                            "parameters_json",
+                        )
+                    }
                     existing = session.scalar(
                         select(AuditRule.id).where(
                             AuditRule.rule_code == rule["rule_code"]
