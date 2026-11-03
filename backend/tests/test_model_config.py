@@ -68,6 +68,16 @@ def test_processing_config_rejects_invalid_language() -> None:
         LegalActProcessingConfig(source_language="de")
 
 
+def test_source_language_can_be_overridden_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EDM_SOURCE_LANGUAGE", "ru")
+
+    settings = ModelSettings.from_env()
+
+    assert settings.processing.source_language == "ru"
+
+
 def test_invalid_model_config_is_rejected() -> None:
     with pytest.raises(ValueError, match="dimension must be positive"):
         ModelConfig(provider="deterministic", model="test", dimension=0)

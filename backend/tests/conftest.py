@@ -9,6 +9,7 @@ def isolate_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         "EDM_MAX_UPLOAD_BYTES",
         "EDM_MODEL_CONFIG",
         "EDM_MODEL_PRESET",
+        "EDM_SOURCE_LANGUAGE",
         "RAG_INDEX_PATH",
         "GEMINI_API_KEY",
         "OPENROUTER_API_KEY",

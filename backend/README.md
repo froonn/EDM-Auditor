@@ -341,7 +341,6 @@ The application automatically loads `.env` from the current working directory
 when the API starts. For example, create `backend/.env`:
 
 ```bash
-EDM_NEURAL_MODE=required
 EDM_MODEL_CONFIG=config/models.toml
 EDM_MODEL_PRESET=google-ai-studio
 GEMINI_API_KEY=your-api-key

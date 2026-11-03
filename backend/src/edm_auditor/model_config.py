@@ -1,6 +1,7 @@
 """Typed configuration for embedding and language model providers."""
 
 from dataclasses import dataclass
+from dataclasses import replace
 import os
 from pathlib import Path
 import tomllib
@@ -93,6 +94,7 @@ class ModelSettings:
         path: str | Path = Path("config/models.toml"),
         *,
         preset_name: str | None = None,
+        source_language: str | None = None,
     ) -> "ModelSettings":
         config_path = Path(path)
         if not config_path.exists():
@@ -109,6 +111,8 @@ class ModelSettings:
         llm_profiles = profiles.get("llm", {})
         presets = data.get("presets", {})
         processing = _processing_config(data.get("processing", {}))
+        if source_language is not None:
+            processing = replace(processing, source_language=source_language)
         selected_name = preset_name or os.getenv("EDM_MODEL_PRESET", "offline")
         try:
             selected = presets[selected_name]
@@ -144,7 +148,11 @@ class ModelSettings:
             if candidate.exists():
                 load_dotenv(candidate)
         path = Path(os.getenv("EDM_MODEL_CONFIG", "config/models.toml"))
-        return cls.from_toml(path, preset_name=os.getenv("EDM_MODEL_PRESET"))
+        return cls.from_toml(
+            path,
+            preset_name=os.getenv("EDM_MODEL_PRESET"),
+            source_language=os.getenv("EDM_SOURCE_LANGUAGE"),
+        )
 
 
 def _model_config(

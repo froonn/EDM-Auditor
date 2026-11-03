@@ -7,7 +7,25 @@
 
 ## Структура файла
 
-В файле используются два раздела:
+В файле также задаются общие ограничения обработки НПА:
+
+```toml
+[processing]
+max_chunk_chars = 4000
+max_prompt_chars = 12000
+max_response_tokens = 2000
+max_rules_per_chunk = 20
+source_language = "auto"
+extraction_schema_version = "1"
+prompt_version = "1"
+processing_version = "1"
+```
+
+`source_language` принимает `auto`, `ru` или `en`. Для доверенного локального
+запуска его можно переопределить через `EDM_SOURCE_LANGUAGE`. Неподдерживаемые
+значения отклоняются до запуска обработки.
+
+В файле используются следующие разделы:
 
 ```toml
 [profiles.embedding.<name>]
@@ -26,8 +44,9 @@ extractor = "<extractor-profile>"
 ```
 
 Профиль описывает одну модель, а preset связывает embedding-модель, LLM и
-необязательную модель извлечения сущностей и правил. Приложение выбирает preset через
-`EDM_MODEL_PRESET`. По умолчанию используется `offline`.
+модель извлечения сущностей и правил. Приложение выбирает preset через
+`EDM_MODEL_PRESET`. По умолчанию используется `offline` только для тестов и
+локальной разработки; production должен явно использовать online preset.
 
 ## Профиль извлечения сущностей
 
@@ -243,24 +262,20 @@ embedding-профиль с его endpoint и размерностью и ук�
 
 ## Neural-анализ API
 
-По умолчанию API работает с отключённым LLM:
-
-```bash
-EDM_NEURAL_MODE=disabled uvicorn edm_auditor.api.app:create_app --factory
-```
+API всегда инициализирует настроенные LLM и extractor-провайдеры. Ошибка,
+отсутствие ключа или недоступность online-провайдера не превращаются в
+успешный результат обработки. `EDM_NEURAL_MODE` больше не используется.
 
 Для локального LM Studio:
 
 ```bash
-export EDM_NEURAL_MODE=best-effort
 export EDM_MODEL_CONFIG="$PWD/config/models.toml"
 export EDM_MODEL_PRESET=lm-studio
 uvicorn edm_auditor.api.app:create_app --factory --reload
 ```
 
-Доступны режимы `disabled`, `best-effort` и `required`. В режиме `best-effort`
-детерминированные findings сохраняются даже при недоступности модели. В режиме
-`required` ошибка LLM не позволяет пометить аудит успешным.
+Для production выберите online preset и задайте его ключ. Offline preset
+предназначен только для тестов и локального запуска без сети.
 
 `GET /api/documents/{id}/report` содержит `neural_status` и
 `neural_analyses`. Модель получает только findings и связанные RAG-контексты;
