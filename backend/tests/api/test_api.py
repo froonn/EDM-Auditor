@@ -30,15 +30,13 @@ def test_api_settings_use_defaults_without_environment(monkeypatch) -> None:
 
 def test_api_settings_load_dotenv_file(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("EDM_NEURAL_MODE", raising=False)
     (tmp_path / ".env").write_text(
-        "EDM_NEURAL_MODE=required\nRAG_INDEX_PATH=custom/index.sqlite3\n",
+        "EDM_NEURAL_MODE=disabled\nRAG_INDEX_PATH=custom/index.sqlite3\n",
         encoding="utf-8",
     )
 
     settings = ApiSettings.from_env()
 
-    assert settings.neural_mode == "required"
     assert settings.rag_index_path == Path("custom/index.sqlite3")
 
 
@@ -330,7 +328,6 @@ def test_upload_legal_act_generates_neural_rule(
         upload_dir=tmp_path / "uploads",
         max_upload_bytes=1024,
         rag_index_path=tmp_path / "rag-index.sqlite3",
-        neural_mode="best-effort",
     )
     engine = create_engine(
         f"sqlite:///{tmp_path / 'api.sqlite3'}",

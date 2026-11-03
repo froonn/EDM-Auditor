@@ -9,7 +9,6 @@ from dotenv import load_dotenv
 DEFAULT_DATABASE_URL = "sqlite:///data/edm_auditor.sqlite3"
 DEFAULT_UPLOAD_DIR = Path("data/uploads")
 DEFAULT_MAX_UPLOAD_BYTES = 20 * 1024 * 1024
-DEFAULT_NEURAL_MODE = "disabled"
 DEFAULT_MODEL_CONFIG = Path("config/models.toml")
 DEFAULT_RAG_INDEX_PATH = Path("data/rag-index.sqlite3")
 DEFAULT_LOG_FILE = Path("data/debug.log")
@@ -20,7 +19,6 @@ class ApiSettings:
     database_url: str = DEFAULT_DATABASE_URL
     upload_dir: Path = DEFAULT_UPLOAD_DIR
     max_upload_bytes: int = DEFAULT_MAX_UPLOAD_BYTES
-    neural_mode: str = DEFAULT_NEURAL_MODE
     model_config: Path = DEFAULT_MODEL_CONFIG
     rag_index_path: Path = DEFAULT_RAG_INDEX_PATH
     log_file: Path = DEFAULT_LOG_FILE
@@ -62,7 +60,6 @@ class ApiSettings:
             max_upload_bytes=int(
                 environ.get("EDM_MAX_UPLOAD_BYTES", str(DEFAULT_MAX_UPLOAD_BYTES))
             ),
-            neural_mode=environ.get("EDM_NEURAL_MODE", DEFAULT_NEURAL_MODE),
             model_config=model_cfg_path,
             rag_index_path=Path(
                 environ.get("RAG_INDEX_PATH", str(DEFAULT_RAG_INDEX_PATH))

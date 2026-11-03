@@ -330,6 +330,16 @@ class StubRuleExtractionProvider:
         return tuple(rules)
 
 
+class StubEntityExtractionProvider:
+    """Offline entity extractor that performs no external model call."""
+
+    model_name = "stub-v1"
+
+    def extract(self, text: str) -> Sequence[dict[str, str]]:
+        del text
+        return ()
+
+
 class OpenAICompatibleEmbeddingProvider:
     """Embedding adapter for LM Studio, OpenRouter, and compatible APIs."""
 
@@ -927,6 +937,8 @@ def create_llm_provider(config: ModelConfig) -> LLMProvider:
 def create_entity_extraction_provider(
     config: ModelConfig,
 ) -> EntityExtractionProvider:
+    if config.provider == "stub":
+        return StubEntityExtractionProvider()
     """Create a configured document entity extraction provider."""
     if config.provider == "openai-compatible":
         return OpenAICompatibleEntityExtractionProvider(config)

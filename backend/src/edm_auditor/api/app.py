@@ -167,18 +167,13 @@ def create_app(
     app.state.rebuild_rag_index = rebuild_rag_index
     neural_interpreter = None
     entity_extractor = None
-    rule_extractor = None
-    if config.neural_mode != "disabled":
-        model_settings = ModelSettings.from_toml(config.model_config)
-        neural_interpreter = LLMInterpreter(
-            create_llm_provider(model_settings.llm)
-        )
-        if model_settings.extractor is not None:
-            provider = create_entity_extraction_provider(model_settings.extractor)
-            entity_extractor = lambda text: entities_from_provider(
-                text, provider.extract(text)
-            )
-            rule_extractor = create_rule_extraction_provider(model_settings.extractor)
+    model_settings = ModelSettings.from_toml(config.model_config)
+    neural_interpreter = LLMInterpreter(create_llm_provider(model_settings.llm))
+    if model_settings.extractor is None:
+        raise ValueError("configured model preset must declare an online extractor")
+    provider = create_entity_extraction_provider(model_settings.extractor)
+    entity_extractor = lambda text: entities_from_provider(text, provider.extract(text))
+    rule_extractor = create_rule_extraction_provider(model_settings.extractor)
 
     @app.middleware("http")
     async def request_logging_middleware(request, call_next):
@@ -304,7 +299,7 @@ def create_app(
                 session_factory,
                 engine=AuditEngine(entity_extractor=entity_extractor),
                 neural_interpreter=neural_interpreter,
-                neural_mode=config.neural_mode,
+                neural_mode="required",
             ).audit_document(document_id)
         except LookupError as exc:
             raise ApiError(404, "document_not_found", str(exc)) from exc
@@ -537,8 +532,8 @@ def create_app(
             if parsed.source.format != "txt":
                 raise ApiError(415, "unsupported_legal_act_format", "Legal acts must be TXT files")
             logger.info(
-                "Upload legal act: code='%s', title='%s', number='%s', neural_mode='%s'",
-                code, title, number, config.neural_mode,
+                "Upload legal act: code='%s', title='%s', number='%s', neural_mode='required'",
+                code, title, number,
             )
             with session_factory.begin() as session:
                 legal_act = LegalAct(
@@ -566,16 +561,19 @@ def create_app(
                     )
                 except (RuntimeError, ValueError, TypeError) as exc:
                     logger.exception("Could not extract rules from legal act: %s", exc)
-                    if config.neural_mode == "required":
-                        raise ApiError(
-                            503,
-                            "rule_extraction_error",
-                            "Neural rule extraction failed",
-                        ) from exc
+                    raise ApiError(
+                        503,
+                        "rule_extraction_error",
+                        "Online rule extraction failed",
+                    ) from exc
             else:
                 logger.warning(
-                    "rule_extractor is None! neural_mode is '%s'. To extract rules from legal acts, enable neural mode (e.g. EDM_NEURAL_MODE=best-effort or required).",
-                    config.neural_mode,
+                    "rule_extractor is unavailable despite required online configuration",
+                )
+                raise ApiError(
+                    503,
+                    "rule_extraction_unavailable",
+                    "Online rule extraction is not configured",
                 )
 
             with session_factory.begin() as session:

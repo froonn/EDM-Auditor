@@ -69,6 +69,16 @@ extractor = "gemma"
 [presets.openrouter]
 embedding = "local-multilingual"
 llm = "openrouter"
+extractor = "openrouter"
+
+[profiles.extractor.openrouter]
+provider = "openai-compatible"
+model = "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+temperature = 0.2
+max_tokens = 2000
+structured_output = false
 
 
 [profiles.embedding.google-ai-studio]
