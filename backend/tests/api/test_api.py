@@ -31,7 +31,7 @@ def test_api_settings_use_defaults_without_environment(monkeypatch) -> None:
 def test_api_settings_load_dotenv_file(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".env").write_text(
-        "EDM_NEURAL_MODE=disabled\nRAG_INDEX_PATH=custom/index.sqlite3\n",
+        "RAG_INDEX_PATH=custom/index.sqlite3\n",
         encoding="utf-8",
     )
 
