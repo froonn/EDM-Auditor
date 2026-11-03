@@ -160,6 +160,12 @@ def test_list_legal_acts_does_not_expose_article_text(tmp_path: Path) -> None:
             "title": "Labour Code",
             "number": "155",
             "source_url": None,
+            "processing_status": "uploaded",
+            "processing_version": None,
+            "chunks_total": 0,
+            "chunks_processed": 0,
+            "rules_accepted": 0,
+            "rules_rejected": 0,
         }
     ]
 
@@ -367,6 +373,14 @@ def test_upload_legal_act_generates_neural_rule(
     assert rules[0]["source_quote"].startswith("Отпуск предоставляется")
     assert rules[0]["legal_act_id"] == response.json()["id"]
     assert rules[0]["parameters"]["min_days"] == 24
+    assert response.json()["processing_status"] == "completed"
+    assert response.json()["chunks_total"] == 1
+    assert response.json()["rules_accepted"] == 1
+    diagnostics = client.get(
+        f"/api/legal-acts/{response.json()['id']}/diagnostics"
+    )
+    assert diagnostics.status_code == 200
+    assert diagnostics.json()["diagnostics"][0]["status"] == "accepted"
 
 
 def test_reprocess_replaces_generated_rules_atomically(tmp_path: Path, monkeypatch) -> None:

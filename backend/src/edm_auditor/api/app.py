@@ -66,6 +66,8 @@ from .schemas import (
     ReportListResponse,
     RuleCreate,
     RuleResponse,
+    LegalActDiagnosticsResponse,
+    RuleExtractionDiagnosticResponse,
 )
 from .storage import store_upload
 from .web import page
@@ -680,6 +682,35 @@ def create_app(
                 raise ApiError(404, "legal_act_not_found", "Legal act does not exist")
             return LegalActDetailResponse.model_validate(legal_act)
 
+    @app.get(
+        "/api/legal-acts/{legal_act_id}/diagnostics",
+        response_model=LegalActDiagnosticsResponse,
+    )
+    def get_legal_act_diagnostics(
+        legal_act_id: int,
+    ) -> LegalActDiagnosticsResponse:
+        with session_factory() as session:
+            legal_act = session.get(LegalAct, legal_act_id)
+            if legal_act is None:
+                raise ApiError(404, "legal_act_not_found", "Legal act does not exist")
+            results = session.scalars(
+                select(RuleExtractionResult)
+                .where(RuleExtractionResult.legal_act_id == legal_act_id)
+                .order_by(RuleExtractionResult.id)
+            ).all()
+            return LegalActDiagnosticsResponse(
+                legal_act_id=legal_act.id,
+                processing_status=legal_act.processing_status,
+                chunks_total=legal_act.chunks_total,
+                chunks_processed=legal_act.chunks_processed,
+                rules_accepted=legal_act.rules_accepted,
+                rules_rejected=legal_act.rules_rejected,
+                diagnostics=[
+                    RuleExtractionDiagnosticResponse.model_validate(result)
+                    for result in results
+                ],
+            )
+
     @app.post("/api/legal-acts", response_model=LegalActResponse, status_code=201)
     def create_legal_act(payload: LegalActCreate) -> LegalActResponse:
         with session_factory.begin() as session:
@@ -731,7 +762,8 @@ def create_app(
                 )
             process_legal_act(legal_act_id)
             _rebuild_after_mutation(rebuild_rag_index)
-            return response
+            with session_factory() as session:
+                return LegalActResponse.model_validate(session.get(LegalAct, legal_act_id))
         except ValueError as exc:
             raise ApiError(413, "document_too_large", str(exc)) from exc
         except DocumentParserError as exc:

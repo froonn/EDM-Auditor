@@ -23,6 +23,12 @@ table { width: 100%; border-collapse: collapse; } th, td { padding: 9px; border-
 pre { white-space: pre-wrap; background: #f1f3f7; padding: 12px; border-radius: 6px; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; } .muted { color: #667085; }
 .error { color: #b42318; } .ok { color: #067647; }
+.status { display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: .85em; font-weight: 600; }
+.status-completed { color: #067647; background: #d1fadf; }
+.status-partial { color: #b54708; background: #fef0c7; }
+.status-failed { color: #b42318; background: #fee4e2; }
+.status-processing { color: #175cd3; background: #d1e9ff; }
+.diagnostics { margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -72,12 +78,35 @@ async function request(url, options = {}) {
   return body;
 }
 function formData(form) { return new FormData(form); }
+function statusBadge(status) {
+  const safe = escapeHtml(status || "uploaded");
+  return `<span class="status status-${safe}">${safe}</span>`;
+}
 async function loadActs() {
   const acts = await request("/api/legal-acts?limit=100");
-  $("acts").innerHTML = acts.length ? `<table><tr><th>Код</th><th>Название</th><th>Номер</th><th></th></tr>
+  $("acts").innerHTML = acts.length ? `<table><tr><th>Код</th><th>Название</th><th>Номер</th><th>Обработка</th><th></th></tr>
     ${acts.map(a => `<tr><td>${escapeHtml(a.code)}</td><td>${escapeHtml(a.title)}</td>
-    <td>${escapeHtml(a.number || "—")}</td><td><button class="danger" onclick="deleteAct(${a.id})">Удалить</button></td></tr>`).join("")}</table>`
+    <td>${escapeHtml(a.number || "—")}</td><td>${statusBadge(a.processing_status)}
+    <div class="muted">${a.chunks_processed}/${a.chunks_total} chunks · accepted: ${a.rules_accepted} · rejected: ${a.rules_rejected}</div>
+    <div class="diagnostics"><button class="secondary" onclick="showDiagnostics(${a.id})">Диагностика</button>
+    <button class="secondary" onclick="reprocessAct(${a.id})">Повторить</button></div></td>
+    <td><button class="danger" onclick="deleteAct(${a.id})">Удалить</button></td></tr>`).join("")}</table>`
     : '<p class="muted">НПА пока нет.</p>';
+}
+async function showDiagnostics(id) {
+  try {
+    const result = await request(`/api/legal-acts/${id}/diagnostics`);
+    const details = result.diagnostics.length
+      ? result.diagnostics.map(d => `<li>${escapeHtml(d.chunk_id)}: ${statusBadge(d.status)}
+        ${escapeHtml(d.error_code || "ok")} ${escapeHtml(d.diagnostic_message || "")}</li>`).join("")
+      : "<li>Диагностика отсутствует.</li>";
+    $("message").innerHTML = `<strong>Диагностика НПА #${id}</strong><ul>${details}</ul>`;
+    $("message").className = "";
+  } catch (error) { message(error.message, true); }
+}
+async function reprocessAct(id) {
+  try { await request(`/api/legal-acts/${id}/reprocess`, {method: "POST"}); message("НПА обработан повторно."); await loadActs(); }
+  catch (error) { message(error.message, true); await loadActs(); }
 }
 async function deleteAct(id) {
   if (!confirm("Удалить этот НПА?")) return;

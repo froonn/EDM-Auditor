@@ -121,10 +121,41 @@ class LegalActResponse(BaseModel):
     title: str
     number: str | None
     source_url: str | None
+    processing_status: str = "uploaded"
+    processing_version: str | None = None
+    chunks_total: int = 0
+    chunks_processed: int = 0
+    rules_accepted: int = 0
+    rules_rejected: int = 0
 
 
 class LegalActDetailResponse(LegalActResponse):
     article_text: str
+
+
+class RuleExtractionDiagnosticResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    chunk_id: str
+    status: str
+    error_code: str | None
+    diagnostic_message: str | None
+    rules_total: int
+    rules_accepted: int
+    rules_rejected: int
+    processing_version: str | None
+    created_at: datetime
+
+
+class LegalActDiagnosticsResponse(BaseModel):
+    legal_act_id: int
+    processing_status: str
+    chunks_total: int
+    chunks_processed: int
+    rules_accepted: int
+    rules_rejected: int
+    diagnostics: list[RuleExtractionDiagnosticResponse]
 
 
 class LegalActCreate(BaseModel):
