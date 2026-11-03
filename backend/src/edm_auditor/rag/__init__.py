@@ -1,6 +1,6 @@
 """Chunking, indexing, and semantic search for legal text."""
 
-from .chunking import chunk_text
+from .chunking import chunk_text, normalize_source_text
 from .config import RAGSettings
 from .embeddings import DeterministicEmbeddingProvider, EmbeddingProvider
 from .indexer import IndexSource, RAGIndexer
@@ -22,4 +22,5 @@ __all__ = [
     "TextLegalActIngestor",
     "TextChunk",
     "chunk_text",
+    "normalize_source_text",
 ]

@@ -39,7 +39,12 @@ from edm_auditor.model_providers import (
     create_rule_extraction_provider,
 )
 from edm_auditor.model_providers import create_embedding_provider
-from edm_auditor.rag import DatabaseIndexSourceLoader, RAGIndexer, SQLiteVectorStore
+from edm_auditor.rag import (
+    DatabaseIndexSourceLoader,
+    RAGIndexer,
+    SQLiteVectorStore,
+    normalize_source_text,
+)
 
 from .config import ApiSettings
 from .errors import ApiError, parser_error
@@ -160,7 +165,12 @@ def create_app(
             dimension=provider.dimension,
             chunking_version="paragraph-v1",
         )
-        count = RAGIndexer(store, provider).build(
+        count = RAGIndexer(
+            store,
+            provider,
+            max_chars=model_settings.processing.chunking.max_chars,
+            overlap_chars=model_settings.processing.chunking.overlap_chars,
+        ).build(
             DatabaseIndexSourceLoader(session_factory).load()
         )
         logger.info("Rebuilt RAG index: %s chunks", count)
@@ -514,7 +524,9 @@ def create_app(
     @app.post("/api/legal-acts", response_model=LegalActResponse, status_code=201)
     def create_legal_act(payload: LegalActCreate) -> LegalActResponse:
         with session_factory.begin() as session:
-            legal_act = LegalAct(**payload.model_dump())
+            values = payload.model_dump()
+            values["article_text"] = normalize_source_text(values["article_text"])
+            legal_act = LegalAct(**values)
             session.add(legal_act)
             session.flush()
             response = LegalActResponse.model_validate(legal_act)
@@ -545,7 +557,7 @@ def create_app(
                     title=title,
                     number=number,
                     source_url=source_url,
-                    article_text=parsed.text,
+                    article_text=normalize_source_text(parsed.text),
                 )
                 session.add(legal_act)
                 session.flush()
@@ -626,6 +638,8 @@ def create_app(
             if legal_act is None:
                 raise ApiError(404, "legal_act_not_found", "Legal act does not exist")
             for field, value in payload.model_dump(exclude_unset=True).items():
+                if field == "article_text" and value is not None:
+                    value = normalize_source_text(value)
                 setattr(legal_act, field, value)
             session.flush()
             response = LegalActResponse.model_validate(legal_act)
