@@ -2,6 +2,7 @@
 from .model_config import (
     LegalActChunkingConfig,
     LegalActProcessingConfig,
+    detect_source_language,
     ModelConfig,
     ModelPreset,
     ModelSettings,
@@ -22,6 +23,7 @@ __all__ = [
     "ModelSettings",
     "LegalActProcessingConfig",
     "LegalActChunkingConfig",
+    "detect_source_language",
     "OpenAICompatibleEmbeddingProvider",
     "OpenAICompatibleLLMProvider",
     "StubLLMProvider",

@@ -1,7 +1,9 @@
 """FastAPI application factory and endpoint implementation."""
 
 import json
+import inspect
 import logging
+import time
 from contextlib import asynccontextmanager
 from collections.abc import Callable
 from pathlib import Path
@@ -32,7 +34,7 @@ from edm_auditor.database.models import (
 )
 from edm_auditor.document_parser import parse_document
 from edm_auditor.document_parser.exceptions import DocumentParserError
-from edm_auditor.model_config import ModelSettings
+from edm_auditor.model_config import ModelSettings, detect_source_language
 from edm_auditor.model_providers import (
     create_entity_extraction_provider,
     create_llm_provider,
@@ -43,6 +45,7 @@ from edm_auditor.rag import (
     DatabaseIndexSourceLoader,
     RAGIndexer,
     SQLiteVectorStore,
+    chunk_text,
     normalize_source_text,
 )
 
@@ -569,12 +572,58 @@ def create_app(
             if rule_extractor is not None:
                 logger.info("Executing rule extractor (%s)...", type(rule_extractor).__name__)
                 try:
-                    raw_extracted = rule_extractor.extract_rules(parsed.text)
-                    logger.info("Rule extractor returned %d raw items", len(raw_extracted))
-                    generated_rules = tuple(
-                        item for item in raw_extracted
-                        if isinstance(item, dict)
+                    source_language = model_settings.processing.source_language
+                    if source_language == "auto":
+                        source_language = detect_source_language(parsed.text)
+                    chunks = chunk_text(
+                        parsed.text,
+                        legal_act_id=legal_act_id,
+                        max_chars=model_settings.processing.chunking.max_chars,
+                        overlap_chars=model_settings.processing.chunking.overlap_chars,
                     )
+                    extracted_items: list[dict[str, object]] = []
+                    failed_chunks = 0
+                    supports_metadata = "source_language" in inspect.signature(
+                        rule_extractor.extract_rules
+                    ).parameters
+                    for chunk_index, chunk in enumerate(chunks):
+                        if chunk_index:
+                            delay = model_settings.extractor.inter_chunk_delay_seconds
+                            if delay:
+                                time.sleep(delay)
+                        try:
+                            if supports_metadata:
+                                raw_extracted = rule_extractor.extract_rules(
+                                    chunk.text,
+                                    source_language=source_language,
+                                    source_location=chunk.chunk_id,
+                                )
+                            else:
+                                raw_extracted = rule_extractor.extract_rules(chunk.text)
+                            extracted_items.extend(
+                                item for item in raw_extracted if isinstance(item, dict)
+                            )
+                            logger.info(
+                                "Rule chunk %d/%d returned %d raw items",
+                                chunk_index + 1,
+                                len(chunks),
+                                len(raw_extracted),
+                            )
+                        except (RuntimeError, ValueError, TypeError) as exc:
+                            failed_chunks += 1
+                            logger.warning(
+                                "Rule chunk %d/%d failed: %s",
+                                chunk_index + 1,
+                                len(chunks),
+                                type(exc).__name__,
+                            )
+                    if failed_chunks:
+                        raise ApiError(
+                            503,
+                            "rule_extraction_error",
+                            f"Online rule extraction failed for {failed_chunks} chunk(s)",
+                        )
+                    generated_rules = tuple(extracted_items)
                 except (RuntimeError, ValueError, TypeError) as exc:
                     logger.exception("Could not extract rules from legal act: %s", exc)
                     raise ApiError(

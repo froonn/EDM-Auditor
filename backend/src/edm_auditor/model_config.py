@@ -5,6 +5,7 @@ from dataclasses import replace
 import os
 from pathlib import Path
 import tomllib
+import re
 from typing import Any
 
 from dotenv import load_dotenv
@@ -101,6 +102,15 @@ class LegalActProcessingConfig:
         ):
             if not getattr(self, name).strip():
                 raise ValueError(f"{name} must not be empty")
+
+
+def detect_source_language(text: str) -> str:
+    """Detect the supported source language using a conservative script ratio."""
+    letters = re.findall(r"[^\W\d_]", text, flags=re.UNICODE)
+    if not letters:
+        return "en"
+    cyrillic = sum("\u0400" <= char <= "\u04ff" for char in letters)
+    return "ru" if cyrillic / len(letters) >= 0.2 else "en"
 
 
 @dataclass(frozen=True, slots=True)

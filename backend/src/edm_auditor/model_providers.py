@@ -137,6 +137,8 @@ RULE_EXTRACTION_SCHEMA = {
                         },
                         "additionalProperties": False,
                     },
+                    "source_quote": {"type": "string"},
+                    "source_location": {"type": "string"},
                 },
                 "required": [
                     "rule_code",
@@ -145,6 +147,8 @@ RULE_EXTRACTION_SCHEMA = {
                     "severity",
                     "check_type",
                     "parameters",
+                    "source_quote",
+                    "source_location",
                 ],
                 "additionalProperties": False,
             },
@@ -184,7 +188,13 @@ class RuleExtractionProvider(Protocol):
 
     model_name: str
 
-    def extract_rules(self, text: str) -> Sequence[dict[str, object]]:
+    def extract_rules(
+        self,
+        text: str,
+        *,
+        source_language: str = "auto",
+        source_location: str = "unknown",
+    ) -> Sequence[dict[str, object]]:
         """Return structured rules explicitly supported by the source text."""
 
 
@@ -212,7 +222,14 @@ class StubRuleExtractionProvider:
 
     model_name = "stub-v1"
 
-    def extract_rules(self, text: str) -> Sequence[dict[str, object]]:
+    def extract_rules(
+        self,
+        text: str,
+        *,
+        source_language: str = "auto",
+        source_location: str = "unknown",
+    ) -> Sequence[dict[str, object]]:
+        del source_language, source_location
         rules: list[dict[str, object]] = []
         normalized_text = re.sub(r"(?<!\n)\n(?!\n)", " ", text)
         sentences = [
@@ -504,19 +521,30 @@ class OpenAICompatibleEntityExtractionProvider:
 class OpenAICompatibleRuleExtractionProvider:
     """Structured rule extraction adapter for OpenAI-compatible models."""
 
-    def __init__(self, config: ModelConfig, *, timeout: float = 90.0) -> None:
+    def __init__(self, config: ModelConfig, *, timeout: float | None = None) -> None:
         if not config.base_url:
             raise ValueError("base_url is required for a rule extraction provider")
         self.model_name = config.model
         self._config = config
-        self._timeout = timeout
+        self._timeout = timeout or config.request_timeout_seconds
 
-    def extract_rules(self, text: str) -> Sequence[dict[str, object]]:
+    def extract_rules(
+        self,
+        text: str,
+        *,
+        source_language: str = "auto",
+        source_location: str = "unknown",
+    ) -> Sequence[dict[str, object]]:
         prompt = (
-            "Extract only explicit, auditable, mandatory requirements from this legal "
-            "act. Do not infer, summarize, or invent requirements. Every rule must be "
-            "directly traceable to the source text. Return an empty rules array when "
-            "no safe rule can be created.\n\n"
+            "Извлеки только явные, проверяемые и обязательные требования из одного "
+            "фрагмента нормативного акта. Не додумывай, не суммируй и не изобретай "
+            "требования. Каждое правило должно быть непосредственно связано с "
+            "исходным текстом. Если безопасное правило создать нельзя, верни пустой "
+            "массив rules.\n\n"
+            f"source_language={source_language}; output_language={source_language}; "
+            f"source_location={source_location}.\n"
+            "Для русского источника не переводи name, description, keywords, query "
+            "и source_quote: сохраняй язык источника.\n\n"
             "The check_type and parameters must match these exact validator contracts:\n"
             '- duration: parameters must contain "min_days" and/or "max_days" as '
             "numbers. Use this for requirements such as 'at least 24 calendar days'.\n"
@@ -536,7 +564,8 @@ class OpenAICompatibleRuleExtractionProvider:
             "For example, convert 'vacation must be at least 24 calendar days' to "
             'check_type "duration" with {"min_days": 24}, not to a numeric rule '
             'with {"field": "...", "operator": ">=", "unit": "...", "value": 24}. '
-            "Return only JSON.\nDocument:\n"
+            "Для каждого правила обязательно верни точный source_quote из chunk и "
+            "source_location. Верни только JSON.\nChunk:\n"
             f"{text}"
         )
         response_format: dict[str, object] = {}
@@ -683,18 +712,29 @@ class GoogleAIStudioRuleExtractionProvider:
         self._config = config
         self._client = client or _google_client(config)
 
-    def extract_rules(self, text: str) -> Sequence[dict[str, object]]:
+    def extract_rules(
+        self,
+        text: str,
+        *,
+        source_language: str = "auto",
+        source_location: str = "unknown",
+    ) -> Sequence[dict[str, object]]:
         prompt = (
-            "Extract only explicit, mandatory, auditable requirements from this "
-            "legal act. Do not infer or invent rules. Use the exact validator "
+            "Извлеки только явные обязательные проверяемые требования из одного "
+            "фрагмента НПА. Не додумывай и не изобретай правила. Используй точные "
             'contracts: duration uses min_days/max_days; numeric uses entity '
             "plus min/max; date uses before/after ISO dates; keyword uses "
             "keywords plus optional mode (forbidden/required) and match "
             "(literal/stem/regex); regex uses pattern; semantic uses supported "
             "RAG settings. "
-            "Never use generic field/operator/unit/value parameters. Return exactly "
+            "Never use generic field/operator/unit/value parameters. "
+            f"source_language={source_language}; output_language={source_language}; "
+            f"source_location={source_location}. "
+            "For Russian sources, do not translate names, descriptions, keywords, "
+            "queries, or source quotes. Return exactly "
             'one JSON object with a "rules" array; do not return a bare array. '
-            f"JSON.\nDocument:\n{text}"
+            "Every rule must contain source_quote and source_location. "
+            f"JSON.\nChunk:\n{text}"
         )
         logger.info(
             "Calling Google AI Studio rule extraction (model: %s, prompt length: %d)",
@@ -710,6 +750,8 @@ class GoogleAIStudioRuleExtractionProvider:
                     config=_google_generation_config(
                         self._config, schema=RULE_EXTRACTION_SCHEMA
                     ),
+                    attempts=self._config.retry_attempts + 1,
+                    backoff_factor=self._config.retry_backoff_factor,
                 )
             except _google_api_error() as api_err:
                 logger.warning("Structured rule extraction with schema failed (%s), retrying with json_only", api_err)
@@ -718,6 +760,8 @@ class GoogleAIStudioRuleExtractionProvider:
                     model=self.model_name,
                     contents=prompt,
                     config=_google_generation_config(self._config, json_only=True),
+                    attempts=self._config.retry_attempts + 1,
+                    backoff_factor=self._config.retry_backoff_factor,
                 )
             raw_text = getattr(response, "text", "")
             trace_logger.info(
@@ -733,16 +777,8 @@ class GoogleAIStudioRuleExtractionProvider:
             logger.info("Google AI Studio successfully extracted %d rules", len(result))
             return result
         except Exception as exc:
-            logger.warning(
-                "Google AI Studio rule extraction failed (%s); falling back to deterministic extractor",
-                exc,
-            )
-            fallback = StubRuleExtractionProvider().extract_rules(text)
-            logger.info(
-                "Fallback StubRuleExtractionProvider produced %d rules",
-                len(fallback),
-            )
-            return fallback
+            logger.warning("Google AI Studio rule extraction failed: %s", exc)
+            raise RuntimeError("Google AI Studio rule extraction failed") from exc
 
 
 class GoogleAIStudioEmbeddingProvider:
@@ -817,6 +853,7 @@ def _generate_google_with_retries(
     contents: str,
     config,
     attempts: int = 3,
+    backoff_factor: float = 1.0,
 ):
     """Retry transient Google availability failures before reporting an error."""
     api_error = _google_api_error()
@@ -830,7 +867,7 @@ def _generate_google_with_retries(
         except api_error as exc:
             if not _is_retryable_google_error(exc) or attempt == attempts - 1:
                 raise
-            time.sleep(2**attempt)
+            time.sleep(backoff_factor * (2**attempt))
 
 
 def _is_retryable_google_error(error: Exception) -> bool:
@@ -981,19 +1018,32 @@ def _post_json(
         headers["Authorization"] = "Bear" + "er " + api_key
     elif config.api_key_env:
         raise ValueError(f"environment variable {config.api_key_env} is not set")
-    try:
-        with request.urlopen(
-            request.Request(f"{base_url}/{endpoint}", data=body, headers=headers, method="POST"),
-            timeout=timeout,
-        ) as response:
-            result = json.load(response)
-    except error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(
-            f"model provider request failed: HTTP {exc.code}: {detail}"
-        ) from exc
-    except (error.URLError, TimeoutError) as exc:
-        raise RuntimeError(f"model provider request failed: {exc}") from exc
+    attempts = config.retry_attempts + 1
+    for attempt in range(attempts):
+        try:
+            with request.urlopen(
+                request.Request(
+                    f"{base_url}/{endpoint}",
+                    data=body,
+                    headers=headers,
+                    method="POST",
+                ),
+                timeout=timeout,
+            ) as response:
+                result = json.load(response)
+            break
+        except error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            retryable = exc.code == 429 or 500 <= exc.code < 600
+            if not retryable or attempt == attempts - 1:
+                raise RuntimeError(
+                    f"model provider request failed: HTTP {exc.code}: {detail}"
+                ) from exc
+        except (error.URLError, TimeoutError) as exc:
+            if attempt == attempts - 1:
+                raise RuntimeError(f"model provider request failed: {exc}") from exc
+        if attempt < attempts - 1:
+            time.sleep(config.retry_backoff_factor * (2**attempt))
     if not isinstance(result, dict):
         raise ValueError("model provider returned a non-object response")
     return result

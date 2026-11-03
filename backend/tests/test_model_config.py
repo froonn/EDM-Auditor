@@ -6,6 +6,7 @@ from edm_auditor.model_config import (
     LegalActProcessingConfig,
     ModelConfig,
     ModelSettings,
+    detect_source_language,
 )
 from edm_auditor.model_providers import (
     StubLLMProvider,
@@ -80,6 +81,11 @@ def test_source_language_can_be_overridden_from_environment(
     settings = ModelSettings.from_env()
 
     assert settings.processing.source_language == "ru"
+
+
+def test_source_language_detection_uses_script_ratio() -> None:
+    assert detect_source_language("Требование должно быть выполнено.") == "ru"
+    assert detect_source_language("The requirement must be fulfilled.") == "en"
 
 
 def test_invalid_model_config_is_rejected() -> None:
