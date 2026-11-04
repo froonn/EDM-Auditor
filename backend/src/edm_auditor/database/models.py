@@ -42,6 +42,38 @@ document_confirmed_types = Table(
 )
 
 
+rule_document_types = Table(
+    "rule_document_types",
+    Base.metadata,
+    Column(
+        "rule_id",
+        ForeignKey("audit_rules.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "document_type_code",
+        ForeignKey("document_types.code", ondelete="RESTRICT"),
+        primary_key=True,
+    ),
+)
+
+
+legal_act_document_types = Table(
+    "legal_act_document_types",
+    Base.metadata,
+    Column(
+        "legal_act_id",
+        ForeignKey("legal_acts.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "document_type_code",
+        ForeignKey("document_types.code", ondelete="RESTRICT"),
+        primary_key=True,
+    ),
+)
+
+
 class DocumentType(Base):
     """Catalog entry; ``unknown`` is a classification state and never a row here."""
 
@@ -163,6 +195,9 @@ class LegalAct(Base):
     rules_accepted: Mapped[int] = mapped_column(Integer, default=0)
     rules_rejected: Mapped[int] = mapped_column(Integer, default=0)
 
+    document_types: Mapped[list[DocumentType]] = relationship(
+        secondary=legal_act_document_types, order_by=DocumentType.code
+    )
     rules: Mapped[list["AuditRule"]] = relationship(
         back_populates="legal_act",
         cascade="all, delete-orphan",
@@ -184,7 +219,9 @@ class AuditRule(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     rule_code: Mapped[str] = mapped_column(String(100), unique=True)
     name: Mapped[str] = mapped_column(String(255))
-    document_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    applicability_scope: Mapped[str] = mapped_column(String(20), default="unknown")
+    applicability_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    applicability_source: Mapped[str | None] = mapped_column(String(50), nullable=True)
     severity: Mapped[str] = mapped_column(String(20))
     description: Mapped[str] = mapped_column(Text, default="")
     check_type: Mapped[str] = mapped_column(String(20))
@@ -203,6 +240,9 @@ class AuditRule(Base):
     source_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     legal_act: Mapped[LegalAct | None] = relationship(back_populates="rules")
+    document_types: Mapped[list[DocumentType]] = relationship(
+        secondary=rule_document_types, order_by=DocumentType.code
+    )
     findings: Mapped[list["AuditFinding"]] = relationship(back_populates="rule")
 
     __table_args__ = (
@@ -217,6 +257,10 @@ class AuditRule(Base):
         CheckConstraint(
             "parameters_json IS NULL OR json_valid(parameters_json)",
             name="ck_rules_parameters_json",
+        ),
+        CheckConstraint(
+            "applicability_scope IN ('universal', 'typed', 'manual_only', 'unknown')",
+            name="ck_rules_applicability_scope",
         ),
     )
 

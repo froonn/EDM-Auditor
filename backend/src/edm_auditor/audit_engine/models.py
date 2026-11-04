@@ -14,7 +14,8 @@ class RuleSpec:
     severity: str
     check_type: str
     description: str = ""
-    document_type: str | None = None
+    applicability_scope: str = "unknown"
+    document_types: tuple[str, ...] = ()
     parameters: dict[str, Any] = field(default_factory=dict)
     legal_act_id: int | None = None
     is_active: bool = True

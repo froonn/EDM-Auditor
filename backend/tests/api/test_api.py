@@ -1,4 +1,5 @@
 from pathlib import Path
+import sqlite3
 
 import pytest
 from fastapi.testclient import TestClient
@@ -80,6 +81,7 @@ def test_app_rejects_preset_without_online_extractor(
         lambda *args, **kwargs: replace(configured, extractor=None),
     )
     settings = ApiSettings(
+        database_url=f"sqlite:///{tmp_path / 'api.sqlite3'}",
         upload_dir=tmp_path / "uploads",
         max_upload_bytes=1024,
         rag_index_path=tmp_path / "rag-index.sqlite3",
@@ -92,12 +94,27 @@ def test_app_rejects_preset_without_online_extractor(
 def test_app_does_not_start_without_model_preset(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("EDM_MODEL_PRESET")
     settings = ApiSettings(
+        database_url=f"sqlite:///{tmp_path / 'api.sqlite3'}",
         upload_dir=tmp_path / "uploads",
         max_upload_bytes=1024,
         rag_index_path=tmp_path / "rag-index.sqlite3",
     )
 
     with pytest.raises(ValueError, match="EDM_MODEL_PRESET"):
+        create_app(settings=settings)
+
+
+def test_app_reports_database_with_outdated_schema(tmp_path: Path) -> None:
+    path = tmp_path / "old.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.execute("CREATE TABLE audit_rules (id INTEGER PRIMARY KEY)")
+    settings = ApiSettings(
+        database_url=f"sqlite:///{path}",
+        upload_dir=tmp_path / "uploads",
+        rag_index_path=tmp_path / "rag-index.sqlite3",
+    )
+
+    with pytest.raises(RuntimeError, match="alembic upgrade head"):
         create_app(settings=settings)
 
 

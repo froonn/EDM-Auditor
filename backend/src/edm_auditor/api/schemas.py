@@ -88,7 +88,8 @@ class RuleCreate(BaseModel):
     severity: str
     check_type: str
     description: str = ""
-    document_type: str | None = None
+    applicability_scope: str | None = None
+    document_types: list[str] = Field(default_factory=list)
     parameters: dict[str, Any] = Field(default_factory=dict)
     legal_act_id: int | None = None
 
@@ -99,7 +100,10 @@ class RuleResponse(BaseModel):
     id: int
     rule_code: str
     name: str
-    document_type: str | None
+    applicability_scope: str = "unknown"
+    document_types: list[str] = Field(default_factory=list)
+    applicability_confidence: float | None = None
+    applicability_source: str | None = None
     severity: str
     description: str
     check_type: str

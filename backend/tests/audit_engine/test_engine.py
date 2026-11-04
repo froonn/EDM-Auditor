@@ -13,7 +13,13 @@ from edm_auditor.audit_engine import (
 )
 from edm_auditor.database.connection import create_engine_for, create_session_factory
 from edm_auditor.database.enums import AuditSeverity, CheckType, DocumentStatus
-from edm_auditor.database.models import AuditReport, AuditRule, Base, Document
+from edm_auditor.database.models import (
+    AuditReport,
+    AuditRule,
+    Base,
+    Document,
+    DocumentType,
+)
 from edm_auditor.audit_engine.neural_errors import AuditModelError
 from edm_auditor.rag.exceptions import EmbeddingError
 from fakes import FailingEntityProvider, FailingLLMProvider, FakeLLMProvider, no_entities
@@ -43,15 +49,6 @@ def test_engine_applies_active_matching_rules_and_deduplicates() -> None:
             parameters={"keywords": ["14 дней"]},
         ),
         RuleSpec(
-            rule_id=2,
-            rule_code="other-document",
-            name="Not applicable",
-            severity="high",
-            check_type="keyword",
-            document_type="order",
-            parameters={"keywords": ["отпуск"]},
-        ),
-        RuleSpec(
             rule_id=3,
             rule_code="inactive",
             name="Inactive",
@@ -62,7 +59,7 @@ def test_engine_applies_active_matching_rules_and_deduplicates() -> None:
         ),
     ]
 
-    result = AuditEngine(entity_extractor=no_entities).audit(text, rules, document_type="contract")
+    result = AuditEngine(entity_extractor=no_entities).audit(text, rules)
 
     assert len(result.findings) == 1
     assert result.findings[0].quote == "14 дней"
@@ -183,6 +180,12 @@ def session_factory():
         engine.dispose()
 
 
+def _contract_type(session) -> DocumentType:
+    return session.get(DocumentType, "contract") or DocumentType(
+        code="contract", name="Contract"
+    )
+
+
 def make_persistence(session_factory, *, llm=None, entity_extractor=no_entities):
     return AuditPersistence(
         session_factory,
@@ -199,7 +202,7 @@ def test_persistence_creates_atomic_report_and_updates_status(session_factory) -
                 file_type="txt",
                 file_path="contract.txt",
                 raw_text="Отпуск составляет 14 дней.",
-                classified_type="contract",
+                confirmed_types=[_contract_type(session)],
             )
         )
     with session_factory() as session:
@@ -212,7 +215,8 @@ def test_persistence_creates_atomic_report_and_updates_status(session_factory) -
                 severity=AuditSeverity.HIGH.value,
                 check_type=CheckType.KEYWORD.value,
                 parameters_json=json.dumps({"keywords": ["14 дней"]}),
-                document_type="contract",
+                applicability_scope="typed",
+                document_types=[_contract_type(session)],
             )
         )
 
@@ -238,7 +242,7 @@ def test_persistence_audits_synthetic_employment_contract(session_factory) -> No
                 file_type="txt",
                 file_path="employment_contract.txt",
                 raw_text=contract,
-                classified_type="contract",
+                confirmed_types=[_contract_type(session)],
             )
         )
     with session_factory() as session:
@@ -252,7 +256,8 @@ def test_persistence_audits_synthetic_employment_contract(session_factory) -> No
                     severity=AuditSeverity.HIGH.value,
                     check_type=CheckType.DURATION.value,
                     parameters_json=json.dumps({"min_days": 24}),
-                    document_type="contract",
+                    applicability_scope="typed",
+                document_types=[_contract_type(session)],
                 ),
                 AuditRule(
                     rule_code="probation-limit",
@@ -260,7 +265,8 @@ def test_persistence_audits_synthetic_employment_contract(session_factory) -> No
                     severity=AuditSeverity.HIGH.value,
                     check_type=CheckType.DURATION.value,
                     parameters_json=json.dumps({"max_days": 90}),
-                    document_type="contract",
+                    applicability_scope="typed",
+                document_types=[_contract_type(session)],
                 ),
                 AuditRule(
                     rule_code="contract-date",
@@ -268,7 +274,8 @@ def test_persistence_audits_synthetic_employment_contract(session_factory) -> No
                     severity=AuditSeverity.MEDIUM.value,
                     check_type=CheckType.DATE.value,
                     parameters_json=json.dumps({"after": "2026-03-01"}),
-                    document_type="contract",
+                    applicability_scope="typed",
+                document_types=[_contract_type(session)],
                 ),
                 AuditRule(
                     rule_code="prohibited-probation-wording",
@@ -276,7 +283,8 @@ def test_persistence_audits_synthetic_employment_contract(session_factory) -> No
                     severity=AuditSeverity.LOW.value,
                     check_type=CheckType.KEYWORD.value,
                     parameters_json=json.dumps({"keywords": ["испытательный срок"]}),
-                    document_type="contract",
+                    applicability_scope="typed",
+                document_types=[_contract_type(session)],
                 ),
             ]
         )
@@ -314,6 +322,7 @@ def test_persistence_stores_neural_analysis_status(session_factory) -> None:
                 name="Condition",
                 severity=AuditSeverity.LOW.value,
                 check_type=CheckType.KEYWORD.value,
+                applicability_scope="universal",
                 parameters_json=json.dumps({"keywords": ["условие"]}),
             )
         )

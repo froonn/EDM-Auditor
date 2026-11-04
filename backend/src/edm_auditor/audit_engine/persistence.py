@@ -48,10 +48,15 @@ class AuditPersistence:
                     .where(AuditRule.is_active.is_(True))
                     .order_by(AuditRule.id)
                 ).all()
+                confirmed = {item.code for item in document.confirmed_types}
                 result = self._engine.audit(
                     document.raw_text,
-                    (_to_rule_spec(rule) for rule in rules),
-                    document_type=document.classified_type,
+                    (
+                        spec
+                        for spec in map(_to_rule_spec, rules)
+                        if spec.applicability_scope != "typed"
+                        or confirmed.intersection(spec.document_types)
+                    ),
                 )
                 neural = self._analyze(result.findings, document.classified_type)
                 counts = result.counts
@@ -140,7 +145,8 @@ def _to_rule_spec(rule: AuditRule) -> RuleSpec:
         severity=rule.severity,
         check_type=rule.check_type,
         description=rule.description,
-        document_type=rule.document_type,
+        applicability_scope=rule.applicability_scope,
+        document_types=tuple(item.code for item in rule.document_types),
         parameters=parameters,
         legal_act_id=rule.legal_act_id,
         is_active=rule.is_active,

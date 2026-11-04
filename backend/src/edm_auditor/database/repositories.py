@@ -114,7 +114,7 @@ class DocumentRepository:
         severity: AuditSeverity,
         check_type: CheckType,
         description: str = "",
-        document_type: str | None = None,
+        applicability_scope: str = "unknown",
         parameters_json: str | None = None,
         legal_act_id: int | None = None,
     ) -> AuditRule:
@@ -125,7 +125,7 @@ class DocumentRepository:
                 severity=severity.value,
                 check_type=check_type.value,
                 description=description,
-                document_type=document_type,
+                applicability_scope=applicability_scope,
                 parameters_json=parameters_json,
                 legal_act_id=legal_act_id,
             )

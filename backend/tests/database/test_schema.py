@@ -32,6 +32,8 @@ def test_schema_contains_all_tables(session_factory) -> None:
         "users",
         "document_types",
         "document_confirmed_types",
+        "rule_document_types",
+        "legal_act_document_types",
         "documents",
         "document_paragraphs",
         "legal_acts",

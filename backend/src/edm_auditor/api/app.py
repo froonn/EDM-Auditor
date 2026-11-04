@@ -13,10 +13,17 @@ from uuid import uuid4
 from fastapi import FastAPI, File, Form, Query, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, inspect as inspect_schema, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
+from edm_auditor.applicability import ApplicabilityScope
+from edm_auditor.applicability.rule_scope import (
+    SOURCE_MANUAL,
+    RuleApplicability,
+    apply_rule_applicability,
+    legal_act_applicability,
+)
 from edm_auditor.audit_engine.persistence import AuditPersistence
 from edm_auditor.audit_engine import AuditEngine, LLMInterpreter, entities_from_provider
 from edm_auditor.audit_engine.neural_errors import AuditModelError
@@ -26,14 +33,17 @@ from edm_auditor.database import (
     create_engine_for,
     create_session_factory,
 )
+from edm_auditor.classification.store import ensure_default_document_types
 from edm_auditor.database.enums import AuditSeverity, CheckType
 from edm_auditor.database.models import (
     AuditFinding,
     AuditReport,
     AuditRule,
     Document,
+    DocumentType,
     LegalAct,
     RuleExtractionResult,
+    rule_document_types,
 )
 from edm_auditor.document_parser import parse_document
 from edm_auditor.document_parser.exceptions import DocumentParserError
@@ -115,7 +125,9 @@ def create_app(
     if session_factory is None:
         engine = create_engine_for(config.database_url)
         Base.metadata.create_all(engine)
+        _require_current_schema(engine)
         session_factory = create_session_factory(engine)
+    ensure_default_document_types(session_factory)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -297,6 +309,7 @@ def create_app(
                 )
             published = 0
             duplicates = 0
+            applicability = legal_act_applicability(session, legal_act)
             for index, generated in enumerate(validated_rules, start=1):
                 parameters_json = generated["parameters_json"]
                 deduplication_key = hashlib.sha256(
@@ -316,8 +329,7 @@ def create_app(
                     f"{source_code}-{chunk_id.rsplit(':', 1)[-1]}-{index:03d}-"
                     f"{deduplication_key[:8]}"
                 )[:100]
-                session.add(
-                    AuditRule(
+                generated_rule = AuditRule(
                         legal_act_id=legal_act_id,
                         is_generated=True,
                         deduplication_key=deduplication_key,
@@ -331,8 +343,9 @@ def create_app(
                         description=generated["description"],
                         check_type=generated["check_type"],
                         parameters_json=parameters_json,
-                    )
                 )
+                apply_rule_applicability(generated_rule, applicability)
+                session.add(generated_rule)
                 published += 1
             legal_act.processing_status = "completed" if duplicates == 0 else "partial"
             legal_act.chunks_processed = len(chunks)
@@ -591,7 +604,9 @@ def create_app(
             if is_active is not None:
                 statement = statement.where(AuditRule.is_active.is_(is_active))
             if document_type is not None:
-                statement = statement.where(AuditRule.document_type == document_type)
+                statement = statement.join(rule_document_types).where(
+                    rule_document_types.c.document_type_code == document_type
+                )
             if check_type is not None:
                 statement = statement.where(AuditRule.check_type == check_type)
             return [
@@ -616,11 +631,16 @@ def create_app(
                 severity=payload.severity,
                 check_type=payload.check_type,
                 description=payload.description,
-                document_type=payload.document_type,
                 parameters_json=json.dumps(
                     payload.parameters, ensure_ascii=False, sort_keys=True
                 ),
                 legal_act_id=payload.legal_act_id,
+            )
+            apply_rule_applicability(
+                rule,
+                _manual_applicability(
+                    session, payload.applicability_scope, payload.document_types
+                ),
             )
             session.add(rule)
             try:
@@ -830,12 +850,61 @@ def create_app(
     return app
 
 
+def _require_current_schema(engine) -> None:
+    """``create_all`` cannot add columns, so report an outdated database at startup."""
+    columns = {item["name"] for item in inspect_schema(engine).get_columns("audit_rules")}
+    if "applicability_scope" not in columns:
+        raise RuntimeError(
+            "The database schema is outdated. Back it up and run "
+            "'alembic upgrade head' (for a database that has no alembic_version table, "
+            "run 'alembic stamp 0005_rule_publication_metadata' first)."
+        )
+
+
+def _active_document_types(session: Session, codes: list[str]) -> list[DocumentType]:
+    rows = []
+    for code in dict.fromkeys(codes):
+        row = session.get(DocumentType, code)
+        if row is None or not row.is_active:
+            raise ApiError(
+                422, "unknown_document_type", f"Unknown or inactive document type: {code}"
+            )
+        rows.append(row)
+    return rows
+
+
+def _manual_applicability(
+    session: Session, scope: str | None, codes: list[str]
+) -> RuleApplicability:
+    """A rule without a type applies everywhere, as manual rules always have."""
+    types = _active_document_types(session, codes)
+    try:
+        resolved = ApplicabilityScope(
+            scope
+            or (ApplicabilityScope.TYPED if types else ApplicabilityScope.UNIVERSAL)
+        )
+    except ValueError as exc:
+        raise ApiError(
+            422, "invalid_applicability_scope", "Unsupported applicability scope"
+        ) from exc
+    if (resolved is ApplicabilityScope.TYPED) != bool(types):
+        raise ApiError(
+            422,
+            "invalid_applicability_scope",
+            "Document types are required for the typed scope and only allowed for it",
+        )
+    return RuleApplicability(resolved, tuple(types), 1.0, SOURCE_MANUAL)
+
+
 def _rule_response(rule: AuditRule) -> RuleResponse:
     return RuleResponse(
         id=rule.id,
         rule_code=rule.rule_code,
         name=rule.name,
-        document_type=rule.document_type,
+        applicability_scope=rule.applicability_scope,
+        document_types=[item.code for item in rule.document_types],
+        applicability_confidence=rule.applicability_confidence,
+        applicability_source=rule.applicability_source,
         severity=rule.severity,
         description=rule.description,
         check_type=rule.check_type,

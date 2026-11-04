@@ -28,8 +28,6 @@ class AuditEngine:
         self,
         text: str,
         rules: Iterable[RuleSpec],
-        *,
-        document_type: str | None = None,
     ) -> AuditResult:
         findings: list[FindingDraft] = []
         diagnostics: list[RuleDiagnostic] = []
@@ -42,9 +40,7 @@ class AuditEngine:
         except (RuntimeError, ValueError, TypeError) as exc:
             raise AuditModelError("entity extraction model failed") from exc
         for rule in rules:
-            if not rule.is_active or (
-                rule.document_type is not None and rule.document_type != document_type
-            ):
+            if not rule.is_active:
                 continue
             try:
                 if rule.check_type == "semantic":
