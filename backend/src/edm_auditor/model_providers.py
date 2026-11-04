@@ -3,7 +3,6 @@
 from collections.abc import Sequence
 import json
 import logging
-import re
 import time
 from typing import Protocol
 from urllib import error, request
@@ -13,7 +12,6 @@ trace_logger = logging.getLogger("edm_auditor.trace")
 
 from .model_config import ModelConfig
 from .rag.embeddings import (
-    DeterministicEmbeddingProvider,
     EmbeddingProvider,
     Vector,
     validate_vectors,
@@ -196,165 +194,6 @@ class RuleExtractionProvider(Protocol):
         source_location: str = "unknown",
     ) -> Sequence[dict[str, object]]:
         """Return structured rules explicitly supported by the source text."""
-
-
-class StubLLMProvider:
-    """Offline provider that makes accidental network calls impossible."""
-
-    model_name = "stub-v1"
-
-    def generate(
-        self,
-        *,
-        system_prompt: str,
-        user_prompt: str,
-        context: Sequence[str] = (),
-    ) -> str:
-        del system_prompt, user_prompt, context
-        return (
-            '{"schema_version":"1","analyses":[],"general_summary":'
-            '"LLM analysis is disabled in the offline provider"}'
-        )
-
-
-class StubRuleExtractionProvider:
-    """Deterministic rule extractor from normative legal text for offline/fallback use."""
-
-    model_name = "stub-v1"
-
-    def extract_rules(
-        self,
-        text: str,
-        *,
-        source_language: str = "auto",
-        source_location: str = "unknown",
-    ) -> Sequence[dict[str, object]]:
-        del source_language, source_location
-        rules: list[dict[str, object]] = []
-        normalized_text = re.sub(r"(?<!\n)\n(?!\n)", " ", text)
-        sentences = [
-            s.strip()
-            for s in re.split(r"(?<=[.!?])\s+|\n+", normalized_text)
-            if s.strip()
-        ]
-        rule_idx = 1
-        for sentence in sentences:
-            # 1. Check for duration rules
-            duration_match = re.search(
-                r"\b(не\s+позднее|не\s+менее|не\s+более|не\s+может\s+превышать|в\s+течение)\s+"
-                r"(\d+(?:[.,]\d+)?)\s*(?:[а-я-]+\s+)*(дн(?:я|ей)?|месяц(?:а|ев)?|лет?|год(?:а|ов)?)\b",
-                sentence,
-                re.IGNORECASE,
-            )
-            if duration_match:
-                prefix = duration_match.group(1).lower()
-                val = float(duration_match.group(2).replace(",", "."))
-                unit = duration_match.group(3).lower()
-                days = val
-                if unit.startswith("месяц"):
-                    days = val * 30
-                elif unit.startswith(("год", "лет")):
-                    days = val * 365
-
-                params: dict[str, object] = {}
-                if any(w in prefix for w in ("более", "превышать", "течение")):
-                    params["max_days"] = int(days)
-                else:
-                    params["min_days"] = int(days)
-
-                rules.append({
-                    "rule_code": f"rule-duration-{rule_idx}",
-                    "name": sentence[:100],
-                    "description": sentence,
-                    "severity": "critical",
-                    "check_type": "duration",
-                    "parameters": params,
-                })
-                rule_idx += 1
-                continue
-
-            # 2. Check for numeric money rules
-            money_match = re.search(
-                r"\b(не\s+может\s+быть\s+меньше|не\s+менее|не\s+меньше|не\s+более|не\s+больше)\s+"
-                r"(\d+(?:[.,]\d+)?)\s*(руб(?:лей|ля)?|BYN|р\.)\b",
-                sentence,
-                re.IGNORECASE,
-            )
-            if money_match:
-                prefix = money_match.group(1).lower()
-                val = float(money_match.group(2).replace(",", "."))
-                params_m: dict[str, object] = {"entity": "money"}
-                if "более" in prefix or "больше" in prefix:
-                    params_m["max"] = val
-                else:
-                    params_m["min"] = val
-                rules.append({
-                    "rule_code": f"rule-numeric-{rule_idx}",
-                    "name": sentence[:100],
-                    "description": sentence,
-                    "severity": "critical",
-                    "check_type": "numeric",
-                    "parameters": params_m,
-                })
-                rule_idx += 1
-                continue
-
-            # 3. Check for numeric percent rules
-            percent_match = re.search(
-                r"\b(не\s+менее|не\s+меньше|не\s+более|не\s+больше)\s+"
-                r"(\d+(?:[.,]\d+)?)\s*(?:процент(?:а|ов)?|%)\b",
-                sentence,
-                re.IGNORECASE,
-            )
-            if percent_match:
-                prefix = percent_match.group(1).lower()
-                val = float(percent_match.group(2).replace(",", "."))
-                params_p: dict[str, object] = {"entity": "percent"}
-                if "более" in prefix or "больше" in prefix:
-                    params_p["max"] = val
-                else:
-                    params_p["min"] = val
-                rules.append({
-                    "rule_code": f"rule-numeric-{rule_idx}",
-                    "name": sentence[:100],
-                    "description": sentence,
-                    "severity": "critical",
-                    "check_type": "numeric",
-                    "parameters": params_p,
-                })
-                rule_idx += 1
-                continue
-
-            # 4. Check for keyword rules
-            kw_match = re.search(
-                r"должен\s+содержать\s+(?:слово\s+)?[«\"']([^»\"']+)[»\"']",
-                sentence,
-                re.IGNORECASE,
-            )
-            if kw_match:
-                kw = kw_match.group(1).strip()
-                rules.append({
-                    "rule_code": f"rule-keyword-{rule_idx}",
-                    "name": sentence[:100],
-                    "description": sentence,
-                    "severity": "medium",
-                    "check_type": "keyword",
-                    "parameters": {"keywords": [kw], "mode": "required", "match": "stem"},
-                })
-                rule_idx += 1
-                continue
-
-        return tuple(rules)
-
-
-class StubEntityExtractionProvider:
-    """Offline entity extractor that performs no external model call."""
-
-    model_name = "stub-v1"
-
-    def extract(self, text: str) -> Sequence[dict[str, str]]:
-        del text
-        return ()
 
 
 class OpenAICompatibleEmbeddingProvider:
@@ -626,7 +465,8 @@ class GoogleAIStudioLLMProvider:
         if context:
             prompt = f"{user_prompt}\n\nContext:\n" + "\n\n".join(context)
         try:
-            response = self._client.models.generate_content(
+            response = _generate_google_with_retries(
+                self._client,
                 model=self.model_name,
                 contents=prompt,
                 config=_google_generation_config(
@@ -638,17 +478,13 @@ class GoogleAIStudioLLMProvider:
                         else None
                     ),
                 ),
+                attempts=self._config.retry_attempts + 1,
+                backoff_factor=self._config.retry_backoff_factor,
             )
             return _google_response_text(response)
         except Exception as exc:
-            logger.warning(
-                "Google AI Studio generation failed (%s); using offline stub", exc
-            )
-            return StubLLMProvider().generate(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                context=context,
-            )
+            logger.warning("Google AI Studio generation failed: %s", exc)
+            raise RuntimeError("Google AI Studio generation failed") from exc
 
 
 class GoogleAIStudioEntityExtractionProvider:
@@ -666,7 +502,8 @@ class GoogleAIStudioEntityExtractionProvider:
             len(text),
         )
         try:
-            response = self._client.models.generate_content(
+            response = _generate_google_with_retries(
+                self._client,
                 model=self.model_name,
                 contents=(
                     "Extract every date, duration, money amount, percentage, and "
@@ -674,6 +511,8 @@ class GoogleAIStudioEntityExtractionProvider:
                     f"Document:\n{text}"
                 ),
                 config=_google_generation_config(self._config, schema=ENTITY_EXTRACTION_SCHEMA),
+                attempts=self._config.retry_attempts + 1,
+                backoff_factor=self._config.retry_backoff_factor,
             )
             raw_text = getattr(response, "text", "")
             trace_logger.info(
@@ -694,14 +533,8 @@ class GoogleAIStudioEntityExtractionProvider:
             logger.info("Google AI Studio successfully extracted %d entities", len(result))
             return result
         except Exception as exc:
-            logger.warning(
-                "Google AI Studio entity extraction failed (%s); using deterministic extraction",
-                exc,
-            )
-            from .audit_engine.extractors import extract_entities
-            deterministic = extract_entities(text)
-            logger.info("Deterministic entity extraction fallback produced %d entities", len(deterministic))
-            return tuple({"kind": entity.kind, "value": entity.value} for entity in deterministic)
+            logger.warning("Google AI Studio entity extraction failed: %s", exc)
+            raise RuntimeError("Google AI Studio entity extraction failed") from exc
 
 
 class GoogleAIStudioRuleExtractionProvider:
@@ -798,10 +631,14 @@ class GoogleAIStudioEmbeddingProvider:
         try:
             vectors = []
             for text in texts:
-                response = self._client.models.embed_content(
-                    model=self.model_name,
-                    contents=text,
-                    config={"output_dimensionality": self.dimension},
+                response = _retry_google(
+                    lambda: self._client.models.embed_content(
+                        model=self.model_name,
+                        contents=text,
+                        config={"output_dimensionality": self.dimension},
+                    ),
+                    attempts=self._config.retry_attempts + 1,
+                    backoff_factor=self._config.retry_backoff_factor,
                 )
                 values = getattr(getattr(response, "embeddings", [None])[0], "values", None)
                 if not isinstance(values, (list, tuple)):
@@ -810,11 +647,8 @@ class GoogleAIStudioEmbeddingProvider:
             validate_vectors(vectors, len(texts), self.dimension)
             return tuple(vectors)
         except Exception as exc:
-            logger.warning(
-                "Google AI Studio embedding failed (%s); falling back to deterministic provider",
-                exc,
-            )
-            return DeterministicEmbeddingProvider(dimension=self.dimension).embed_documents(texts)
+            logger.warning("Google AI Studio embedding failed: %s", exc)
+            raise EmbeddingError("Google AI Studio embedding failed") from exc
 
     def embed_query(self, text: str) -> Vector:
         return self.embed_documents([text])[0]
@@ -855,15 +689,23 @@ def _generate_google_with_retries(
     attempts: int = 3,
     backoff_factor: float = 1.0,
 ):
+    return _retry_google(
+        lambda: client.models.generate_content(
+            model=model,
+            contents=contents,
+            config=config,
+        ),
+        attempts=attempts,
+        backoff_factor=backoff_factor,
+    )
+
+
+def _retry_google(call, *, attempts: int = 3, backoff_factor: float = 1.0):
     """Retry transient Google availability failures before reporting an error."""
     api_error = _google_api_error()
     for attempt in range(attempts):
         try:
-            return client.models.generate_content(
-                model=model,
-                contents=contents,
-                config=config,
-            )
+            return call()
         except api_error as exc:
             if not _is_retryable_google_error(exc) or attempt == attempts - 1:
                 raise
@@ -871,8 +713,7 @@ def _generate_google_with_retries(
 
 
 def _is_retryable_google_error(error: Exception) -> bool:
-    status_code = getattr(error, "status_code", None)
-    return status_code in {429, 500, 503}
+    return getattr(error, "code", None) in {429, 500, 503}
 
 
 def _google_generation_config(
@@ -957,11 +798,6 @@ def _parse_rule_response(response) -> dict[str, object]:
 
 def create_embedding_provider(config: ModelConfig) -> EmbeddingProvider:
     """Create an embedding provider from a resolved model config."""
-    if config.provider == "deterministic":
-        return DeterministicEmbeddingProvider(
-            dimension=config.dimension or 32,
-            model_name=config.model,
-        )
     if config.provider == "openai-compatible":
         return OpenAICompatibleEmbeddingProvider(config)
     if config.provider == "google-ai-studio":
@@ -971,8 +807,6 @@ def create_embedding_provider(config: ModelConfig) -> EmbeddingProvider:
 
 def create_llm_provider(config: ModelConfig) -> LLMProvider:
     """Create an LLM provider from a resolved model config."""
-    if config.provider == "stub":
-        return StubLLMProvider()
     if config.provider == "openai-compatible":
         return OpenAICompatibleLLMProvider(config)
     if config.provider == "google-ai-studio":
@@ -983,8 +817,6 @@ def create_llm_provider(config: ModelConfig) -> LLMProvider:
 def create_entity_extraction_provider(
     config: ModelConfig,
 ) -> EntityExtractionProvider:
-    if config.provider == "stub":
-        return StubEntityExtractionProvider()
     """Create a configured document entity extraction provider."""
     if config.provider == "openai-compatible":
         return OpenAICompatibleEntityExtractionProvider(config)
@@ -995,8 +827,6 @@ def create_entity_extraction_provider(
 
 def create_rule_extraction_provider(config: ModelConfig) -> RuleExtractionProvider:
     """Create a configured legal-act rule extraction provider."""
-    if config.provider == "stub":
-        return StubRuleExtractionProvider()
     if config.provider == "openai-compatible":
         return OpenAICompatibleRuleExtractionProvider(config)
     if config.provider == "google-ai-studio":

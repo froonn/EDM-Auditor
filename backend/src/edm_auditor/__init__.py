@@ -11,7 +11,6 @@ from .model_providers import (
     LLMProvider,
     OpenAICompatibleEmbeddingProvider,
     OpenAICompatibleLLMProvider,
-    StubLLMProvider,
     create_embedding_provider,
     create_llm_provider,
 )
@@ -26,7 +25,6 @@ __all__ = [
     "detect_source_language",
     "OpenAICompatibleEmbeddingProvider",
     "OpenAICompatibleLLMProvider",
-    "StubLLMProvider",
     "create_embedding_provider",
     "create_llm_provider",
 ]

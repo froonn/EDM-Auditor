@@ -1,4 +1,4 @@
-"""Contracts for the optional neural interpretation layer."""
+"""Contracts for the neural interpretation layer."""
 
 from dataclasses import dataclass
 from typing import Any

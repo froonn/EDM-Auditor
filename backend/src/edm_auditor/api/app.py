@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from edm_auditor.audit_engine.persistence import AuditPersistence
 from edm_auditor.audit_engine import AuditEngine, LLMInterpreter, entities_from_provider
+from edm_auditor.audit_engine.neural_errors import AuditModelError
 from edm_auditor.database import (
     Base,
     DocumentRepository,
@@ -150,8 +151,6 @@ def create_app(
         logger.info("Rebuilt RAG index: %s chunks", count)
 
     app.state.rebuild_rag_index = rebuild_rag_index
-    neural_interpreter = None
-    entity_extractor = None
     model_settings = ModelSettings.from_toml(
         config.model_config,
         source_language=config.source_language,
@@ -474,10 +473,14 @@ def create_app(
                 session_factory,
                 engine=AuditEngine(entity_extractor=entity_extractor),
                 neural_interpreter=neural_interpreter,
-                neural_mode="required",
             ).audit_document(document_id)
         except LookupError as exc:
             raise ApiError(404, "document_not_found", str(exc)) from exc
+        except AuditModelError as exc:
+            logger.exception("Audit of document %s failed", document_id)
+            raise ApiError(
+                503, "model_provider_error", f"Audit was not completed: {exc}"
+            ) from exc
         except (ValueError, TypeError) as exc:
             raise ApiError(422, "audit_configuration_error", str(exc)) from exc
         return AuditRequestResponse(

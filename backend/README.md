@@ -144,55 +144,10 @@ storage.
 ## RAG indexer
 
 The RAG layer splits legal-act text into source-preserving chunks and stores
-their deterministic embeddings in a local SQLite vector index. The default
-provider is intentionally offline and is suitable for tests; a production
-embedding provider can implement the same `EmbeddingProvider` protocol later.
-The first version is intentionally limited to the offline deterministic
-provider and a local SQLite index. A production embedding provider and a larger
-legal-act corpus should be added separately; they must not become requirements
-for the ordinary test suite. If the corpus grows beyond local SQLite usage, the
-vector store can be replaced behind the existing RAG interfaces.
-
-The production embedding provider and the starter legal-act dataset are not
-implemented yet. Until those decisions are made, use
-`DeterministicEmbeddingProvider` and local or synthetic test texts only.
-
-The following example creates an index in a temporary directory and searches
-it without network access or API keys:
-
-```bash
-python - <<'PY'
-from pathlib import Path
-
-from edm_auditor.rag import (
-    DeterministicEmbeddingProvider,
-    IndexSource,
-    RAGIndexer,
-    RAGSearch,
-    SQLiteVectorStore,
-)
-
-provider = DeterministicEmbeddingProvider()
-store = SQLiteVectorStore(
-    Path("data/rag-index.sqlite3"),
-    embedding_model=provider.model_name,
-    dimension=provider.dimension,
-    chunking_version="paragraph-v1",
-)
-RAGIndexer(store, provider).build(
-    [IndexSource(legal_act_id=1, text="Annual leave is granted every year.")]
-)
-
-for result in RAGSearch(store, provider).search("annual leave", k=3):
-    chunk = result.chunk
-    print(
-        result.score,
-        chunk.legal_act_id,
-        f"chars {chunk.start_char}:{chunk.end_char}",
-        chunk.text,
-    )
-PY
-```
+their embeddings in a local SQLite vector index. Embeddings always come from the
+provider of the selected model preset. If that provider fails, the rebuild fails
+and the previous index stays active; hash-based or other substitute vectors are
+never written to the index.
 
 Run the RAG tests with:
 
@@ -224,7 +179,7 @@ PY
 The adapter accepts only `.txt` files, decodes them as UTF-8, preserves the
 normalized text and paragraph boundaries, and stores the result in `legal_acts`.
 
-Build and query the index from the database with the local offline provider:
+Build and query the index from the database with the configured embedding model:
 
 ```bash
 python -m edm_auditor.rag build
@@ -234,9 +189,8 @@ python -m edm_auditor.rag search "annual leave" --threshold 0.1
 
 The commands use `data/edm_auditor.sqlite3` and
 `data/rag-index.sqlite3` by default. Override them with
-`EDM_DATABASE_PATH`, `RAG_INDEX_PATH`, and `RAG_EMBEDDING_DIMENSION`.
-The CLI uses the embedding profile selected by `EDM_MODEL_PRESET`; setting
-`RAG_EMBEDDING_MODEL` explicitly keeps the legacy deterministic provider path.
+`EDM_DATABASE_PATH` and `RAG_INDEX_PATH`.
+The CLI uses the embedding profile selected by `EDM_MODEL_PRESET`.
 
 ## Model configuration
 
@@ -246,15 +200,15 @@ Select a preset with `EDM_MODEL_PRESET` or load a different file with
 `EDM_MODEL_CONFIG`:
 
 ```bash
-EDM_MODEL_PRESET=offline python -c \
+EDM_MODEL_PRESET=google-ai-studio python -c \
   'from edm_auditor.model_config import ModelSettings; print(ModelSettings.from_env())'
 ```
 
-The `offline` preset uses the deterministic embedding provider and an LLM
-stub. `lm-studio` and `openrouter` use the OpenAI-compatible API shape; their
-embedding model, endpoint, and LLM model must be adjusted to the locally
-available models. Set `OPENROUTER_API_KEY` in the environment for the
-OpenRouter preset. Keep real secrets in a local `.env` file or secret store,
+`EDM_MODEL_PRESET` is required: there is no default preset and no offline mode.
+`google-ai-studio` needs `GEMINI_API_KEY`. `lm-studio` and `openrouter` use the
+OpenAI-compatible API shape; their embedding model, endpoint, and LLM model must
+be adjusted to the locally available models. Set `OPENROUTER_API_KEY` in the
+environment for the OpenRouter preset. Keep real secrets in a local `.env` file or secret store,
 not in `models.toml`.
 
 Detailed field descriptions and setup examples are in
@@ -266,8 +220,10 @@ Run an audit without FastAPI against a document already stored in the database:
 python examples/audit_document.py 1
 ```
 
-The deterministic engine supports keyword, regex, numeric, date, duration and
-offline semantic rules. Semantic results are normative context candidates, not
+The audit engine supports keyword, regex, numeric, date, duration and semantic
+rules. Every audit calls the configured models for entity extraction and LLM
+analysis, including audits without findings. If a model fails, the audit stops:
+no report is saved and the document status becomes `error`. Semantic results are normative context candidates, not
 automatic legal conclusions. Audit output is a technical automated check and
 does not replace review by a qualified legal professional.
 
@@ -277,13 +233,13 @@ Run all backend tests with:
 pytest -q
 ```
 
-The current suite contains 24 tests and does not require network access,
-credentials, or real legal documents.
+The suite does not require network access, credentials, or real legal
+documents: test doubles for model providers live in `tests/fakes.py`.
 
 ## Audit engine
 
-The audit engine currently supports deterministic keyword, regular-expression,
-and numeric rules. It extracts source-preserving ranges from document text,
+The audit engine applies keyword, regular-expression, numeric, date, and duration
+rules. It extracts source-preserving ranges from document text,
 creates `AuditFinding` entries, and stores an atomic `AuditReport`. Rule
 parameters are JSON objects, for example:
 
@@ -291,9 +247,9 @@ parameters are JSON objects, for example:
 {"keywords": ["14 дней"], "recommendation": "Check the leave duration."}
 ```
 
-The implementation does not require Natasha, an external embedding provider, or
-an LLM. Semantic RAG validation and optional NLP enrichment remain separate
-follow-up integrations.
+Regular expressions extract entities alongside the entity extraction model, whose
+results are merged in. The LLM then explains the findings; it cannot change their
+severity or source ranges.
 
 ## FastAPI
 
@@ -307,9 +263,10 @@ uvicorn edm_auditor.api.app:create_app --factory --reload
 ```
 
 The API uses SQLite and `data/uploads/` by default. Override these paths with
-`EDM_DATABASE_URL`, `EDM_UPLOAD_DIR`, and `EDM_MAX_UPLOAD_BYTES`. The initial
-API runs audits synchronously and uses the existing offline deterministic
-pipeline; external LLM and embedding providers are not required.
+`EDM_DATABASE_URL`, `EDM_UPLOAD_DIR`, and `EDM_MAX_UPLOAD_BYTES`. The API runs
+audits synchronously and does not start without a model preset. When a model is
+unavailable, `POST /api/documents/{id}/audit` responds with `503` and the
+`model_provider_error` code.
 
 Available endpoints:
 
@@ -388,7 +345,7 @@ was started with custom paths, pass the matching `--database-url`,
 `--database-path`, and `--index-path` values. It prints the uploaded document,
 audit summary, findings, and neural-analysis fields as JSON.
 
-For a quick offline example, create two UTF-8 text files before running the
+For a quick example, create two UTF-8 text files before running the
 script:
 
 ```bash

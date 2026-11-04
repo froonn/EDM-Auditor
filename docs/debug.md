@@ -165,8 +165,8 @@ curl -s -X POST http://127.0.0.1:8000/api/rules \
 
 Загрузка НПА запускает online extraction правил синхронно. Для этого API
 должен быть запущен с preset, содержащим online extractor, например
-`lm-studio`, `openrouter` или `google-ai-studio`. Preset `offline` предназначен
-для тестов и локальных компонентов и не является production-конфигурацией API.
+`lm-studio`, `openrouter` или `google-ai-studio`. Без `EDM_MODEL_PRESET` API не
+запускается, а при сбое модели отвечает `503` и не создаёт отчёт.
 
 ### Просмотр списка НПА
 

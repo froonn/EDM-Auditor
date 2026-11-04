@@ -3,8 +3,18 @@
 import argparse
 import json
 
-from edm_auditor.audit_engine import AuditPersistence
+from edm_auditor.audit_engine import (
+    AuditEngine,
+    AuditPersistence,
+    LLMInterpreter,
+    entities_from_provider,
+)
 from edm_auditor.database import create_engine_for, create_session_factory
+from edm_auditor.model_config import ModelSettings
+from edm_auditor.model_providers import (
+    create_entity_extraction_provider,
+    create_llm_provider,
+)
 
 
 def main() -> int:
@@ -14,7 +24,19 @@ def main() -> int:
     args = parser.parse_args()
 
     factory = create_session_factory(create_engine_for(args.database))
-    report = AuditPersistence(factory).audit_document(args.document_id)
+    settings = ModelSettings.from_env()
+    if settings.extractor is None:
+        raise ValueError("configured model preset must declare an online extractor")
+    extractor = create_entity_extraction_provider(settings.extractor)
+    report = AuditPersistence(
+        factory,
+        engine=AuditEngine(
+            entity_extractor=lambda text: entities_from_provider(
+                text, extractor.extract(text)
+            )
+        ),
+        neural_interpreter=LLMInterpreter(create_llm_provider(settings.llm)),
+    ).audit_document(args.document_id)
     print(
         json.dumps(
             {

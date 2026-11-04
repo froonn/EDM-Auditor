@@ -1,4 +1,4 @@
-"""Errors raised by the optional neural analysis layer."""
+"""Errors raised by the neural analysis layer."""
 
 
 class NeuralAnalysisError(ValueError):
@@ -7,3 +7,7 @@ class NeuralAnalysisError(ValueError):
 
 class InvalidNeuralResponse(NeuralAnalysisError):
     """The provider response does not satisfy the application contract."""
+
+
+class AuditModelError(RuntimeError):
+    """A model required by the audit did not produce a usable result."""

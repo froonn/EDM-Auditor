@@ -17,6 +17,29 @@ from edm_auditor.database.models import (
 )
 from edm_auditor.rag import SQLiteVectorStore
 from edm_auditor.rag.models import TextChunk
+from fakes import (
+    DeterministicEmbeddingProvider,
+    FailingEntityProvider,
+    FailingLLMProvider,
+    FakeEntityProvider,
+    FakeLLMProvider,
+    FakeRuleExtractor,
+)
+
+
+@pytest.fixture(autouse=True)
+def fake_model_providers(monkeypatch) -> None:
+    monkeypatch.setenv("EDM_MODEL_PRESET", "lm-studio")
+    for factory, provider in (
+        ("create_llm_provider", FakeLLMProvider),
+        ("create_entity_extraction_provider", FakeEntityProvider),
+        ("create_rule_extraction_provider", FakeRuleExtractor),
+        ("create_embedding_provider", DeterministicEmbeddingProvider),
+    ):
+        monkeypatch.setattr(
+            f"edm_auditor.api.app.{factory}",
+            lambda config, provider=provider: provider(),
+        )
 
 
 def test_api_settings_use_defaults_without_environment(monkeypatch) -> None:
@@ -45,13 +68,13 @@ def test_api_settings_load_dotenv_file(tmp_path: Path, monkeypatch) -> None:
     assert settings.rag_index_path == Path("custom/index.sqlite3")
 
 
-def test_app_rejects_offline_preset_for_legal_act_processing(
+def test_app_rejects_preset_without_online_extractor(
     tmp_path: Path, monkeypatch
 ) -> None:
     from dataclasses import replace
     from edm_auditor.model_config import ModelSettings
 
-    configured = ModelSettings.from_toml(preset_name="offline")
+    configured = ModelSettings.from_toml(preset_name="lm-studio")
     monkeypatch.setattr(
         "edm_auditor.api.app.ModelSettings.from_toml",
         lambda *args, **kwargs: replace(configured, extractor=None),
@@ -63,6 +86,18 @@ def test_app_rejects_offline_preset_for_legal_act_processing(
     )
 
     with pytest.raises(ValueError, match="online extractor"):
+        create_app(settings=settings)
+
+
+def test_app_does_not_start_without_model_preset(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("EDM_MODEL_PRESET")
+    settings = ApiSettings(
+        upload_dir=tmp_path / "uploads",
+        max_upload_bytes=1024,
+        rag_index_path=tmp_path / "rag-index.sqlite3",
+    )
+
+    with pytest.raises(ValueError, match="EDM_MODEL_PRESET"):
         create_app(settings=settings)
 
 
@@ -159,6 +194,37 @@ def test_create_rule_audit_and_get_report(tmp_path: Path) -> None:
     assert report.status_code == 200
     assert report.json()["total_findings"] == 1
     assert report.json()["findings"][0]["quote"] == "14 days"
+
+
+@pytest.mark.parametrize(
+    "factory, provider, message",
+    [
+        ("create_llm_provider", FailingLLMProvider, "LLM analysis failed"),
+        (
+            "create_entity_extraction_provider",
+            FailingEntityProvider,
+            "entity extraction model failed",
+        ),
+    ],
+)
+def test_audit_fails_without_report_when_model_is_unavailable(
+    tmp_path: Path, monkeypatch, factory, provider, message
+) -> None:
+    monkeypatch.setattr(f"edm_auditor.api.app.{factory}", lambda config: provider())
+    client = make_client(tmp_path)
+    upload = client.post(
+        "/api/documents/upload",
+        files={"file": ("contract.txt", b"Employee receives 14 days leave.", "text/plain")},
+    )
+    document_id = upload.json()["id"]
+
+    audit = client.post(f"/api/documents/{document_id}/audit")
+
+    assert audit.status_code == 503
+    assert audit.json()["error"]["code"] == "model_provider_error"
+    assert message in audit.json()["error"]["message"]
+    assert client.get(f"/api/documents/{document_id}").json()["status"] == "error"
+    assert client.get(f"/api/documents/{document_id}/report").status_code == 404
 
 
 def test_list_legal_acts_does_not_expose_article_text(tmp_path: Path) -> None:
@@ -356,13 +422,6 @@ def test_upload_legal_act_generates_neural_rule(
         "edm_auditor.api.app.create_rule_extraction_provider",
         lambda config: FakeRuleExtractor(),
     )
-    from edm_auditor.rag.embeddings import DeterministicEmbeddingProvider
-
-    monkeypatch.setattr(
-        "edm_auditor.api.app.create_embedding_provider",
-        lambda config: DeterministicEmbeddingProvider(),
-    )
-    monkeypatch.setenv("EDM_MODEL_PRESET", "lm-studio")
     settings = ApiSettings(
         upload_dir=tmp_path / "uploads",
         max_upload_bytes=1024,
@@ -429,13 +488,6 @@ def test_reprocess_replaces_generated_rules_atomically(tmp_path: Path, monkeypat
         "edm_auditor.api.app.create_rule_extraction_provider",
         lambda config: FakeRuleExtractor(),
     )
-    from edm_auditor.rag.embeddings import DeterministicEmbeddingProvider
-
-    monkeypatch.setattr(
-        "edm_auditor.api.app.create_embedding_provider",
-        lambda config: DeterministicEmbeddingProvider(),
-    )
-    monkeypatch.setenv("EDM_MODEL_PRESET", "lm-studio")
     client = make_client(tmp_path)
     response = client.post(
         "/api/legal-acts/upload",
@@ -497,13 +549,6 @@ def test_failed_chunk_is_persisted_without_publishing_partial_rules(
         "edm_auditor.api.app.create_rule_extraction_provider",
         lambda config: FakeRuleExtractor(),
     )
-    from edm_auditor.rag.embeddings import DeterministicEmbeddingProvider
-
-    monkeypatch.setattr(
-        "edm_auditor.api.app.create_embedding_provider",
-        lambda config: DeterministicEmbeddingProvider(),
-    )
-    monkeypatch.setenv("EDM_MODEL_PRESET", "lm-studio")
     client = make_client(tmp_path)
 
     response = client.post(

@@ -13,6 +13,7 @@ from edm_auditor.database.models import AuditFinding, AuditReport, AuditRule, Do
 from .engine import AuditEngine
 from .llm_interpreter import LLMInterpreter
 from .models import FindingDraft, RuleSpec
+from .neural_errors import AuditModelError
 from .neural_models import NeuralFinding, NeuralResult
 
 
@@ -22,16 +23,12 @@ class AuditPersistence:
     def __init__(
         self,
         session_factory: Callable[[], Session],
-        engine: AuditEngine | None = None,
-        neural_interpreter: LLMInterpreter | None = None,
-        neural_mode: str = "disabled",
+        engine: AuditEngine,
+        neural_interpreter: LLMInterpreter,
     ) -> None:
         self._session_factory = session_factory
-        self._engine = engine or AuditEngine()
-        if neural_mode not in {"disabled", "best-effort", "required"}:
-            raise ValueError("neural_mode must be disabled, best-effort, or required")
+        self._engine = engine
         self._neural_interpreter = neural_interpreter
-        self._neural_mode = neural_mode
 
     def audit_document(self, document_id: int) -> AuditReport:
         try:
@@ -96,21 +93,13 @@ class AuditPersistence:
                 document.status = DocumentStatus.AUDITED.value
                 session.flush()
                 return report
-        except (LookupError, ValueError, TypeError, SQLAlchemyError):
+        except (LookupError, ValueError, TypeError, AuditModelError, SQLAlchemyError):
             self._mark_error(document_id)
             raise
 
     def _analyze(
         self, findings: tuple[FindingDraft, ...], document_type: str | None
     ) -> NeuralResult:
-        if self._neural_mode == "disabled":
-            return NeuralResult(status="not_requested")
-        if self._neural_interpreter is None:
-            if self._neural_mode == "required":
-                raise ValueError("neural analysis is required but not configured")
-            return NeuralResult(
-                status="failed", diagnostic="neural analysis is not configured"
-            )
         neural_findings = tuple(
             NeuralFinding(
                 key=_finding_key(finding),
@@ -131,9 +120,7 @@ class AuditPersistence:
                 neural_findings, document_type=document_type
             )
         except (RuntimeError, ValueError, TypeError) as exc:
-            if self._neural_mode == "required":
-                raise
-            return NeuralResult(status="failed", diagnostic=str(exc)[:500])
+            raise AuditModelError("LLM analysis failed") from exc
 
     def _mark_error(self, document_id: int) -> None:
         with self._session_factory.begin() as session:

@@ -1,10 +1,14 @@
 from io import BytesIO
 from urllib.error import HTTPError
 
+from google.genai.errors import ClientError, ServerError
 import pytest
 
 from edm_auditor.model_config import ModelConfig
 from edm_auditor.model_providers import (
+    GoogleAIStudioEmbeddingProvider,
+    GoogleAIStudioEntityExtractionProvider,
+    GoogleAIStudioLLMProvider,
     GoogleAIStudioRuleExtractionProvider,
     OpenAICompatibleEntityExtractionProvider,
     OpenAICompatibleLLMProvider,
@@ -14,6 +18,7 @@ from edm_auditor.model_providers import (
     _google_schema,
     _post_json,
 )
+from edm_auditor.rag.exceptions import EmbeddingError
 
 
 class _GoogleResponse:
@@ -292,3 +297,85 @@ def test_google_rule_extractor_accepts_root_array_response() -> None:
 
     assert len(rules) == 1
     assert rules[0]["rule_code"] == "leave-minimum"
+
+
+class _FailingGoogleModels:
+    """Raise the queued errors, then answer with the given text."""
+
+    def __init__(self, errors, text: str = "") -> None:
+        self.errors = list(errors)
+        self.text = text
+        self.calls = 0
+
+    def _next(self):
+        self.calls += 1
+        if self.errors:
+            raise self.errors.pop(0)
+        return _GoogleResponse(self.text)
+
+    def generate_content(self, **kwargs):
+        return self._next()
+
+    def embed_content(self, **kwargs):
+        return self._next()
+
+
+class _FailingGoogleClient:
+    def __init__(self, errors, text: str = "") -> None:
+        self.models = _FailingGoogleModels(errors, text)
+
+
+def _google_config(**values) -> ModelConfig:
+    return ModelConfig(
+        provider="google-ai-studio",
+        model="gemini-test",
+        dimension=2,
+        structured_output="json_schema",
+        retry_attempts=1,
+        retry_backoff_factor=0,
+        **values,
+    )
+
+
+def test_google_llm_failure_is_not_replaced_by_a_stub() -> None:
+    provider = GoogleAIStudioLLMProvider(
+        _google_config(), client=_FailingGoogleClient([ValueError("API_KEY_INVALID")])
+    )
+
+    with pytest.raises(RuntimeError, match="generation failed"):
+        provider.generate(system_prompt="Return JSON", user_prompt="Analyze")
+
+
+def test_google_entity_failure_is_not_replaced_by_regex_extraction() -> None:
+    provider = GoogleAIStudioEntityExtractionProvider(
+        _google_config(), client=_FailingGoogleClient([ValueError("API_KEY_INVALID")])
+    )
+
+    with pytest.raises(RuntimeError, match="entity extraction failed"):
+        provider.extract("Компенсация 35 рублей.")
+
+
+def test_google_embedding_failure_is_not_replaced_by_hash_vectors() -> None:
+    provider = GoogleAIStudioEmbeddingProvider(
+        _google_config(), client=_FailingGoogleClient([ValueError("API_KEY_INVALID")])
+    )
+
+    with pytest.raises(EmbeddingError, match="embedding failed"):
+        provider.embed_query("отпуск")
+
+
+def test_google_llm_retries_transient_sdk_errors() -> None:
+    client = _FailingGoogleClient([ServerError(503, {})], text='{"analyses":[]}')
+    provider = GoogleAIStudioLLMProvider(_google_config(), client=client)
+
+    assert provider.generate(system_prompt="s", user_prompt="u") == '{"analyses":[]}'
+    assert client.models.calls == 2
+
+
+def test_google_llm_does_not_retry_invalid_requests() -> None:
+    client = _FailingGoogleClient([ClientError(400, {})], text="unused")
+    provider = GoogleAIStudioLLMProvider(_google_config(), client=client)
+
+    with pytest.raises(RuntimeError, match="generation failed"):
+        provider.generate(system_prompt="s", user_prompt="u")
+    assert client.models.calls == 1

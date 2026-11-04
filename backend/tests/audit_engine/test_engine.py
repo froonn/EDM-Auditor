@@ -14,7 +14,9 @@ from edm_auditor.audit_engine import (
 from edm_auditor.database.connection import create_engine_for, create_session_factory
 from edm_auditor.database.enums import AuditSeverity, CheckType, DocumentStatus
 from edm_auditor.database.models import AuditReport, AuditRule, Base, Document
-from edm_auditor.model_providers import StubLLMProvider, StubRuleExtractionProvider
+from edm_auditor.audit_engine.neural_errors import AuditModelError
+from edm_auditor.rag.exceptions import EmbeddingError
+from fakes import FailingEntityProvider, FailingLLMProvider, FakeLLMProvider, no_entities
 
 
 def test_extract_entities_preserves_source_ranges() -> None:
@@ -60,7 +62,7 @@ def test_engine_applies_active_matching_rules_and_deduplicates() -> None:
         ),
     ]
 
-    result = AuditEngine().audit(text, rules, document_type="contract")
+    result = AuditEngine(entity_extractor=no_entities).audit(text, rules, document_type="contract")
 
     assert len(result.findings) == 1
     assert result.findings[0].quote == "14 дней"
@@ -69,7 +71,7 @@ def test_engine_applies_active_matching_rules_and_deduplicates() -> None:
 
 
 def test_invalid_rule_is_reported_without_hiding_other_findings() -> None:
-    result = AuditEngine().audit(
+    result = AuditEngine(entity_extractor=no_entities).audit(
         "Условие присутствует.",
         [
             RuleSpec(
@@ -96,7 +98,7 @@ def test_invalid_rule_is_reported_without_hiding_other_findings() -> None:
 
 
 def test_numeric_rule_reports_values_outside_bounds() -> None:
-    result = AuditEngine().audit(
+    result = AuditEngine(entity_extractor=no_entities).audit(
         "Отпуск составляет 14 дней.",
         [
             RuleSpec(
@@ -153,23 +155,19 @@ def test_engine_unions_provider_entities_with_deterministic_entities() -> None:
 
 def test_remote_work_gold_documents_report_findings_without_external_models() -> None:
     examples = Path(__file__).parents[2] / "examples"
-    legal_act = (examples / "legal_act_remote_work.txt").read_text(encoding="utf-8")
     agreement = (examples / "remote_work_agreement.txt").read_text(encoding="utf-8")
-    extracted_rules = StubRuleExtractionProvider().extract_rules(legal_act)
-    rules = tuple(
+    rules = (
         RuleSpec(
-            rule_id=index,
-            rule_code=str(item["rule_code"]),
-            name=str(item["name"]),
-            description=str(item["description"]),
-            severity=str(item["severity"]),
-            check_type=str(item["check_type"]),
-            parameters=dict(item["parameters"]),
-        )
-        for index, item in enumerate(extracted_rules, start=1)
+            rule_id=1,
+            rule_code="minimum-compensation",
+            name="Minimum compensation",
+            severity="critical",
+            check_type="numeric",
+            parameters={"entity": "money", "min": 50},
+        ),
     )
 
-    result = AuditEngine().audit(agreement, rules)
+    result = AuditEngine(entity_extractor=no_entities).audit(agreement, rules)
 
     assert result.findings
 
@@ -183,6 +181,14 @@ def session_factory():
         yield factory
     finally:
         engine.dispose()
+
+
+def make_persistence(session_factory, *, llm=None, entity_extractor=no_entities):
+    return AuditPersistence(
+        session_factory,
+        engine=AuditEngine(entity_extractor=entity_extractor),
+        neural_interpreter=LLMInterpreter(llm or FakeLLMProvider()),
+    )
 
 
 def test_persistence_creates_atomic_report_and_updates_status(session_factory) -> None:
@@ -210,7 +216,7 @@ def test_persistence_creates_atomic_report_and_updates_status(session_factory) -
             )
         )
 
-    report = AuditPersistence(session_factory).audit_document(document_id)
+    report = make_persistence(session_factory).audit_document(document_id)
 
     assert report.total_findings == 1
     with session_factory() as session:
@@ -275,7 +281,7 @@ def test_persistence_audits_synthetic_employment_contract(session_factory) -> No
             ]
         )
 
-    report = AuditPersistence(session_factory).audit_document(document_id)
+    report = make_persistence(session_factory).audit_document(document_id)
 
     assert report.total_findings == 4
     assert report.high_count == 2
@@ -313,12 +319,78 @@ def test_persistence_stores_neural_analysis_status(session_factory) -> None:
         )
         document_id = document.id
 
-    report = AuditPersistence(
-        session_factory,
-        neural_interpreter=LLMInterpreter(StubLLMProvider()),
-        neural_mode="best-effort",
-    ).audit_document(document_id)
+    report = make_persistence(session_factory).audit_document(document_id)
 
     summary = json.loads(report.summary)
     assert summary["neural"]["status"] == "completed"
-    assert summary["neural"]["model"] == "stub-v1"
+    assert summary["neural"]["model"] == "fake-llm"
+
+
+def _stored_document(session_factory) -> int:
+    with session_factory.begin() as session:
+        document = Document(
+            title="Contract",
+            file_type="txt",
+            file_path="contract.txt",
+            raw_text="Отпуск составляет 14 дней.",
+        )
+        session.add(document)
+        session.flush()
+        return document.id
+
+
+def test_persistence_calls_llm_even_without_findings(session_factory) -> None:
+    document_id = _stored_document(session_factory)
+    llm = FakeLLMProvider()
+
+    report = make_persistence(session_factory, llm=llm).audit_document(document_id)
+
+    assert report.total_findings == 0
+    assert len(llm.prompts) == 1
+    assert json.loads(report.summary)["neural"]["general_summary"] == "Reviewed."
+
+
+@pytest.mark.parametrize(
+    "options, message",
+    [
+        ({"llm": FailingLLMProvider()}, "LLM analysis failed"),
+        (
+            {"entity_extractor": lambda text: FailingEntityProvider().extract(text)},
+            "entity extraction model failed",
+        ),
+    ],
+)
+def test_model_failure_marks_document_failed_without_report(
+    session_factory, options, message
+) -> None:
+    document_id = _stored_document(session_factory)
+
+    with pytest.raises(AuditModelError, match=message):
+        make_persistence(session_factory, **options).audit_document(document_id)
+
+    with session_factory() as session:
+        assert session.get(Document, document_id).status == DocumentStatus.ERROR.value
+        assert session.scalar(select(AuditReport)) is None
+
+
+def test_embedding_failure_stops_semantic_audit() -> None:
+    class FailingSearcher:
+        def search(self, query, **kwargs):
+            raise EmbeddingError("embedding service unavailable")
+
+    engine = AuditEngine(entity_extractor=no_entities, rag_searcher=FailingSearcher())
+
+    with pytest.raises(AuditModelError, match="semantic search failed"):
+        engine.audit(
+            "Отпуск 14 дней.",
+            [
+                RuleSpec(
+                    rule_id=1,
+                    rule_code="leave-context",
+                    name="Leave context",
+                    severity="medium",
+                    check_type="semantic",
+                    parameters={"query": "отпуск"},
+                )
+            ],
+        )

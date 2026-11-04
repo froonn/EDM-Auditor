@@ -121,7 +121,7 @@ class ModelSettings:
     llm: ModelConfig
     extractor: ModelConfig | None = None
     processing: LegalActProcessingConfig = LegalActProcessingConfig()
-    preset_name: str = "offline"
+    preset_name: str | None = None
 
     @classmethod
     def from_toml(
@@ -150,7 +150,9 @@ class ModelSettings:
         )
         if source_language is not None:
             processing = replace(processing, source_language=source_language)
-        selected_name = preset_name or os.getenv("EDM_MODEL_PRESET", "offline")
+        selected_name = preset_name or os.getenv("EDM_MODEL_PRESET")
+        if not selected_name:
+            raise ValueError("EDM_MODEL_PRESET must name a configured model preset")
         try:
             selected = presets[selected_name]
             embedding = _model_config(embedding_profiles[selected["embedding"]])

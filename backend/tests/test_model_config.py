@@ -9,24 +9,44 @@ from edm_auditor.model_config import (
     detect_source_language,
 )
 from edm_auditor.model_providers import (
-    StubLLMProvider,
     create_embedding_provider,
+    create_entity_extraction_provider,
     create_llm_provider,
+    create_rule_extraction_provider,
 )
 
 
 CONFIG_PATH = Path(__file__).parents[1] / "config" / "models.toml"
 
 
-def test_offline_preset_creates_offline_providers() -> None:
-    settings = ModelSettings.from_toml(CONFIG_PATH, preset_name="offline")
+def test_preset_is_required() -> None:
+    with pytest.raises(ValueError, match="EDM_MODEL_PRESET"):
+        ModelSettings.from_toml(CONFIG_PATH)
 
-    embedding = create_embedding_provider(settings.embedding)
-    llm = create_llm_provider(settings.llm)
 
-    assert embedding.model_name == "deterministic-v1"
-    assert embedding.dimension == 32
-    assert isinstance(llm, StubLLMProvider)
+def test_offline_preset_no_longer_exists() -> None:
+    with pytest.raises(ValueError, match="unknown model preset"):
+        ModelSettings.from_toml(CONFIG_PATH, preset_name="offline")
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        create_llm_provider,
+        create_entity_extraction_provider,
+        create_rule_extraction_provider,
+    ],
+)
+def test_stub_provider_is_rejected(factory) -> None:
+    with pytest.raises(ValueError, match="unsupported"):
+        factory(ModelConfig(provider="stub", model="stub-v1"))
+
+
+def test_deterministic_embedding_provider_is_rejected() -> None:
+    with pytest.raises(ValueError, match="unsupported embedding provider"):
+        create_embedding_provider(
+            ModelConfig(provider="deterministic", model="deterministic-v1", dimension=32)
+        )
 
 
 def test_preset_keeps_api_key_out_of_model_config(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -54,7 +74,7 @@ def test_google_ai_studio_preset_uses_official_provider() -> None:
 
 
 def test_processing_config_is_loaded_from_model_config() -> None:
-    settings = ModelSettings.from_toml(CONFIG_PATH, preset_name="offline")
+    settings = ModelSettings.from_toml(CONFIG_PATH, preset_name="google-ai-studio")
 
     assert settings.processing.chunking.max_chars == 4000
     assert settings.processing.chunking.overlap_chars == 0
@@ -65,7 +85,7 @@ def test_processing_config_is_loaded_from_model_config() -> None:
     assert settings.processing.processing_version == "1"
     assert settings.extractor is not None
     assert settings.extractor.request_timeout_seconds == 30
-    assert settings.extractor.retry_attempts == 0
+    assert settings.extractor.retry_attempts == 3
 
 
 def test_processing_config_rejects_invalid_language() -> None:
@@ -77,6 +97,7 @@ def test_source_language_can_be_overridden_from_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("EDM_SOURCE_LANGUAGE", "ru")
+    monkeypatch.setenv("EDM_MODEL_PRESET", "lm-studio")
 
     settings = ModelSettings.from_env()
 
@@ -97,17 +118,17 @@ def test_llm_profiles_must_declare_structured_output(tmp_path: Path) -> None:
     config = tmp_path / "models.toml"
     config.write_text(
         """
-[profiles.embedding.offline]
-provider = "deterministic"
-model = "deterministic-v1"
+[profiles.embedding.local]
+provider = "openai-compatible"
+model = "embedding"
 dimension = 32
 
 [profiles.llm.incomplete]
-provider = "stub"
-model = "stub-v1"
+provider = "openai-compatible"
+model = "chat"
 
 [presets.test]
-embedding = "offline"
+embedding = "local"
 llm = "incomplete"
 """,
         encoding="utf-8",

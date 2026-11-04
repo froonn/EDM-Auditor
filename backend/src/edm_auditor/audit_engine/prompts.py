@@ -5,7 +5,7 @@ from collections.abc import Sequence
 
 from .neural_models import NeuralFinding
 
-PROMPT_VERSION = "1"
+PROMPT_VERSION = "2"
 SYSTEM_PROMPT = (
     "You are an assistant for technical document review. Do not decide legal "
     "compliance. Return JSON only with schema_version, analyses, and general_summary."
@@ -34,6 +34,8 @@ def build_user_prompt(
             "Keep finding_key unchanged.",
             "Do not invent legal acts or findings.",
             "Use confidence from 0 to 1.",
+            "If findings is empty, return an empty analyses array and state in "
+            "general_summary that the automated rules reported no findings.",
         ],
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)

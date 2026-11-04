@@ -53,15 +53,14 @@ def test_interpreter_validates_structured_response() -> None:
     assert result.analyses[0].confidence == 0.8
 
 
-def test_interpreter_skips_provider_when_there_are_no_findings() -> None:
-    class FailingLLM(FakeLLM):
-        def generate(self, *, system_prompt, user_prompt, context=()):
-            raise AssertionError("provider must not be called")
+def test_interpreter_calls_provider_when_there_are_no_findings() -> None:
+    response = '{"schema_version":"2","analyses":[],"general_summary":"No findings."}'
 
-    result = LLMInterpreter(FailingLLM("not used")).analyze([])
+    result = LLMInterpreter(FakeLLM(response)).analyze([])
 
     assert result.status == "completed"
     assert result.analyses == ()
+    assert result.general_summary == "No findings."
 
 
 @pytest.mark.parametrize(

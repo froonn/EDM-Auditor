@@ -3,13 +3,13 @@ from pathlib import Path
 import pytest
 
 from edm_auditor.rag import (
-    DeterministicEmbeddingProvider,
     IndexSource,
     RAGIndexer,
     RAGSearch,
     SQLiteVectorStore,
 )
 from edm_auditor.rag.exceptions import IndexConfigurationError
+from fakes import DeterministicEmbeddingProvider
 
 
 def test_index_and_search_are_repeatable(tmp_path: Path) -> None:

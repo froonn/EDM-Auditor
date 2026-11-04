@@ -1,4 +1,4 @@
-# Safe defaults for local development. Secrets are read from environment variables.
+# Model profiles and presets. Secrets are read from environment variables.
 
 [legal_act_processing.chunking]
 max_chars = 4000
@@ -13,21 +13,11 @@ extraction_schema_version = "1"
 prompt_version = "1"
 processing_version = "1"
 
-[profiles.embedding.deterministic]
-provider = "deterministic"
-model = "deterministic-v1"
-dimension = 32
-
 [profiles.embedding.local-multilingual]
 provider = "openai-compatible"
 model = "text-embedding-nomic-embed-text-v1.5"
 base_url = "http://localhost:1234/v1"
 dimension = 768
-
-[profiles.llm.stub]
-provider = "stub"
-model = "stub-v1"
-structured_output = false
 
 [profiles.llm.lm-studio]
 provider = "openai-compatible"
@@ -56,20 +46,6 @@ structured_output = "json_schema"
 request_timeout_seconds = 30
 retry_attempts = 3
 retry_backoff_factor = 1.0
-inter_chunk_delay_seconds = 0
-
-[presets.offline]
-embedding = "deterministic"
-llm = "stub"
-extractor = "stub"
-
-[profiles.extractor.stub]
-provider = "stub"
-model = "stub-v1"
-structured_output = false
-request_timeout_seconds = 30
-retry_attempts = 0
-retry_backoff_factor = 0
 inter_chunk_delay_seconds = 0
 
 [presets.lm-studio]

@@ -18,15 +18,7 @@ from .vector_store import SQLiteVectorStore
 
 def _components():
     settings = RAGSettings.from_env()
-    if "RAG_EMBEDDING_MODEL" in os.environ:
-        from .embeddings import DeterministicEmbeddingProvider
-
-        provider = DeterministicEmbeddingProvider(
-            dimension=settings.embedding_dimension,
-            model_name=settings.embedding_model,
-        )
-    else:
-        provider = create_embedding_provider(ModelSettings.from_env().embedding)
+    provider = create_embedding_provider(ModelSettings.from_env().embedding)
     store = SQLiteVectorStore(
         settings.index_path,
         embedding_model=provider.model_name,
