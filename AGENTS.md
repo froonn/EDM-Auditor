@@ -65,3 +65,16 @@ Refs: #15
 ```
 docs: add project overview to README
 ```
+
+## Development Log
+
+Every change to the repository **must** be recorded in [`DEVLOG.md`](DEVLOG.md) in the same commit.
+
+1. **Entry** — add it under the `## Журнал` heading, newest first, with the date and a short title:
+   what changed and why, plus any follow-up work or manual steps it requires.
+2. **Current state** — keep the `## Текущее состояние` section accurate: update it when a change
+   affects what works, what is missing, or what is known to be broken.
+3. **Language and size** — write in Russian and keep entries brief. Link to `docs/` instead of
+   repeating details, and do not paste logs, keys, or document contents.
+4. **Exceptions** — none for code, configuration, or documentation; only a commit that solely
+   amends `DEVLOG.md` needs no further entry.
