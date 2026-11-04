@@ -6,6 +6,24 @@
 
 ---
 
+## 0. Обновление существующей базы
+
+Этап настройки аудита меняет схему. Если база устарела, сервер не запустится и
+подскажет команду. Сделайте резервную копию и выполните из `backend/`:
+
+```bash
+cp data/edm_auditor.sqlite3 data/edm_auditor.sqlite3.bak
+# Только если в базе нет таблицы alembic_version:
+alembic stamp 0005_rule_publication_metadata
+alembic upgrade head
+```
+
+Ручные правила без типа остаются универсальными, правила с типом становятся
+`typed`, а сгенерированные правила без типа получают область `unknown`: задайте
+типы их НПА через `PATCH /api/legal-acts/{id}`. Старые отчёты не изменяются.
+
+---
+
 ## 1. Запуск сервера для отладки
 
 Сервер запускается из каталога [`backend/`](file:///home/froonn/Documents/BSIUR/cw/EDM-Auditor/backend):
@@ -252,6 +270,89 @@ curl -s http://127.0.0.1:8000/api/documents/1/report | jq .
 * Список нарушений (`findings`): точный диапазон символов в тексте (`start_char`, `end_char`), цитата (`quote`),
   описание проблемы и рекомендация по исправлению;
 * Статус нейросетевого анализа (`neural_status`: `completed`, `skipped`, `failed` или `not_requested`).
+
+---
+
+## 6.1. Настройка аудита: классификация и выбор правил
+
+При загрузке документ автоматически классифицируется. Классификатор
+детерминированный: он сравнивает заголовок, имя файла, термины, структуру и
+сущности с каталогом типов. Это подсказка, а не юридическое решение: тип и набор
+правил нужно проверять, а результат аудита не заменяет проверку юристом.
+
+Если тип не подтверждён (`classification_status` равен `needs_review` или
+`unknown`), автоматический аудит отвечает `409 audit_configuration_required` и не
+создаёт отчёт. Кандидаты классификатора сами по себе правила не включают.
+
+```bash
+# Каталог типов
+curl -s http://127.0.0.1:8000/api/document-types | jq .
+curl -s -X POST http://127.0.0.1:8000/api/document-types \
+  -H 'Content-Type: application/json' \
+  -d '{"code":"travel_expense_report","name":"Авансовый отчёт","title_terms":["авансовый отчет"],"body_terms":["суточные"]}' | jq .
+
+# Классификация документа и её ручное подтверждение
+curl -s -X POST http://127.0.0.1:8000/api/documents/1/classify | jq .
+curl -s -X PATCH http://127.0.0.1:8000/api/documents/1/classification \
+  -H 'Content-Type: application/json' \
+  -d '{"confirmed_document_types":["business_trip_order"]}' | jq .
+
+# Предпросмотр: тот же набор правил, что и при запуске
+curl -s -X POST http://127.0.0.1:8000/api/documents/1/audit/preview | jq .
+
+# Запуск с настройкой выбора
+curl -s -X POST http://127.0.0.1:8000/api/documents/1/audit \
+  -H 'Content-Type: application/json' \
+  -d '{"selection_mode":"manual","legal_act_ids":[1],"excluded_rule_ids":[5]}' | jq .
+```
+
+Режимы выбора:
+
+| `selection_mode` | Какие правила применяются                                                 |
+|------------------|---------------------------------------------------------------------------|
+| `automatic`      | универсальные и совпавшие по подтверждённому типу; `legal_act_ids` сужает выбор |
+| `manual`         | только `included_rule_ids` и правила из `legal_act_ids`                   |
+| `combined`       | автоматический набор плюс ручной выбор                                    |
+| `all`            | все активные правила; нужен `"confirm_all": true`, возможны ложные нарушения |
+
+Исключение всегда сильнее включения, а неактивные правила не применяются никогда.
+Правила с областью `manual_only` применяются только через `included_rule_ids`.
+
+Область применимости сгенерированных правил берётся из типов НПА. Если типы не
+заданы, НПА классифицируется так же, как документ, а при недостаточной
+уверенности правила получают область `unknown` и автоматически не применяются:
+
+```bash
+# Типы при загрузке НПА: добавьте -F document_types=business_trip_order,vacation_order
+# Типы существующего НПА: обновляются и его сгенерированные правила
+curl -s -X PATCH http://127.0.0.1:8000/api/legal-acts/1 \
+  -H 'Content-Type: application/json' \
+  -d '{"document_types":["business_trip_order"]}' | jq .
+
+# Ручная применимость отдельного правила
+curl -s -X PATCH http://127.0.0.1:8000/api/rules/1/applicability \
+  -H 'Content-Type: application/json' \
+  -d '{"applicability_scope":"typed","document_types":["payroll_order"]}' | jq .
+```
+
+В `warnings` и `reason` предпросмотра и поля `selection` отчёта встречаются:
+
+| Код                                | Значение                                         |
+|------------------------------------|--------------------------------------------------|
+| `document_type_unknown`            | тип определить не удалось                        |
+| `classification_low_confidence`    | есть кандидаты, но тип не подтверждён            |
+| `manual_selection_required`        | нужно подтвердить тип или выбрать правила        |
+| `no_applicable_rules`              | подходящих правил нет (`409`)                    |
+| `rule_excluded_by_document_type`   | правило относится к другому типу                 |
+| `rule_excluded_by_legal_act_scope` | НПА правила не входит в выбранные                |
+| `rule_excluded_by_user`            | правило исключено вручную                        |
+| `rule_applicability_unknown`       | применимость правила неизвестна                  |
+| `rag_candidate_below_threshold`    | RAG-кандидат ниже порога; на выбор не влияет     |
+| `rag_unavailable`                  | RAG недоступен; проверки правил продолжаются     |
+
+RAG только показывает связанные НПА со `score` и `threshold` и никогда не включает
+правило. Правила типа `semantic` через API пока не выполняются: движку не передан
+поисковик, поэтому такое правило попадает в `summary.diagnostics`.
 
 ---
 

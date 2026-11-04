@@ -16,6 +16,11 @@ neural model, inspect `GET /api/rules` after each legal-act upload before
 running an audit. The generated rule parameters must match the validator
 contracts documented in the rule-extraction prompt.
 
+Generated rules take their applicability from the legal act: its title and text
+are classified against the document type catalog, or you can set the types with
+`-F document_types=...`. Each document is then audited only by the rules of its
+own type. Without a confirmed type the audit asks for configuration.
+
 For example, with the server running from `backend/`:
 
 ```bash

@@ -268,6 +268,16 @@ audits synchronously and does not start without a model preset. When a model is
 unavailable, `POST /api/documents/{id}/audit` responds with `503` and the
 `model_provider_error` code.
 
+An audit runs only the rules chosen for the document. Uploaded documents are
+classified against the `document_types` catalog, and the resolver selects rules
+from their confirmed types. If no type is confirmed, the audit responds with `409`
+and `audit_configuration_required` instead of applying every rule; confirm a type
+or pass a `selection_mode` of `manual`, `combined`, or an explicitly confirmed
+`all`. Preview the selection with `POST /api/documents/{id}/audit/preview`. Each
+new report stores the selection in its `selection` field. Classification is a
+heuristic hint and does not replace review by a qualified legal professional. See
+[`docs/debug.md`](../docs/debug.md) for the workflow and the database upgrade.
+
 Available endpoints:
 
 - `GET /health`
@@ -275,7 +285,14 @@ Available endpoints:
 - `POST /api/documents/upload`
 - `GET /api/documents`
 - `GET /api/documents/{id}`
+- `POST /api/documents/{id}/classify`
+- `PATCH /api/documents/{id}/classification`
+- `POST /api/documents/{id}/audit/preview`
 - `POST /api/documents/{id}/audit`
+- `GET /api/document-types`
+- `POST /api/document-types`
+- `DELETE /api/document-types/{code}`
+- `PATCH /api/rules/{id}/applicability`
 - `GET /api/documents/{id}/report`
 - `GET /api/reports`
 - `GET /api/rules` and `POST /api/rules`
@@ -343,7 +360,9 @@ prepared. The script uses the same default paths as the API:
 `sqlite:///data/edm_auditor.sqlite3` and `data/rag-index.sqlite3`. If the server
 was started with custom paths, pass the matching `--database-url`,
 `--database-path`, and `--index-path` values. It prints the uploaded document,
-audit summary, findings, and neural-analysis fields as JSON.
+audit summary, findings, and neural-analysis fields as JSON. The audit must have
+applicable rules: a legal act ingested with `--legal-act` creates no rules by itself,
+so without existing rules for the document the script reports the `409` response.
 
 For a quick example, create two UTF-8 text files before running the
 script:
