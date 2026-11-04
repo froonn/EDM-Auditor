@@ -1039,3 +1039,68 @@ def test_generated_rules_follow_legal_act_types_and_stay_unknown_otherwise(
         if item["legal_act_id"] == unknown["id"]
     )
     assert rule["applicability_scope"] == "manual_only"
+
+
+def test_report_stores_selection_snapshot_that_survives_later_changes(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    act = client.post(
+        "/api/legal-acts",
+        json={"code": "ACT-TRIP", "title": "Командировки", "article_text": "Текст."},
+    ).json()
+    applied = client.post(
+        "/api/rules",
+        json=_rule_payload(
+            "trip", "приказ", document_types=["business_trip_order"], legal_act_id=act["id"]
+        ),
+    ).json()
+    skipped = client.post(
+        "/api/rules", json=_rule_payload("payroll", "приказ", document_types=["payroll_order"])
+    ).json()
+    document = _upload(client, TRIP_ORDER)
+    audit = client.post(
+        f"/api/documents/{document['id']}/audit", json={"excluded_rule_ids": []}
+    )
+    assert audit.status_code == 200
+    url = f"/api/documents/{document['id']}/report"
+
+    selection = client.get(url).json()["selection"]
+
+    assert selection["selection_mode"] == "automatic"
+    assert selection["confirmed_document_types"] == ["business_trip_order"]
+    assert selection["classification_status"] == "classified"
+    assert selection["applied_rule_ids"] == [applied["id"]]
+    assert selection["applied_legal_acts"] == [
+        {"id": act["id"], "code": "ACT-TRIP", "title": "Командировки"}
+    ]
+    reasons = {item["rule_id"]: item for item in selection["selection_reasons"]}
+    assert reasons[applied["id"]]["reason"] == "rule_matched_document_type"
+    assert reasons[skipped["id"]]["reason"] == "rule_excluded_by_document_type"
+    assert client.get("/api/reports").json()[0]["selection_mode"] == "automatic"
+    assert TRIP_ORDER not in str(selection)
+
+    client.patch(
+        f"/api/documents/{document['id']}/classification",
+        json={"confirmed_document_types": ["payroll_order"]},
+    )
+    client.delete(f"/api/rules/{applied['id']}")
+    client.delete(f"/api/legal-acts/{act['id']}")
+
+    assert client.get(url).json()["selection"] == selection
+
+
+def test_report_created_before_selection_stays_readable(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    document = _upload(client, TRIP_ORDER)
+    with client.app.state.session_factory.begin() as session:
+        session.add(
+            AuditReport(
+                document_id=document["id"],
+                summary='{"diagnostics": [], "neural": {"status": "completed"}}',
+            )
+        )
+
+    report = client.get(f"/api/documents/{document['id']}/report").json()
+
+    assert report["selection"] is None
+    assert report["summary"] == {"diagnostics": [], "neural": {"status": "completed"}}
+    assert client.get("/api/reports").json()[0]["selection_mode"] is None

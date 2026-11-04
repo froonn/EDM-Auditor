@@ -19,8 +19,15 @@ from edm_auditor.applicability import (
     SelectionConfig,
     SelectionWarning,
 )
+from edm_auditor.applicability.persistence import selection_snapshot
 from edm_auditor.database.enums import DocumentStatus
-from edm_auditor.database.models import AuditFinding, AuditReport, AuditRule, Document
+from edm_auditor.database.models import (
+    AuditFinding,
+    AuditReport,
+    AuditRule,
+    Document,
+    LegalAct,
+)
 from edm_auditor.rag.exceptions import RAGError
 
 from .engine import AuditEngine
@@ -94,6 +101,12 @@ class AuditPersistence:
                         if finding.source_context is not None
                     ],
                     "neural": neural.as_dict(),
+                    "selection": selection_snapshot(
+                        selection or SelectionConfig(),
+                        _document_context(document),
+                        resolution,
+                        _applied_legal_acts(session, resolution),
+                    ),
                 }
                 report = AuditReport(
                     document_id=document.id,
@@ -146,13 +159,7 @@ class AuditPersistence:
             .options(selectinload(AuditRule.document_types))
             .order_by(AuditRule.id)
         ).all()
-        candidates = json.loads(document.classification_candidates or "[]")
-        context = DocumentContext(
-            classification_status=document.classification_status or "unknown",
-            confirmed_document_types=tuple(item.code for item in document.confirmed_types),
-            candidate_document_types=tuple(item["code"] for item in candidates),
-            confidence=document.classification_confidence or 0.0,
-        )
+        context = _document_context(document)
         rag_candidates, rag_failed = self._recommend(document.raw_text)
         resolution = self._resolver.resolve(
             map(_to_rule_spec, rules), context, selection, rag_candidates=rag_candidates
@@ -204,6 +211,30 @@ class AuditPersistence:
             document = session.get(Document, document_id)
             if document is not None:
                 document.status = DocumentStatus.ERROR.value
+
+
+def _document_context(document: Document) -> DocumentContext:
+    candidates = json.loads(document.classification_candidates or "[]")
+    return DocumentContext(
+        classification_status=document.classification_status or "unknown",
+        confirmed_document_types=tuple(item.code for item in document.confirmed_types),
+        candidate_document_types=tuple(item["code"] for item in candidates),
+        confidence=document.classification_confidence or 0.0,
+    )
+
+
+def _applied_legal_acts(
+    session: Session, resolution: ResolutionResult
+) -> list[dict[str, object]]:
+    ids = {
+        rule.legal_act_id
+        for rule in resolution.selected_rules
+        if rule.legal_act_id is not None
+    }
+    acts = session.scalars(
+        select(LegalAct).where(LegalAct.id.in_(ids)).order_by(LegalAct.id)
+    ).all()
+    return [{"id": act.id, "code": act.code, "title": act.title} for act in acts]
 
 
 def _to_rule_spec(rule: AuditRule) -> RuleSpec:

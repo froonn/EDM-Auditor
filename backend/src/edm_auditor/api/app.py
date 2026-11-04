@@ -775,6 +775,7 @@ def create_app(
                 findings=findings,
                 neural_status=neural.get("status", "not_requested"),
                 neural_analyses=neural.get("analyses", []),
+                selection=summary.get("selection"),
             )
 
     @app.get("/api/reports", response_model=list[ReportListResponse])
@@ -806,6 +807,7 @@ def create_app(
                         low_count=report.low_count,
                         created_at=report.created_at,
                         neural_status=neural.get("status", "not_requested"),
+                        selection_mode=summary.get("selection", {}).get("selection_mode"),
                     )
                 )
             return result

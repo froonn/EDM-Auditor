@@ -119,6 +119,7 @@ class ReportListResponse(BaseModel):
     low_count: int
     created_at: datetime
     neural_status: str = "not_requested"
+    selection_mode: str | None = None
 
 
 class FindingResponse(BaseModel):
@@ -155,6 +156,7 @@ class ReportResponse(BaseModel):
     findings: list[FindingResponse]
     neural_status: str = "not_requested"
     neural_analyses: list[NeuralAnalysisResponse] = Field(default_factory=list)
+    selection: dict[str, Any] | None = None
 
 
 class RuleCreate(BaseModel):
