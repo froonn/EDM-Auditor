@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ErrorBody(BaseModel):
@@ -15,6 +15,33 @@ class ErrorResponse(BaseModel):
     error: ErrorBody
 
 
+class DocumentTypeCandidate(BaseModel):
+    code: str
+    confidence: float
+
+
+class DocumentTypeResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    code: str
+    name: str
+    description: str
+    is_active: bool
+
+
+class DocumentTypeCreate(BaseModel):
+    code: str = Field(pattern=r"^[a-z][a-z0-9_]*$", max_length=100)
+    name: str = Field(min_length=1, max_length=255)
+    description: str = ""
+    title_terms: list[str] = Field(default_factory=list)
+    body_terms: list[str] = Field(default_factory=list)
+    structure_terms: list[str] = Field(default_factory=list)
+
+
+class ClassificationUpdate(BaseModel):
+    confirmed_document_types: list[str]
+
+
 class DocumentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -23,6 +50,13 @@ class DocumentResponse(BaseModel):
     file_type: str
     status: str
     classified_type: str | None
+    classification_status: str = "unknown"
+    classification_confidence: float | None = None
+    classification_source: str | None = None
+    confirmed_document_types: list[str] = Field(default_factory=list)
+    candidate_document_types: list["DocumentTypeCandidate"] = Field(default_factory=list)
+    automatic_classification: dict[str, Any] | None = None
+    needs_configuration: bool = True
     created_at: datetime
 
 
@@ -32,6 +66,39 @@ class AuditSelectionRequest(BaseModel):
     included_rule_ids: list[int] = Field(default_factory=list)
     excluded_rule_ids: list[int] = Field(default_factory=list)
     confirm_all: bool = False
+
+
+class RuleDecisionResponse(BaseModel):
+    rule_id: int
+    rule_code: str
+    name: str
+    legal_act_id: int | None
+    applicability_scope: str
+    document_types: list[str]
+    selected: bool
+    reason: str
+
+
+class RagRecommendationResponse(BaseModel):
+    legal_act_id: int
+    rule_id: int | None
+    score: float
+    threshold: float
+    reason: str
+
+
+class AuditPreviewResponse(BaseModel):
+    document_id: int
+    status: str
+    selection_mode: str
+    classification_status: str
+    classification_confidence: float | None
+    confirmed_document_types: list[str]
+    candidate_document_types: list[DocumentTypeCandidate]
+    selected_rule_ids: list[int]
+    decisions: list[RuleDecisionResponse]
+    warnings: list[str]
+    rag_recommendations: list[RagRecommendationResponse]
 
 
 class AuditRequestResponse(BaseModel):
@@ -102,6 +169,11 @@ class RuleCreate(BaseModel):
     legal_act_id: int | None = None
 
 
+class RuleApplicabilityUpdate(BaseModel):
+    applicability_scope: str
+    document_types: list[str] = Field(default_factory=list)
+
+
 class RuleResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -139,6 +211,12 @@ class LegalActResponse(BaseModel):
     chunks_processed: int = 0
     rules_accepted: int = 0
     rules_rejected: int = 0
+    document_types: list[str] = Field(default_factory=list)
+
+    @field_validator("document_types", mode="before")
+    @classmethod
+    def _type_codes(cls, value: Any) -> list[str]:
+        return [getattr(item, "code", item) for item in value]
 
 
 class LegalActDetailResponse(LegalActResponse):
@@ -176,6 +254,7 @@ class LegalActCreate(BaseModel):
     article_text: str
     number: str | None = Field(default=None, max_length=100)
     source_url: str | None = Field(default=None, max_length=1000)
+    document_types: list[str] = Field(default_factory=list)
 
 
 class LegalActUpdate(BaseModel):
@@ -184,3 +263,4 @@ class LegalActUpdate(BaseModel):
     article_text: str | None = None
     number: str | None = Field(default=None, max_length=100)
     source_url: str | None = Field(default=None, max_length=1000)
+    document_types: list[str] | None = None

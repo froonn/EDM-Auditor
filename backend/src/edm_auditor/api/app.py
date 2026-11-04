@@ -20,13 +20,17 @@ from sqlalchemy.orm import Session, selectinload
 from edm_auditor.applicability import (
     ApplicabilityScope,
     InvalidSelection,
+    RagCandidate,
     ResolutionResult,
     ResolutionStatus,
     SelectionConfig,
     SelectionMode,
 )
 from edm_auditor.applicability.rule_scope import (
+    SOURCE_LEGAL_ACT,
+    SOURCE_LEGAL_ACT_CLASSIFIER,
     SOURCE_MANUAL,
+    SOURCE_MIGRATION,
     RuleApplicability,
     apply_rule_applicability,
     legal_act_applicability,
@@ -40,7 +44,14 @@ from edm_auditor.database import (
     create_engine_for,
     create_session_factory,
 )
-from edm_auditor.classification.store import ensure_default_document_types
+from edm_auditor.classification import ClassificationStatus, DocumentTypeProfile
+from edm_auditor.classification.store import (
+    classify_and_store,
+    ensure_default_document_types,
+    override_classification,
+    profile_to_json,
+    stored_classification,
+)
 from edm_auditor.database.enums import AuditSeverity, CheckType
 from edm_auditor.database.models import (
     AuditFinding,
@@ -50,6 +61,8 @@ from edm_auditor.database.models import (
     DocumentType,
     LegalAct,
     RuleExtractionResult,
+    document_confirmed_types,
+    legal_act_document_types,
     rule_document_types,
 )
 from edm_auditor.document_parser import parse_document
@@ -65,6 +78,7 @@ from edm_auditor.rule_validation import RuleValidationError, validate_generated_
 from edm_auditor.rag import (
     DatabaseIndexSourceLoader,
     RAGIndexer,
+    RAGSearch,
     SQLiteVectorStore,
     chunk_text,
     normalize_source_text,
@@ -73,8 +87,15 @@ from edm_auditor.rag import (
 from .config import ApiSettings
 from .errors import ApiError, parser_error
 from .schemas import (
+    AuditPreviewResponse,
     AuditRequestResponse,
     AuditSelectionRequest,
+    ClassificationUpdate,
+    DocumentTypeCreate,
+    DocumentTypeResponse,
+    RagRecommendationResponse,
+    RuleApplicabilityUpdate,
+    RuleDecisionResponse,
     DocumentResponse,
     FindingResponse,
     LegalActResponse,
@@ -93,6 +114,10 @@ from .web import page
 
 logger = logging.getLogger("edm_auditor.api")
 trace_logger = logging.getLogger("edm_auditor.trace")
+
+RAG_RECOMMENDATION_THRESHOLD = 0.5
+RAG_RECOMMENDATION_LIMIT = 5
+RAG_QUERY_CHARS = 2000
 
 
 def _setup_file_logging(log_file: Path) -> None:
@@ -182,12 +207,43 @@ def create_app(
     entity_extractor = lambda text: entities_from_provider(text, provider.extract(text))
     rule_extractor = create_rule_extraction_provider(model_settings.extractor)
 
+    def rag_recommendations(text: str) -> list[RagCandidate]:
+        """Find related legal context; the resolver only reports these results."""
+        if not config.rag_index_path.exists():
+            return []
+        embedding = create_embedding_provider(model_settings.embedding)
+        store = SQLiteVectorStore(
+            config.rag_index_path,
+            embedding_model=embedding.model_name,
+            dimension=embedding.dimension,
+            chunking_version="paragraph-v1",
+        )
+        return [
+            RagCandidate(
+                legal_act_id=result.chunk.legal_act_id,
+                rule_id=result.chunk.rule_id,
+                score=result.score,
+                threshold=RAG_RECOMMENDATION_THRESHOLD,
+            )
+            for result in RAGSearch(store, embedding).search(
+                text[:RAG_QUERY_CHARS], k=RAG_RECOMMENDATION_LIMIT
+            )
+        ]
+
     def audit_persistence() -> AuditPersistence:
         return AuditPersistence(
             session_factory,
             engine=AuditEngine(entity_extractor=entity_extractor),
             neural_interpreter=neural_interpreter,
+            rag_recommender=rag_recommendations,
         )
+
+    def ensure_classified(document_id: int) -> None:
+        """Classify documents stored before classification existed."""
+        with session_factory.begin() as session:
+            document = session.get(Document, document_id)
+            if document is not None and document.classification_status is None:
+                classify_and_store(session, document)
 
     def process_legal_act(legal_act_id: int) -> None:
         """Extract, validate, and atomically publish generated rules."""
@@ -450,6 +506,66 @@ def create_app(
     def web_ui() -> HTMLResponse:
         return page()
 
+    @app.get("/api/document-types", response_model=list[DocumentTypeResponse])
+    def list_document_types(
+        include_inactive: bool = False,
+    ) -> list[DocumentTypeResponse]:
+        with session_factory() as session:
+            statement = select(DocumentType).order_by(DocumentType.code)
+            if not include_inactive:
+                statement = statement.where(DocumentType.is_active.is_(True))
+            return [
+                DocumentTypeResponse.model_validate(item)
+                for item in session.scalars(statement).all()
+            ]
+
+    @app.post("/api/document-types", response_model=DocumentTypeResponse, status_code=201)
+    def create_document_type(payload: DocumentTypeCreate) -> DocumentTypeResponse:
+        if payload.code == "unknown":
+            raise ApiError(
+                422,
+                "reserved_document_type",
+                "'unknown' is a classification state, not a document type",
+            )
+        with session_factory.begin() as session:
+            document_type = session.get(DocumentType, payload.code)
+            if document_type is not None and document_type.is_active:
+                raise ApiError(
+                    409, "document_type_conflict", "Document type already exists"
+                )
+            if document_type is None:
+                document_type = DocumentType(code=payload.code)
+                session.add(document_type)
+            document_type.name = payload.name
+            document_type.description = payload.description
+            document_type.is_active = True
+            document_type.classifier_profile = profile_to_json(
+                DocumentTypeProfile(
+                    payload.code,
+                    title_terms=_normalized_terms(payload.title_terms),
+                    body_terms=_normalized_terms(payload.body_terms),
+                    structure_terms=_normalized_terms(payload.structure_terms),
+                )
+            )
+            session.flush()
+            return DocumentTypeResponse.model_validate(document_type)
+
+    @app.delete("/api/document-types/{code}", status_code=204)
+    def delete_document_type(code: str) -> None:
+        """Deactivate a type: historical links keep referring to a stable code."""
+        with session_factory.begin() as session:
+            document_type = session.get(DocumentType, code)
+            if document_type is None:
+                raise ApiError(404, "document_type_not_found", "Document type does not exist")
+            dependencies = _document_type_dependencies(session, code)
+            if dependencies:
+                raise ApiError(
+                    409,
+                    "document_type_in_use",
+                    f"Document type is used by: {', '.join(dependencies)}",
+                )
+            document_type.is_active = False
+
     @app.get("/api/documents", response_model=list[DocumentResponse])
     def list_documents(
         limit: int = Query(default=50, ge=1, le=100),
@@ -457,7 +573,7 @@ def create_app(
     ) -> list[DocumentResponse]:
         with session_factory() as session:
             statement = select(Document).order_by(Document.id.desc()).offset(offset).limit(limit)
-            return [DocumentResponse.model_validate(item) for item in session.scalars(statement).all()]
+            return [_document_response(item) for item in session.scalars(statement).all()]
 
     @app.post("/api/documents/upload", response_model=DocumentResponse, status_code=201)
     async def upload_document(
@@ -478,7 +594,11 @@ def create_app(
                 title=title or Path(file.filename or path.name).stem,
                 file_path=path,
             )
-            return DocumentResponse.model_validate(document)
+            with session_factory.begin() as session:
+                stored = session.get(Document, document.id)
+                classify_and_store(session, stored)
+                session.flush()
+                return _document_response(stored)
         except DocumentParserError as exc:
             path.unlink(missing_ok=True)
             raise parser_error(exc) from exc
@@ -489,7 +609,88 @@ def create_app(
             document = session.get(Document, document_id)
             if document is None:
                 raise ApiError(404, "document_not_found", "Document does not exist")
-            return DocumentResponse.model_validate(document)
+            return _document_response(document)
+
+    @app.post(
+        "/api/documents/{document_id}/classify",
+        response_model=DocumentResponse,
+    )
+    def classify_document_endpoint(document_id: int) -> DocumentResponse:
+        with session_factory.begin() as session:
+            document = session.get(Document, document_id)
+            if document is None:
+                raise ApiError(404, "document_not_found", "Document does not exist")
+            classify_and_store(session, document)
+            session.flush()
+            return _document_response(document)
+
+    @app.patch(
+        "/api/documents/{document_id}/classification",
+        response_model=DocumentResponse,
+    )
+    def update_classification(
+        document_id: int, payload: ClassificationUpdate
+    ) -> DocumentResponse:
+        with session_factory.begin() as session:
+            document = session.get(Document, document_id)
+            if document is None:
+                raise ApiError(404, "document_not_found", "Document does not exist")
+            types = _active_document_types(session, payload.confirmed_document_types)
+            override_classification(session, document, [item.code for item in types])
+            session.flush()
+            return _document_response(document)
+
+    @app.post(
+        "/api/documents/{document_id}/audit/preview",
+        response_model=AuditPreviewResponse,
+    )
+    def preview_audit(
+        document_id: int, selection: AuditSelectionRequest | None = None
+    ) -> AuditPreviewResponse:
+        ensure_classified(document_id)
+        requested = _selection_config(session_factory, selection)
+        try:
+            resolution = audit_persistence().preview(document_id, requested)
+        except LookupError as exc:
+            raise ApiError(404, "document_not_found", str(exc)) from exc
+        with session_factory() as session:
+            classification = stored_classification(session.get(Document, document_id))
+        return AuditPreviewResponse(
+            document_id=document_id,
+            status=resolution.status.value,
+            selection_mode=requested.mode.value,
+            classification_status=classification.status.value,
+            classification_confidence=classification.confidence,
+            confirmed_document_types=list(classification.confirmed_document_types),
+            candidate_document_types=[
+                item.as_dict() for item in classification.candidate_types
+            ],
+            selected_rule_ids=list(resolution.selected_rule_ids),
+            decisions=[
+                RuleDecisionResponse(
+                    rule_id=item.rule_id,
+                    rule_code=item.rule_code,
+                    name=item.name,
+                    legal_act_id=item.legal_act_id,
+                    applicability_scope=item.applicability_scope,
+                    document_types=list(item.document_types),
+                    selected=item.selected,
+                    reason=item.reason.value,
+                )
+                for item in resolution.decisions
+            ],
+            warnings=[item.value for item in resolution.warnings],
+            rag_recommendations=[
+                RagRecommendationResponse(
+                    legal_act_id=item.legal_act_id,
+                    rule_id=item.rule_id,
+                    score=item.score,
+                    threshold=item.threshold,
+                    reason=item.reason,
+                )
+                for item in resolution.recommendations
+            ],
+        )
 
     @app.post(
         "/api/documents/{document_id}/audit",
@@ -498,6 +699,7 @@ def create_app(
     def audit_document(
         document_id: int, selection: AuditSelectionRequest | None = None
     ) -> AuditRequestResponse:
+        ensure_classified(document_id)
         try:
             report = audit_persistence().audit_document(
                 document_id, _selection_config(session_factory, selection)
@@ -681,6 +883,23 @@ def create_app(
             ) from exc
         return response
 
+    @app.patch("/api/rules/{rule_id}/applicability", response_model=RuleResponse)
+    def update_rule_applicability(
+        rule_id: int, payload: RuleApplicabilityUpdate
+    ) -> RuleResponse:
+        with session_factory.begin() as session:
+            rule = session.get(AuditRule, rule_id)
+            if rule is None:
+                raise ApiError(404, "rule_not_found", "Audit rule does not exist")
+            apply_rule_applicability(
+                rule,
+                _manual_applicability(
+                    session, payload.applicability_scope, payload.document_types
+                ),
+            )
+            session.flush()
+            return _rule_response(rule)
+
     @app.delete("/api/rules/{rule_id}", status_code=204)
     def delete_rule(rule_id: int) -> None:
         with session_factory.begin() as session:
@@ -756,6 +975,9 @@ def create_app(
         with session_factory.begin() as session:
             values = payload.model_dump()
             values["article_text"] = normalize_source_text(values["article_text"])
+            values["document_types"] = _active_document_types(
+                session, values["document_types"]
+            )
             legal_act = LegalAct(**values)
             session.add(legal_act)
             session.flush()
@@ -770,6 +992,7 @@ def create_app(
         title: str = Form(...),
         number: str | None = Form(default=None),
         source_url: str | None = Form(default=None),
+        document_types: str | None = Form(default=None),
     ) -> LegalActResponse:
         path = None
         try:
@@ -788,6 +1011,14 @@ def create_app(
                     number=number,
                     source_url=source_url,
                     article_text=normalize_source_text(parsed.text),
+                    document_types=_active_document_types(
+                        session,
+                        [
+                            item.strip()
+                            for item in (document_types or "").split(",")
+                            if item.strip()
+                        ],
+                    ),
                 )
                 session.add(legal_act)
                 session.flush()
@@ -832,8 +1063,12 @@ def create_app(
             for field, value in payload.model_dump(exclude_unset=True).items():
                 if field == "article_text" and value is not None:
                     value = normalize_source_text(value)
+                if field == "document_types":
+                    value = _active_document_types(session, value or [])
                 setattr(legal_act, field, value)
             session.flush()
+            if payload.document_types is not None:
+                _refresh_generated_rule_applicability(session, legal_act)
             response = LegalActResponse.model_validate(legal_act)
         _rebuild_after_mutation(rebuild_rag_index)
         return response
@@ -865,6 +1100,76 @@ def create_app(
         _rebuild_after_mutation(rebuild_rag_index)
 
     return app
+
+
+def _document_response(document: Document) -> DocumentResponse:
+    classification = stored_classification(document)
+    return DocumentResponse(
+        id=document.id,
+        title=document.title,
+        file_type=document.file_type,
+        status=document.status,
+        classified_type=document.classified_type,
+        classification_status=classification.status.value,
+        classification_confidence=document.classification_confidence,
+        classification_source=document.classification_source,
+        confirmed_document_types=list(classification.confirmed_document_types),
+        candidate_document_types=[
+            item.as_dict() for item in classification.candidate_types
+        ],
+        automatic_classification=(
+            json.loads(document.classification_auto)
+            if document.classification_auto
+            else None
+        ),
+        needs_configuration=(
+            classification.status is not ClassificationStatus.CLASSIFIED
+        ),
+        created_at=document.created_at,
+    )
+
+
+def _normalized_terms(terms: list[str]) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(item.strip().casefold() for item in terms if item.strip()))
+
+
+def _document_type_dependencies(session: Session, code: str) -> list[str]:
+    dependencies = []
+    if session.scalar(
+        select(func.count())
+        .select_from(rule_document_types)
+        .join(AuditRule, AuditRule.id == rule_document_types.c.rule_id)
+        .where(
+            rule_document_types.c.document_type_code == code,
+            AuditRule.is_active.is_(True),
+        )
+    ):
+        dependencies.append("active rules")
+    if session.scalar(
+        select(func.count())
+        .select_from(document_confirmed_types)
+        .where(document_confirmed_types.c.document_type_code == code)
+    ):
+        dependencies.append("documents")
+    if session.scalar(
+        select(func.count())
+        .select_from(legal_act_document_types)
+        .where(legal_act_document_types.c.document_type_code == code)
+    ):
+        dependencies.append("legal acts")
+    return dependencies
+
+
+def _refresh_generated_rule_applicability(session: Session, legal_act: LegalAct) -> None:
+    """Update rules derived from the act; manual decisions stay as they are."""
+    applicability = legal_act_applicability(session, legal_act)
+    for rule in legal_act.rules:
+        if rule.is_generated and rule.applicability_source in (
+            SOURCE_LEGAL_ACT,
+            SOURCE_LEGAL_ACT_CLASSIFIER,
+            SOURCE_MIGRATION,
+        ):
+            apply_rule_applicability(rule, applicability)
 
 
 def _require_current_schema(engine) -> None:

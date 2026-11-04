@@ -13,6 +13,7 @@ from .models import ApplicabilityScope
 SOURCE_LEGAL_ACT = "legal_act"
 SOURCE_LEGAL_ACT_CLASSIFIER = "legal_act_classifier"
 SOURCE_MANUAL = "manual"
+SOURCE_MIGRATION = "migration"
 
 
 @dataclass(frozen=True, slots=True)

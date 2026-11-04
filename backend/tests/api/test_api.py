@@ -282,6 +282,7 @@ def test_list_legal_acts_does_not_expose_article_text(tmp_path: Path) -> None:
             "title": "Labour Code",
             "number": "155",
             "source_url": None,
+            "document_types": [],
             "processing_status": "uploaded",
             "processing_version": None,
             "chunks_total": 0,
@@ -628,3 +629,413 @@ def test_delete_rule_preserves_existing_findings_and_rebuilds_index(tmp_path: Pa
     assert deleted.status_code == 204
     assert client.get(f"/api/rules?is_active=true").json() == []
     assert client.delete(f"/api/rules/{rule_id}").status_code == 404
+
+
+def _rule_payload(code: str, keyword: str, **extra) -> dict:
+    return {
+        "rule_code": code,
+        "name": code,
+        "severity": "high",
+        "check_type": "keyword",
+        "parameters": {"keywords": [keyword]},
+        **extra,
+    }
+
+
+def _upload(client: TestClient, text: str, name: str = "document.txt") -> dict:
+    response = client.post(
+        "/api/documents/upload", files={"file": (name, text.encode(), "text/plain")}
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
+TRIP_ORDER = "Приказ о направлении в командировку.\n\nОтчет о командировке за 7 дней."
+
+
+def test_document_type_catalog_can_be_extended_and_deactivated(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+
+    codes = [item["code"] for item in client.get("/api/document-types").json()]
+    assert "business_trip_order" in codes and "unknown" not in codes
+
+    created = client.post(
+        "/api/document-types",
+        json={
+            "code": "travel_expense_report",
+            "name": "Авансовый отчет",
+            "title_terms": ["Авансовый отчет"],
+            "body_terms": ["суточные", "командировочные расходы"],
+        },
+    )
+    assert created.status_code == 201
+    assert client.post(
+        "/api/document-types", json={"code": "travel_expense_report", "name": "Копия"}
+    ).status_code == 409
+
+    report = _upload(client, "Авансовый отчет\nСуточные и командировочные расходы.")
+    assert report["confirmed_document_types"] == ["travel_expense_report"]
+
+    unused = client.post(
+        "/api/document-types", json={"code": "unused_type", "name": "Unused"}
+    )
+    assert unused.status_code == 201
+    assert client.delete("/api/document-types/unused_type").status_code == 204
+    codes = [item["code"] for item in client.get("/api/document-types").json()]
+    assert "unused_type" not in codes
+    inactive = client.get("/api/document-types?include_inactive=true").json()
+    assert [item["is_active"] for item in inactive if item["code"] == "unused_type"] == [False]
+    assert client.delete("/api/document-types/missing").status_code == 404
+
+
+def test_unknown_is_not_a_valid_catalog_type(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+
+    response = client.post("/api/document-types", json={"code": "unknown", "name": "No"})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "reserved_document_type"
+
+
+@pytest.mark.parametrize("dependency", ["rule", "document", "legal_act"])
+def test_document_type_with_dependencies_cannot_be_deleted(
+    tmp_path: Path, dependency
+) -> None:
+    client = make_client(tmp_path)
+    code = "vacation_order"
+    if dependency == "rule":
+        client.post("/api/rules", json=_rule_payload("r", "x", document_types=[code]))
+    elif dependency == "document":
+        document = _upload(client, "Текст без признаков.")
+        client.patch(
+            f"/api/documents/{document['id']}/classification",
+            json={"confirmed_document_types": [code]},
+        )
+    else:
+        client.post(
+            "/api/legal-acts",
+            json={"code": "A", "title": "A", "article_text": "A", "document_types": [code]},
+        )
+
+    response = client.delete(f"/api/document-types/{code}")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "document_type_in_use"
+
+
+def test_upload_classifies_and_manual_override_keeps_automatic_result(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+
+    document = _upload(client, TRIP_ORDER)
+    assert document["classification_status"] == "classified"
+    assert document["confirmed_document_types"] == ["business_trip_order"]
+    assert document["classification_source"] == "deterministic"
+    assert document["needs_configuration"] is False
+    assert document["classification_confidence"] >= 0.6
+
+    updated = client.patch(
+        f"/api/documents/{document['id']}/classification",
+        json={"confirmed_document_types": ["payroll_order", "vacation_order"]},
+    ).json()
+    assert updated["classification_source"] == "manual"
+    assert updated["confirmed_document_types"] == ["payroll_order", "vacation_order"]
+    assert updated["automatic_classification"]["confirmed_document_types"] == [
+        "business_trip_order"
+    ]
+
+    repeated = client.post(f"/api/documents/{document['id']}/classify").json()
+    assert repeated["confirmed_document_types"] == ["payroll_order", "vacation_order"]
+
+    restored = client.patch(
+        f"/api/documents/{document['id']}/classification",
+        json={"confirmed_document_types": []},
+    ).json()
+    assert restored["confirmed_document_types"] == ["business_trip_order"]
+
+
+def test_classification_rejects_unknown_types_and_documents(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    document = _upload(client, "Текст.")
+
+    response = client.patch(
+        f"/api/documents/{document['id']}/classification",
+        json={"confirmed_document_types": ["unknown"]},
+    )
+
+    assert response.status_code == 422
+    assert client.post("/api/documents/999/classify").status_code == 404
+    assert client.post("/api/documents/999/audit/preview").status_code == 404
+
+
+def test_unknown_document_requires_configuration_and_never_runs_all_rules(
+    tmp_path: Path,
+) -> None:
+    client = make_client(tmp_path)
+    client.post("/api/rules", json=_rule_payload("any", "текст"))
+    document = _upload(client, "Обычный текст без признаков.")
+    assert document["needs_configuration"] is True
+
+    preview = client.post(f"/api/documents/{document['id']}/audit/preview").json()
+    audit = client.post(f"/api/documents/{document['id']}/audit")
+
+    assert preview["status"] == "needs_configuration"
+    assert preview["selected_rule_ids"] == []
+    assert "document_type_unknown" in preview["warnings"]
+    assert audit.status_code == 409
+    assert audit.json()["error"]["code"] == "audit_configuration_required"
+    assert client.get(f"/api/documents/{document['id']}/report").status_code == 404
+    assert client.get(f"/api/documents/{document['id']}").json()["status"] == "uploaded"
+
+
+def test_preview_matches_the_audit_for_every_selection_mode(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    act = client.post(
+        "/api/legal-acts",
+        json={"code": "ACT", "title": "Act", "article_text": "Текст акта."},
+    ).json()
+    trip = client.post(
+        "/api/rules",
+        json=_rule_payload(
+            "trip", "командировк", document_types=["business_trip_order"], legal_act_id=act["id"]
+        ),
+    ).json()
+    payroll = client.post(
+        "/api/rules", json=_rule_payload("payroll", "приказ", document_types=["payroll_order"])
+    ).json()
+    universal = client.post("/api/rules", json=_rule_payload("universal", "отчет")).json()
+    document = _upload(client, TRIP_ORDER)
+
+    for selection, expected in (
+        ({}, {trip["id"], universal["id"]}),
+        (
+            {"selection_mode": "manual", "included_rule_ids": [payroll["id"]]},
+            {payroll["id"]},
+        ),
+        (
+            {"selection_mode": "combined", "included_rule_ids": [payroll["id"]]},
+            {trip["id"], payroll["id"], universal["id"]},
+        ),
+        (
+            {"selection_mode": "manual", "legal_act_ids": [act["id"]]},
+            {trip["id"]},
+        ),
+        ({"excluded_rule_ids": [trip["id"]]}, {universal["id"]}),
+        (
+            {"selection_mode": "all", "confirm_all": True},
+            {trip["id"], payroll["id"], universal["id"]},
+        ),
+    ):
+        preview = client.post(
+            f"/api/documents/{document['id']}/audit/preview", json=selection
+        ).json()
+        audit = client.post(f"/api/documents/{document['id']}/audit", json=selection)
+        report = client.get(
+            f"/api/documents/{document['id']}/report",
+            params={"report_id": audit.json()["report_id"]},
+        ).json()
+
+        assert set(preview["selected_rule_ids"]) == expected, selection
+        assert {item["rule_id"] for item in report["findings"]} == expected, selection
+
+
+def test_all_mode_requires_explicit_confirmation(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    client.post("/api/rules", json=_rule_payload("any", "текст"))
+    document = _upload(client, "Обычный текст.")
+
+    response = client.post(
+        f"/api/documents/{document['id']}/audit", json={"selection_mode": "all"}
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "all_mode_not_confirmed"
+    assert client.get(f"/api/documents/{document['id']}/report").status_code == 404
+
+
+def test_selection_rejects_unknown_identifiers(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    document = _upload(client, TRIP_ORDER)
+
+    unknown_rule = client.post(
+        f"/api/documents/{document['id']}/audit/preview",
+        json={"included_rule_ids": [999]},
+    )
+    unknown_act = client.post(
+        f"/api/documents/{document['id']}/audit/preview",
+        json={"legal_act_ids": [999]},
+    )
+
+    assert unknown_rule.json()["error"]["code"] == "unknown_rule"
+    assert unknown_act.json()["error"]["code"] == "unknown_legal_act"
+
+
+def test_no_applicable_rules_is_reported_as_a_conflict(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    client.post(
+        "/api/rules", json=_rule_payload("payroll", "приказ", document_types=["payroll_order"])
+    )
+    document = _upload(client, TRIP_ORDER)
+
+    response = client.post(f"/api/documents/{document['id']}/audit")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "no_applicable_rules"
+
+
+def test_rule_applicability_can_be_changed_and_is_validated(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    rule = client.post("/api/rules", json=_rule_payload("r", "x")).json()
+    assert rule["applicability_scope"] == "universal"
+
+    updated = client.patch(
+        f"/api/rules/{rule['id']}/applicability",
+        json={
+            "applicability_scope": "typed",
+            "document_types": ["payroll_order", "vacation_order"],
+        },
+    ).json()
+    assert updated["document_types"] == ["payroll_order", "vacation_order"]
+    assert updated["applicability_source"] == "manual"
+    assert [
+        item["rule_code"]
+        for item in client.get("/api/rules?document_type=vacation_order").json()
+    ] == ["r"]
+
+    for body in (
+        {"applicability_scope": "typed"},
+        {"applicability_scope": "universal", "document_types": ["payroll_order"]},
+        {"applicability_scope": "everything"},
+        {"applicability_scope": "typed", "document_types": ["missing"]},
+    ):
+        response = client.patch(f"/api/rules/{rule['id']}/applicability", json=body)
+        assert response.status_code == 422, body
+
+
+def test_preview_reports_rag_candidates_without_selecting_rules(
+    tmp_path: Path,
+) -> None:
+    client = make_client(tmp_path)
+    client.post(
+        "/api/legal-acts",
+        json={
+            "code": "ACT-RAG",
+            "title": "Act",
+            "article_text": "Заработная плата выплачивается два раза в месяц.",
+        },
+    )
+    with client.app.state.session_factory.begin() as session:
+        act = session.scalar(select(LegalAct))
+        act.processing_status = "completed"
+    client.app.state.rebuild_rag_index()
+    universal = client.post("/api/rules", json=_rule_payload("universal", "приказ")).json()
+    document = _upload(client, TRIP_ORDER)
+
+    preview = client.post(f"/api/documents/{document['id']}/audit/preview").json()
+
+    assert preview["selected_rule_ids"] == [universal["id"]]
+    assert preview["rag_recommendations"]
+    assert {"score", "threshold", "reason"} <= set(preview["rag_recommendations"][0])
+
+
+def test_audit_continues_when_rag_index_is_incompatible(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client = make_client(tmp_path)
+    client.post("/api/rules", json=_rule_payload("universal", "приказ"))
+    document = _upload(client, TRIP_ORDER)
+    (tmp_path / "rag-index.sqlite3").unlink()
+    SQLiteVectorStore(
+        tmp_path / "rag-index.sqlite3",
+        embedding_model="another-model",
+        dimension=4,
+        chunking_version="paragraph-v1",
+    )
+
+    preview = client.post(f"/api/documents/{document['id']}/audit/preview").json()
+    audit = client.post(f"/api/documents/{document['id']}/audit")
+
+    assert "rag_unavailable" in preview["warnings"]
+    assert audit.status_code == 200
+    assert audit.json()["total_findings"] == 1
+
+
+def test_generated_rules_follow_legal_act_types_and_stay_unknown_otherwise(
+    tmp_path: Path, monkeypatch
+) -> None:
+    class Extractor:
+        def extract_rules(self, text: str, *, source_language: str, source_location: str):
+            return (
+                {
+                    "rule_code": "model",
+                    "name": "Срок",
+                    "description": "Срок не менее 24 дней.",
+                    "severity": "high",
+                    "check_type": "duration",
+                    "parameters": {"min_days": 24},
+                    "source_quote": "Срок не менее 24 дней.",
+                    "source_location": source_location,
+                },
+            )
+
+    monkeypatch.setattr(
+        "edm_auditor.api.app.create_rule_extraction_provider", lambda config: Extractor()
+    )
+    client = make_client(tmp_path)
+
+    def upload(code: str, text: str, **data) -> dict:
+        response = client.post(
+            "/api/legal-acts/upload",
+            data={"code": code, "title": "Акт", **data},
+            files={"file": ("act.txt", text.encode(), "text/plain")},
+        )
+        assert response.status_code == 201
+        return response.json()
+
+    unknown = upload("ACT-1", "Срок не менее 24 дней.")
+    explicit = upload(
+        "ACT-2", "Общие условия.\n\nСрок не менее 24 дней.", document_types="vacation_order"
+    )
+    classified = upload(
+        "ACT-3", "Положение о служебных командировках.\n\nОтчет о командировке. Срок не менее 24 дней."
+    )
+    rules = {item["legal_act_id"]: item for item in client.get("/api/rules").json()}
+
+    assert rules[unknown["id"]]["applicability_scope"] == "unknown"
+    assert rules[explicit["id"]]["document_types"] == ["vacation_order"]
+    assert rules[explicit["id"]]["applicability_source"] == "legal_act"
+    assert rules[classified["id"]]["document_types"] == ["business_trip_order"]
+    assert rules[classified["id"]]["applicability_source"] == "legal_act_classifier"
+
+    updated = client.patch(
+        f"/api/legal-acts/{unknown['id']}", json={"document_types": ["payroll_order"]}
+    )
+    assert updated.json()["document_types"] == ["payroll_order"]
+    rule = next(
+        item
+        for item in client.get("/api/rules").json()
+        if item["legal_act_id"] == unknown["id"]
+    )
+    assert rule["applicability_scope"] == "typed"
+    assert rule["document_types"] == ["payroll_order"]
+
+    client.post(f"/api/legal-acts/{unknown['id']}/reprocess")
+    rule = next(
+        item
+        for item in client.get("/api/rules").json()
+        if item["legal_act_id"] == unknown["id"]
+    )
+    assert rule["document_types"] == ["payroll_order"]
+
+    client.patch(
+        f"/api/rules/{rule['id']}/applicability",
+        json={"applicability_scope": "manual_only"},
+    )
+    client.patch(
+        f"/api/legal-acts/{unknown['id']}", json={"document_types": ["vacation_order"]}
+    )
+    rule = next(
+        item
+        for item in client.get("/api/rules").json()
+        if item["legal_act_id"] == unknown["id"]
+    )
+    assert rule["applicability_scope"] == "manual_only"
