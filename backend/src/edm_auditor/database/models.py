@@ -4,9 +4,12 @@ from datetime import UTC, datetime
 
 from sqlalchemy import (
     CheckConstraint,
+    Column,
+    Float,
     ForeignKey,
     Integer,
     String,
+    Table,
     Text,
     UniqueConstraint,
 )
@@ -21,6 +24,39 @@ def utc_now() -> datetime:
 
 class Base(DeclarativeBase):
     """Base class for all storage models."""
+
+
+document_confirmed_types = Table(
+    "document_confirmed_types",
+    Base.metadata,
+    Column(
+        "document_id",
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "document_type_code",
+        ForeignKey("document_types.code", ondelete="RESTRICT"),
+        primary_key=True,
+    ),
+)
+
+
+class DocumentType(Base):
+    """Catalog entry; ``unknown`` is a classification state and never a row here."""
+
+    __tablename__ = "document_types"
+
+    code: Mapped[str] = mapped_column(String(100), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255))
+    description: Mapped[str] = mapped_column(Text, default="")
+    classifier_profile: Mapped[str] = mapped_column(Text, default="{}")
+    is_active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(default=utc_now)
+
+    __table_args__ = (
+        CheckConstraint("code <> 'unknown'", name="ck_document_types_code"),
+    )
 
 
 class User(Base):
@@ -52,12 +88,20 @@ class Document(Base):
     file_path: Mapped[str] = mapped_column(String(1000))
     raw_text: Mapped[str] = mapped_column(Text, default="")
     classified_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    classification_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    classification_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    classification_candidates: Mapped[str | None] = mapped_column(Text, nullable=True)
+    classification_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    classification_auto: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(
         String(20), default=DocumentStatus.UPLOADED.value
     )
     created_at: Mapped[datetime] = mapped_column(default=utc_now)
 
     owner: Mapped[User | None] = relationship(back_populates="documents")
+    confirmed_types: Mapped[list[DocumentType]] = relationship(
+        secondary=document_confirmed_types, order_by=DocumentType.code
+    )
     paragraphs: Mapped[list["DocumentParagraph"]] = relationship(
         back_populates="document",
         cascade="all, delete-orphan",
@@ -72,6 +116,11 @@ class Document(Base):
         CheckConstraint(
             "status IN ('uploaded', 'processing', 'audited', 'error')",
             name="ck_documents_status",
+        ),
+        CheckConstraint(
+            "classification_status IS NULL OR "
+            "classification_status IN ('classified', 'needs_review', 'unknown')",
+            name="ck_documents_classification_status",
         ),
     )
 

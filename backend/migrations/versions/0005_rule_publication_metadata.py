@@ -11,7 +11,13 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+def _columns(table: str) -> set[str]:
+    return {item["name"] for item in sa.inspect(op.get_bind()).get_columns(table)}
+
+
 def upgrade() -> None:
+    # 0001 creates the schema from the current models, so these objects may already exist.
+    existing = _columns("legal_acts")
     for name, column in (
         ("processing_status", sa.Column("processing_status", sa.String(20), nullable=False, server_default="uploaded")),
         ("processing_version", sa.Column("processing_version", sa.String(50), nullable=True)),
@@ -20,8 +26,10 @@ def upgrade() -> None:
         ("rules_accepted", sa.Column("rules_accepted", sa.Integer(), nullable=False, server_default="0")),
         ("rules_rejected", sa.Column("rules_rejected", sa.Integer(), nullable=False, server_default="0")),
     ):
-        op.add_column("legal_acts", column)
+        if name not in existing:
+            op.add_column("legal_acts", column)
 
+    existing = _columns("audit_rules")
     for name, column in (
         ("is_generated", sa.Column("is_generated", sa.Boolean(), nullable=False, server_default=sa.false())),
         ("deduplication_key", sa.Column("deduplication_key", sa.String(64), nullable=True)),
@@ -30,8 +38,15 @@ def upgrade() -> None:
         ("source_start", sa.Column("source_start", sa.Integer(), nullable=True)),
         ("source_end", sa.Column("source_end", sa.Integer(), nullable=True)),
     ):
-        op.add_column("audit_rules", column)
-    op.create_index("uq_audit_rules_deduplication_key", "audit_rules", ["deduplication_key"], unique=True)
+        if name not in existing:
+            op.add_column("audit_rules", column)
+    op.create_index(
+        "uq_audit_rules_deduplication_key",
+        "audit_rules",
+        ["deduplication_key"],
+        unique=True,
+        if_not_exists=True,
+    )
 
     op.create_table(
         "rule_extraction_results",
@@ -51,8 +66,14 @@ def upgrade() -> None:
             "status IN ('pending', 'accepted', 'failed', 'partial')",
             name="ck_extraction_result_status",
         ),
+        if_not_exists=True,
     )
-    op.create_index("ix_rule_extraction_results_legal_act_id", "rule_extraction_results", ["legal_act_id"])
+    op.create_index(
+        "ix_rule_extraction_results_legal_act_id",
+        "rule_extraction_results",
+        ["legal_act_id"],
+        if_not_exists=True,
+    )
 
 
 def downgrade() -> None:
