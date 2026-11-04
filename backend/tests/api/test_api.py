@@ -385,6 +385,7 @@ def test_delete_legal_act_removes_rules_and_preserves_findings(tmp_path: Path) -
 def test_web_ui_and_report_document_endpoints(tmp_path: Path) -> None:
     client = make_client(tmp_path)
     assert client.get("/").status_code == 200
+    assert 'id="audit-config"' in client.get("/").text
     upload = client.post(
         "/api/documents/upload",
         files={"file": ("contract.txt", b"Employee receives 14 days leave.", "text/plain")},
