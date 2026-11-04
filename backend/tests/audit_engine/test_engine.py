@@ -4,8 +4,15 @@ from pathlib import Path
 import pytest
 from sqlalchemy import select
 
+from edm_auditor.applicability import (
+    RagCandidate,
+    ResolutionStatus,
+    SelectionConfig,
+    SelectionWarning,
+)
 from edm_auditor.audit_engine import (
     AuditEngine,
+    AuditSelectionRequired,
     LLMInterpreter,
     AuditPersistence,
     RuleSpec,
@@ -313,6 +320,7 @@ def test_persistence_stores_neural_analysis_status(session_factory) -> None:
             file_type="txt",
             file_path="neural.txt",
             raw_text="Условие присутствует.",
+            confirmed_types=[_contract_type(session)],
         )
         session.add(document)
         session.flush()
@@ -335,6 +343,17 @@ def test_persistence_stores_neural_analysis_status(session_factory) -> None:
     assert summary["neural"]["model"] == "fake-llm"
 
 
+def _universal_rule(keyword: str = "отсутствует") -> AuditRule:
+    return AuditRule(
+        rule_code=f"universal-{keyword}",
+        name="Universal",
+        severity=AuditSeverity.LOW.value,
+        check_type=CheckType.KEYWORD.value,
+        applicability_scope="universal",
+        parameters_json=json.dumps({"keywords": [keyword]}),
+    )
+
+
 def _stored_document(session_factory) -> int:
     with session_factory.begin() as session:
         document = Document(
@@ -342,6 +361,7 @@ def _stored_document(session_factory) -> int:
             file_type="txt",
             file_path="contract.txt",
             raw_text="Отпуск составляет 14 дней.",
+            confirmed_types=[_contract_type(session)],
         )
         session.add(document)
         session.flush()
@@ -350,6 +370,8 @@ def _stored_document(session_factory) -> int:
 
 def test_persistence_calls_llm_even_without_findings(session_factory) -> None:
     document_id = _stored_document(session_factory)
+    with session_factory.begin() as session:
+        session.add(_universal_rule())
     llm = FakeLLMProvider()
 
     report = make_persistence(session_factory, llm=llm).audit_document(document_id)
@@ -373,6 +395,8 @@ def test_model_failure_marks_document_failed_without_report(
     session_factory, options, message
 ) -> None:
     document_id = _stored_document(session_factory)
+    with session_factory.begin() as session:
+        session.add(_universal_rule())
 
     with pytest.raises(AuditModelError, match=message):
         make_persistence(session_factory, **options).audit_document(document_id)
@@ -403,3 +427,116 @@ def test_embedding_failure_stops_semantic_audit() -> None:
                 )
             ],
         )
+
+
+def test_audit_runs_only_the_rules_chosen_by_the_resolver(session_factory) -> None:
+    document_id = _stored_document(session_factory)
+    other = DocumentType(code="payroll_order", name="Payroll")
+    with session_factory.begin() as session:
+        session.add(
+            AuditRule(
+                rule_code="other-type",
+                name="Other type",
+                severity=AuditSeverity.HIGH.value,
+                check_type=CheckType.KEYWORD.value,
+                applicability_scope="typed",
+                document_types=[other],
+                parameters_json=json.dumps({"keywords": ["отпуск"]}),
+            )
+        )
+        session.add(_universal_rule("14 дней"))
+
+    report = make_persistence(session_factory).audit_document(document_id)
+
+    assert report.total_findings == 1
+    assert report.findings[0].quote == "14 дней"
+
+
+def test_preview_and_audit_use_the_same_rules(session_factory) -> None:
+    document_id = _stored_document(session_factory)
+    with session_factory.begin() as session:
+        kept, excluded = _universal_rule("14 дней"), _universal_rule("отпуск")
+        session.add_all([kept, excluded])
+        session.flush()
+        kept_id, excluded_id = kept.id, excluded.id
+    selection = SelectionConfig(excluded_rule_ids=frozenset({excluded_id}))
+    persistence = make_persistence(session_factory)
+
+    preview = persistence.preview(document_id, selection)
+    report = persistence.audit_document(document_id, selection)
+
+    assert preview.selected_rule_ids == (kept_id,)
+    assert {finding.rule_id for finding in report.findings} == {kept_id}
+    with session_factory() as session:
+        assert session.get(Document, document_id).status == DocumentStatus.AUDITED.value
+
+
+def test_unconfigured_audit_keeps_document_status_and_creates_no_report(
+    session_factory,
+) -> None:
+    with session_factory.begin() as session:
+        document = Document(
+            title="Unknown", file_type="txt", file_path="u.txt", raw_text="Текст."
+        )
+        session.add_all([document, _universal_rule("Текст")])
+        session.flush()
+        document_id = document.id
+
+    with pytest.raises(AuditSelectionRequired) as error:
+        make_persistence(session_factory).audit_document(document_id)
+
+    assert error.value.resolution.status is ResolutionStatus.NEEDS_CONFIGURATION
+    with session_factory() as session:
+        assert session.get(Document, document_id).status == DocumentStatus.UPLOADED.value
+        assert session.scalar(select(AuditReport)) is None
+
+
+def test_audit_continues_with_a_warning_when_rag_is_unavailable(session_factory) -> None:
+    document_id = _stored_document(session_factory)
+    with session_factory.begin() as session:
+        session.add(_universal_rule("14 дней"))
+
+    def failing_recommender(_: str):
+        raise EmbeddingError("embedding service unavailable")
+
+    persistence = AuditPersistence(
+        session_factory,
+        engine=AuditEngine(entity_extractor=no_entities),
+        neural_interpreter=LLMInterpreter(FakeLLMProvider()),
+        rag_recommender=failing_recommender,
+    )
+
+    preview = persistence.preview(document_id)
+    report = persistence.audit_document(document_id)
+
+    assert SelectionWarning.RAG_UNAVAILABLE in preview.warnings
+    assert report.total_findings == 1
+
+
+def test_rag_candidate_of_another_act_does_not_select_its_rule(session_factory) -> None:
+    document_id = _stored_document(session_factory)
+    other = DocumentType(code="payroll_order", name="Payroll")
+    with session_factory.begin() as session:
+        rule = AuditRule(
+            rule_code="payroll",
+            name="Payroll",
+            severity=AuditSeverity.HIGH.value,
+            check_type=CheckType.KEYWORD.value,
+            applicability_scope="typed",
+            document_types=[other],
+            parameters_json=json.dumps({"keywords": ["отпуск"]}),
+        )
+        session.add(rule)
+        session.flush()
+        rule_id = rule.id
+    persistence = AuditPersistence(
+        session_factory,
+        engine=AuditEngine(entity_extractor=no_entities),
+        neural_interpreter=LLMInterpreter(FakeLLMProvider()),
+        rag_recommender=lambda _: [RagCandidate(5, rule_id, 0.99, 0.5)],
+    )
+
+    preview = persistence.preview(document_id)
+
+    assert preview.status is ResolutionStatus.NO_APPLICABLE_RULES
+    assert preview.recommendations[0].rule_id == rule_id

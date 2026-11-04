@@ -1,20 +1,44 @@
 """Persistence adapter for audit results."""
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from dataclasses import replace
+import logging
+import sqlite3
 
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
+from edm_auditor.applicability import (
+    DocumentContext,
+    RagCandidate,
+    ResolutionResult,
+    ResolutionStatus,
+    RuleApplicabilityResolver,
+    SelectionConfig,
+    SelectionWarning,
+)
 from edm_auditor.database.enums import DocumentStatus
 from edm_auditor.database.models import AuditFinding, AuditReport, AuditRule, Document
+from edm_auditor.rag.exceptions import RAGError
 
 from .engine import AuditEngine
 from .llm_interpreter import LLMInterpreter
 from .models import FindingDraft, RuleSpec
 from .neural_errors import AuditModelError
 from .neural_models import NeuralFinding, NeuralResult
+
+
+logger = logging.getLogger(__name__)
+
+
+class AuditSelectionRequired(Exception):
+    """The audit cannot run until the user resolves the rule selection."""
+
+    def __init__(self, resolution: ResolutionResult) -> None:
+        super().__init__(resolution.status.value)
+        self.resolution = resolution
 
 
 class AuditPersistence:
@@ -25,40 +49,39 @@ class AuditPersistence:
         session_factory: Callable[[], Session],
         engine: AuditEngine,
         neural_interpreter: LLMInterpreter,
+        *,
+        rag_recommender: Callable[[str], Sequence[RagCandidate]] | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._engine = engine
         self._neural_interpreter = neural_interpreter
+        self._rag_recommender = rag_recommender
+        self._resolver = RuleApplicabilityResolver()
 
-    def audit_document(self, document_id: int) -> AuditReport:
+    def preview(
+        self, document_id: int, selection: SelectionConfig | None = None
+    ) -> ResolutionResult:
+        """Resolve the same rule set that an audit with this selection would use."""
+        with self._session_factory() as session:
+            return self._resolve(session, self._load(session, document_id), selection)
+
+    def audit_document(
+        self, document_id: int, selection: SelectionConfig | None = None
+    ) -> AuditReport:
         try:
             with self._session_factory.begin() as session:
-                document = session.scalar(
-                    select(Document)
-                    .options(selectinload(Document.paragraphs))
-                    .where(Document.id == document_id)
-                )
-                if document is None:
-                    raise LookupError(f"Document {document_id} does not exist")
+                document = self._load(session, document_id)
+                resolution = self._resolve(session, document, selection)
+                if resolution.status is not ResolutionStatus.READY:
+                    raise AuditSelectionRequired(resolution)
                 document.status = DocumentStatus.PROCESSING.value
                 session.flush()
 
-                rules = session.scalars(
-                    select(AuditRule)
-                    .where(AuditRule.is_active.is_(True))
-                    .order_by(AuditRule.id)
-                ).all()
-                confirmed = {item.code for item in document.confirmed_types}
-                result = self._engine.audit(
-                    document.raw_text,
-                    (
-                        spec
-                        for spec in map(_to_rule_spec, rules)
-                        if spec.applicability_scope != "typed"
-                        or confirmed.intersection(spec.document_types)
-                    ),
+                result = self._engine.audit(document.raw_text, resolution.selected_rules)
+                neural = self._analyze(
+                    result.findings,
+                    ", ".join(item.code for item in document.confirmed_types) or None,
                 )
-                neural = self._analyze(result.findings, document.classified_type)
                 counts = result.counts
                 summary = {
                     "diagnostics": [
@@ -101,6 +124,55 @@ class AuditPersistence:
         except (LookupError, ValueError, TypeError, AuditModelError, SQLAlchemyError):
             self._mark_error(document_id)
             raise
+
+    def _load(self, session: Session, document_id: int) -> Document:
+        document = session.scalar(
+            select(Document)
+            .options(selectinload(Document.paragraphs))
+            .where(Document.id == document_id)
+        )
+        if document is None:
+            raise LookupError(f"Document {document_id} does not exist")
+        return document
+
+    def _resolve(
+        self,
+        session: Session,
+        document: Document,
+        selection: SelectionConfig | None,
+    ) -> ResolutionResult:
+        rules = session.scalars(
+            select(AuditRule)
+            .options(selectinload(AuditRule.document_types))
+            .order_by(AuditRule.id)
+        ).all()
+        candidates = json.loads(document.classification_candidates or "[]")
+        context = DocumentContext(
+            classification_status=document.classification_status or "unknown",
+            confirmed_document_types=tuple(item.code for item in document.confirmed_types),
+            candidate_document_types=tuple(item["code"] for item in candidates),
+            confidence=document.classification_confidence or 0.0,
+        )
+        rag_candidates, rag_failed = self._recommend(document.raw_text)
+        resolution = self._resolver.resolve(
+            map(_to_rule_spec, rules), context, selection, rag_candidates=rag_candidates
+        )
+        if rag_failed:
+            resolution = replace(
+                resolution,
+                warnings=(*resolution.warnings, SelectionWarning.RAG_UNAVAILABLE),
+            )
+        return resolution
+
+    def _recommend(self, text: str) -> tuple[Sequence[RagCandidate], bool]:
+        """RAG only informs the selection, so its failure must not stop deterministic checks."""
+        if self._rag_recommender is None:
+            return (), False
+        try:
+            return self._rag_recommender(text), False
+        except (RuntimeError, ValueError, TypeError, RAGError, sqlite3.Error) as exc:
+            logger.warning("RAG recommendations are unavailable: %s", type(exc).__name__)
+            return (), True
 
     def _analyze(
         self, findings: tuple[FindingDraft, ...], document_type: str | None

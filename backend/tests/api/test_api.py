@@ -204,7 +204,10 @@ def test_create_rule_audit_and_get_report(tmp_path: Path) -> None:
     assert rule.status_code == 201
     assert client.get("/api/rules?check_type=keyword").json()[0]["rule_code"] == "leave-short"
 
-    audit = client.post(f"/api/documents/{document_id}/audit")
+    audit = client.post(
+        f"/api/documents/{document_id}/audit",
+        json={"selection_mode": "manual", "included_rule_ids": [rule.json()["id"]]},
+    )
     assert audit.status_code == 200
     report = client.get(f"/api/documents/{document_id}/report")
 
@@ -234,8 +237,21 @@ def test_audit_fails_without_report_when_model_is_unavailable(
         files={"file": ("contract.txt", b"Employee receives 14 days leave.", "text/plain")},
     )
     document_id = upload.json()["id"]
+    rule = client.post(
+        "/api/rules",
+        json={
+            "rule_code": "leave-check",
+            "name": "Leave check",
+            "severity": "high",
+            "check_type": "keyword",
+            "parameters": {"keywords": ["14 days"]},
+        },
+    )
 
-    audit = client.post(f"/api/documents/{document_id}/audit")
+    audit = client.post(
+        f"/api/documents/{document_id}/audit",
+        json={"selection_mode": "manual", "included_rule_ids": [rule.json()["id"]]},
+    )
 
     assert audit.status_code == 503
     assert audit.json()["error"]["code"] == "model_provider_error"
@@ -374,7 +390,7 @@ def test_web_ui_and_report_document_endpoints(tmp_path: Path) -> None:
     )
     document_id = upload.json()["id"]
     assert client.get("/api/documents").json()[0]["id"] == document_id
-    client.post(
+    rule = client.post(
         "/api/rules",
         json={
             "rule_code": "web-ui-leave-check",
@@ -384,7 +400,10 @@ def test_web_ui_and_report_document_endpoints(tmp_path: Path) -> None:
             "parameters": {"keywords": ["14 days"]},
         },
     )
-    audit = client.post(f"/api/documents/{document_id}/audit")
+    audit = client.post(
+        f"/api/documents/{document_id}/audit",
+        json={"selection_mode": "manual", "included_rule_ids": [rule.json()["id"]]},
+    )
     reports = client.get("/api/reports")
     assert reports.status_code == 200
     assert reports.json()[0]["id"] == audit.json()["report_id"]

@@ -1,7 +1,7 @@
 """Pydantic schemas exposed by the REST API."""
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -24,6 +24,14 @@ class DocumentResponse(BaseModel):
     status: str
     classified_type: str | None
     created_at: datetime
+
+
+class AuditSelectionRequest(BaseModel):
+    selection_mode: Literal["automatic", "manual", "combined", "all"] = "automatic"
+    legal_act_ids: list[int] = Field(default_factory=list)
+    included_rule_ids: list[int] = Field(default_factory=list)
+    excluded_rule_ids: list[int] = Field(default_factory=list)
+    confirm_all: bool = False
 
 
 class AuditRequestResponse(BaseModel):

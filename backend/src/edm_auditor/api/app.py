@@ -17,14 +17,21 @@ from sqlalchemy import delete, func, inspect as inspect_schema, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from edm_auditor.applicability import ApplicabilityScope
+from edm_auditor.applicability import (
+    ApplicabilityScope,
+    InvalidSelection,
+    ResolutionResult,
+    ResolutionStatus,
+    SelectionConfig,
+    SelectionMode,
+)
 from edm_auditor.applicability.rule_scope import (
     SOURCE_MANUAL,
     RuleApplicability,
     apply_rule_applicability,
     legal_act_applicability,
 )
-from edm_auditor.audit_engine.persistence import AuditPersistence
+from edm_auditor.audit_engine.persistence import AuditPersistence, AuditSelectionRequired
 from edm_auditor.audit_engine import AuditEngine, LLMInterpreter, entities_from_provider
 from edm_auditor.audit_engine.neural_errors import AuditModelError
 from edm_auditor.database import (
@@ -67,6 +74,7 @@ from .config import ApiSettings
 from .errors import ApiError, parser_error
 from .schemas import (
     AuditRequestResponse,
+    AuditSelectionRequest,
     DocumentResponse,
     FindingResponse,
     LegalActResponse,
@@ -173,6 +181,13 @@ def create_app(
     provider = create_entity_extraction_provider(model_settings.extractor)
     entity_extractor = lambda text: entities_from_provider(text, provider.extract(text))
     rule_extractor = create_rule_extraction_provider(model_settings.extractor)
+
+    def audit_persistence() -> AuditPersistence:
+        return AuditPersistence(
+            session_factory,
+            engine=AuditEngine(entity_extractor=entity_extractor),
+            neural_interpreter=neural_interpreter,
+        )
 
     def process_legal_act(legal_act_id: int) -> None:
         """Extract, validate, and atomically publish generated rules."""
@@ -480,15 +495,17 @@ def create_app(
         "/api/documents/{document_id}/audit",
         response_model=AuditRequestResponse,
     )
-    def audit_document(document_id: int) -> AuditRequestResponse:
+    def audit_document(
+        document_id: int, selection: AuditSelectionRequest | None = None
+    ) -> AuditRequestResponse:
         try:
-            report = AuditPersistence(
-                session_factory,
-                engine=AuditEngine(entity_extractor=entity_extractor),
-                neural_interpreter=neural_interpreter,
-            ).audit_document(document_id)
+            report = audit_persistence().audit_document(
+                document_id, _selection_config(session_factory, selection)
+            )
         except LookupError as exc:
             raise ApiError(404, "document_not_found", str(exc)) from exc
+        except AuditSelectionRequired as exc:
+            raise _selection_error(exc.resolution) from exc
         except AuditModelError as exc:
             logger.exception("Audit of document %s failed", document_id)
             raise ApiError(
@@ -859,6 +876,48 @@ def _require_current_schema(engine) -> None:
             "'alembic upgrade head' (for a database that has no alembic_version table, "
             "run 'alembic stamp 0005_rule_publication_metadata' first)."
         )
+
+
+def _selection_config(
+    session_factory, selection: AuditSelectionRequest | None
+) -> SelectionConfig:
+    """Reject identifiers that do not exist instead of silently ignoring them."""
+    selection = selection or AuditSelectionRequest()
+    rule_ids = {*selection.included_rule_ids, *selection.excluded_rule_ids}
+    with session_factory() as session:
+        known_rules = set(
+            session.scalars(select(AuditRule.id).where(AuditRule.id.in_(rule_ids))).all()
+        )
+        known_acts = set(
+            session.scalars(
+                select(LegalAct.id).where(LegalAct.id.in_(selection.legal_act_ids))
+            ).all()
+        )
+    if missing := rule_ids - known_rules:
+        raise ApiError(422, "unknown_rule", f"Unknown rules: {sorted(missing)}")
+    if missing := set(selection.legal_act_ids) - known_acts:
+        raise ApiError(422, "unknown_legal_act", f"Unknown legal acts: {sorted(missing)}")
+    try:
+        return SelectionConfig(
+            mode=SelectionMode(selection.selection_mode),
+            legal_act_ids=frozenset(selection.legal_act_ids),
+            included_rule_ids=frozenset(selection.included_rule_ids),
+            excluded_rule_ids=frozenset(selection.excluded_rule_ids),
+            confirm_all=selection.confirm_all,
+        )
+    except InvalidSelection as exc:
+        raise ApiError(422, "all_mode_not_confirmed", str(exc)) from exc
+
+
+def _selection_error(resolution: ResolutionResult) -> ApiError:
+    warnings = ", ".join(item.value for item in resolution.warnings)
+    if resolution.status is ResolutionStatus.NO_APPLICABLE_RULES:
+        return ApiError(409, "no_applicable_rules", f"No rules apply: {warnings}")
+    return ApiError(
+        409,
+        "audit_configuration_required",
+        f"Confirm the document type or select rules: {warnings}",
+    )
 
 
 def _active_document_types(session: Session, codes: list[str]) -> list[DocumentType]:

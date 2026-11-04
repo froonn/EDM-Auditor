@@ -4,7 +4,7 @@ from .engine import AuditEngine
 from .extractors import entities_from_provider, extract_entities
 from .llm_interpreter import LLMInterpreter
 from .neural_models import NeuralFinding, NeuralResult
-from .persistence import AuditPersistence
+from .persistence import AuditPersistence, AuditSelectionRequired
 from .models import (
     AuditRequest,
     AuditResult,
@@ -22,6 +22,7 @@ __all__ = [
     "NeuralFinding",
     "NeuralResult",
     "AuditPersistence",
+    "AuditSelectionRequired",
     "AuditRequest",
     "AuditResult",
     "ExtractedEntity",
