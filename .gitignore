@@ -13,3 +13,6 @@ backend/data/uploads/
 logs/
 report
 docs/remove-copilot-from-history.md
+node_modules/
+frontend/dist/
+*.tsbuildinfo

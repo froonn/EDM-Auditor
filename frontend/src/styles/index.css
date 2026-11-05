@@ -1,0 +1,103 @@
+@import "tailwindcss";
+
+/*
+ * Every color comes from a CSS variable. Components use only the semantic utilities below
+ * (bg-background, text-severity-critical, ...), never palette classes such as bg-red-500.
+ * A new theme therefore only redefines these variables, for example under [data-theme="dark"].
+ */
+:root {
+  --background: oklch(0.985 0.002 250);
+  --foreground: oklch(0.21 0.02 260);
+  --card: oklch(1 0 0);
+  --card-foreground: var(--foreground);
+  --muted: oklch(0.96 0.005 250);
+  --muted-foreground: oklch(0.5 0.02 260);
+  --border: oklch(0.91 0.008 250);
+  --input: var(--border);
+  --ring: oklch(0.55 0.15 255);
+  --primary: oklch(0.45 0.16 260);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.95 0.01 250);
+  --secondary-foreground: var(--foreground);
+  --accent: oklch(0.94 0.02 255);
+  --accent-foreground: var(--foreground);
+  --destructive: oklch(0.55 0.22 27);
+  --destructive-foreground: oklch(0.99 0 0);
+  --success: oklch(0.52 0.13 150);
+  --success-muted: oklch(0.95 0.04 150);
+  --warning: oklch(0.55 0.12 75);
+  --warning-muted: oklch(0.96 0.06 90);
+  --danger-muted: oklch(0.95 0.03 25);
+  --overlay: oklch(0.2 0.02 260 / 0.45);
+
+  /* Severity: critical and high are red (critical is stronger), medium yellow, low blue. */
+  --severity-critical: oklch(0.45 0.2 25);
+  --severity-critical-bg: oklch(0.86 0.1 25);
+  --severity-critical-border: oklch(0.55 0.22 25);
+  --severity-high: oklch(0.52 0.19 25);
+  --severity-high-bg: oklch(0.93 0.05 25);
+  --severity-high-border: oklch(0.7 0.15 25);
+  --severity-medium: oklch(0.5 0.11 75);
+  --severity-medium-bg: oklch(0.95 0.1 95);
+  --severity-medium-border: oklch(0.78 0.15 85);
+  --severity-low: oklch(0.48 0.14 255);
+  --severity-low-bg: oklch(0.94 0.04 245);
+  --severity-low-border: oklch(0.7 0.12 250);
+
+  --radius: 0.5rem;
+  color-scheme: light;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-muted: var(--success-muted);
+  --color-warning: var(--warning);
+  --color-warning-muted: var(--warning-muted);
+  --color-danger-muted: var(--danger-muted);
+  --color-overlay: var(--overlay);
+  --color-severity-critical: var(--severity-critical);
+  --color-severity-critical-bg: var(--severity-critical-bg);
+  --color-severity-critical-border: var(--severity-critical-border);
+  --color-severity-high: var(--severity-high);
+  --color-severity-high-bg: var(--severity-high-bg);
+  --color-severity-high-border: var(--severity-high-border);
+  --color-severity-medium: var(--severity-medium);
+  --color-severity-medium-bg: var(--severity-medium-bg);
+  --color-severity-medium-border: var(--severity-medium-border);
+  --color-severity-low: var(--severity-low);
+  --color-severity-low-bg: var(--severity-low-bg);
+  --color-severity-low-border: var(--severity-low-border);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    min-width: 1280px;
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  }
+}
