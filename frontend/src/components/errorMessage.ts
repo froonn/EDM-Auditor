@@ -12,13 +12,18 @@ export interface ErrorView {
   isWarning: boolean;
 }
 
-export function describeError(error: unknown, i18n: Pick<I18n, "t" | "tOptional">): ErrorView {
+/** `withServerMessage` also shows the server text for a known code, when it names the problem. */
+export function describeError(
+  error: unknown,
+  i18n: Pick<I18n, "t" | "tOptional">,
+  withServerMessage = false,
+): ErrorView {
   const apiError = asApiError(error);
   const known = i18n.tOptional(`error.${apiError.code}`);
   return {
     error: apiError,
     message: known ?? i18n.t("error.unknown"),
-    details: known ? undefined : (apiError.serverMessage ?? apiError.code),
+    details: known && !withServerMessage ? undefined : (apiError.serverMessage ?? apiError.code),
     isWarning: WARNING_CODES.has(apiError.code),
   };
 }

@@ -11,12 +11,14 @@ interface ErrorAlertProps {
   /** Shows a retry button. Requests that call the model are repeated only by the user. */
   onRetry?: () => void;
   retrying?: boolean;
+  /** Shows the server message, for validation errors that name the wrong field. */
+  showServerMessage?: boolean;
   className?: string;
 }
 
-export function ErrorAlert({ error, onRetry, retrying = false, className }: ErrorAlertProps) {
+export function ErrorAlert({ error, onRetry, retrying = false, showServerMessage = false, className }: ErrorAlertProps) {
   const i18n = useI18n();
-  const view = describeError(error, i18n);
+  const view = describeError(error, i18n, showServerMessage);
   return (
     <div
       role="alert"
@@ -34,7 +36,7 @@ export function ErrorAlert({ error, onRetry, retrying = false, className }: Erro
         <p className="font-medium">{i18n.t(view.isWarning ? "error.warningTitle" : "error.title")}</p>
         <p>{view.message}</p>
         {view.details && (
-          <details className="text-muted-foreground">
+          <details open={showServerMessage} className="text-muted-foreground">
             <summary className="cursor-pointer">{i18n.t("action.details")}</summary>
             <p className="mt-1 font-mono text-xs break-words">{view.details}</p>
           </details>

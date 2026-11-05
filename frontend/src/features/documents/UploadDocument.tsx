@@ -1,16 +1,16 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CircleCheck, FileUp, TriangleAlert } from "lucide-react";
-import { useId, useRef, useState, type DragEvent } from "react";
+import { CircleCheck, TriangleAlert } from "lucide-react";
+import { useId, useState } from "react";
 import { Link } from "react-router";
 
 import { api } from "@/api/endpoints";
 import type { DocumentItem } from "@/api/types";
 import { ErrorAlert } from "@/components/ErrorAlert";
+import { FileDropZone } from "@/components/FileDropZone";
 import { LongOperation } from "@/components/LongOperation";
 import { Button } from "@/components/ui/button";
 import { queryKeys, useDocumentTypes } from "@/features/queries";
 import { useI18n, type I18n } from "@/i18n";
-import { cn } from "@/lib/utils";
 
 const ACCEPTED_EXTENSIONS = [".txt", ".docx", ".pdf"];
 /** The server default (EDM_MAX_UPLOAD_BYTES). The server checks its own limit as well. */
@@ -32,12 +32,10 @@ export function UploadDocument() {
   const { t, formatNumber } = i18n;
   const { typeName } = useDocumentTypes();
   const queryClient = useQueryClient();
-  const inputRef = useRef<HTMLInputElement>(null);
   const titleId = useId();
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
   const [invalid, setInvalid] = useState<string>();
-  const [dragging, setDragging] = useState(false);
   const [uploaded, setUploaded] = useState<DocumentItem>();
 
   const upload = useMutation({
@@ -60,12 +58,6 @@ export function UploadDocument() {
     setFile(problem ? null : selected);
   };
 
-  const onDrop = (event: DragEvent) => {
-    event.preventDefault();
-    setDragging(false);
-    choose(event.dataTransfer.files[0]);
-  };
-
   const submit = () => file && upload.mutate({ selected: file, name: title });
   const size = t("upload.sizeMb", { value: formatNumber(MAX_UPLOAD_BYTES / 1024 / 1024) });
 
@@ -74,38 +66,13 @@ export function UploadDocument() {
       <h2 id={`${titleId}-heading`} className="font-semibold">
         {t("upload.title")}
       </h2>
-      <div
-        onDragOver={(event) => {
-          event.preventDefault();
-          setDragging(true);
-        }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={onDrop}
-        className={cn(
-          "flex items-center gap-4 rounded-md border-2 border-dashed p-4",
-          dragging ? "border-primary bg-accent" : "border-border",
-        )}
-      >
-        <FileUp aria-hidden className="size-8 text-muted-foreground" />
-        <div className="flex-1 text-sm">
-          <p>{file ? t("upload.selected", { name: file.name }) : t("upload.drop")}</p>
-          <p className="text-muted-foreground">{t("upload.hint", { size })}</p>
-        </div>
-        <Button variant="outline" onClick={() => inputRef.current?.click()} disabled={upload.isPending}>
-          {t("upload.choose")}
-        </Button>
-        <input
-          ref={inputRef}
-          type="file"
-          accept={ACCEPTED_EXTENSIONS.join(",")}
-          className="hidden"
-          data-testid="upload-input"
-          onChange={(event) => {
-            choose(event.target.files?.[0]);
-            event.target.value = "";
-          }}
-        />
-      </div>
+      <FileDropZone
+        accept={ACCEPTED_EXTENSIONS}
+        hint={t("upload.hint", { size })}
+        file={file}
+        onSelect={choose}
+        disabled={upload.isPending}
+      />
       <div className="flex items-end gap-3">
         <label className="flex flex-1 flex-col gap-1 text-sm">
           {t("upload.titleLabel")}

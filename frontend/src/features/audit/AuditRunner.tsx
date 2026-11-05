@@ -4,7 +4,6 @@ import { useNavigate } from "react-router";
 
 import { ApiError } from "@/api/client";
 import type { AuditSelection, DocumentItem } from "@/api/types";
-import { Can } from "@/auth/Can";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ErrorAlert } from "@/components/ErrorAlert";
 import { LongOperation } from "@/components/LongOperation";
@@ -12,21 +11,16 @@ import { Button } from "@/components/ui/button";
 import { useRunAudit } from "@/features/queries";
 import { useI18n } from "@/i18n";
 
-interface AuditRunnerProps {
-  document: Pick<DocumentItem, "id" | "status">;
-  /** Without a selection the server uses the automatic mode. */
-  selection?: AuditSelection;
-  label?: string;
-  disabled?: boolean;
-}
+export type AuditRunner = ReturnType<typeof useAuditRunner>;
 
 /**
- * The audit button with its progress and errors. A document already in `processing` asks for a
- * confirmation: the status stays forever if the server stopped during an audit, so the button is
- * never blocked completely.
+ * Starts an audit. The button and the progress are separate components, so a page can keep the
+ * button in its header and show the progress across the full width below.
+ *
+ * A document already in `processing` asks for a confirmation: the status stays forever if the
+ * server stopped during an audit, so the button is never blocked completely.
  */
-export function AuditRunner({ document, selection, label, disabled = false }: AuditRunnerProps) {
-  const { t } = useI18n();
+export function useAuditRunner(document: Pick<DocumentItem, "id" | "status">, selection?: AuditSelection) {
   const navigate = useNavigate();
   const audit = useRunAudit(document);
   const [confirming, setConfirming] = useState(false);
@@ -41,29 +35,48 @@ export function AuditRunner({ document, selection, label, disabled = false }: Au
         }
       },
     });
-
   const start = () => (document.status === "processing" ? setConfirming(true) : run());
   const redirected =
     audit.error instanceof ApiError && audit.error.code === "audit_configuration_required" && !selection;
 
+  return { audit, run, start, redirected, confirming, setConfirming };
+}
+
+export function AuditRunButton({
+  runner,
+  label,
+  disabled = false,
+}: {
+  runner: AuditRunner;
+  label?: string;
+  disabled?: boolean;
+}) {
+  const { t } = useI18n();
   return (
-    <Can permission="audit.run">
-      <div className="space-y-3">
-        <Button onClick={start} disabled={disabled || audit.isPending}>
-          <Play aria-hidden />
-          {label ?? t("audit.run")}
-        </Button>
-        {audit.isPending && <LongOperation label={t("audit.running")} />}
-        {audit.isError && !redirected && <ErrorAlert error={audit.error} onRetry={run} retrying={audit.isPending} />}
-        <ConfirmDialog
-          open={confirming}
-          onOpenChange={setConfirming}
-          title={t("audit.processingConfirmTitle")}
-          description={t("audit.processingConfirm")}
-          confirmLabel={t("audit.processingConfirmAction")}
-          onConfirm={run}
-        />
-      </div>
-    </Can>
+    <>
+      <Button onClick={runner.start} disabled={disabled || runner.audit.isPending}>
+        <Play aria-hidden />
+        {label ?? t("audit.run")}
+      </Button>
+      <ConfirmDialog
+        open={runner.confirming}
+        onOpenChange={runner.setConfirming}
+        title={t("audit.processingConfirmTitle")}
+        description={t("audit.processingConfirm")}
+        confirmLabel={t("audit.processingConfirmAction")}
+        onConfirm={runner.run}
+      />
+    </>
   );
+}
+
+/** The progress or the error of the audit, meant for the full width of the page. */
+export function AuditRunStatus({ runner }: { runner: AuditRunner }) {
+  const { t } = useI18n();
+  const { audit } = runner;
+  if (audit.isPending) return <LongOperation label={t("audit.running")} />;
+  if (audit.isError && !runner.redirected) {
+    return <ErrorAlert error={audit.error} onRetry={runner.run} retrying={audit.isPending} />;
+  }
+  return null;
 }

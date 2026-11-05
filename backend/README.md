@@ -123,7 +123,8 @@ Check types and their parameters:
 | `date`       | `before` and/or `after` as ISO dates                                                        |
 | `duration`   | `min_days` and/or `max_days`                                                                |
 
-A manually created rule may also have a `recommendation` parameter. Semantic rules are not executed
+A rule whose document types are all deactivated cannot be enabled: change its applicability or reactivate a
+type first. A manually created rule may also have a `recommendation` parameter. Semantic rules are not executed
 in this version, so the model cannot create them and the API refuses them.
 
 ### Legal acts
@@ -197,7 +198,7 @@ Every error has the same form: `{"error": {"code": "...", "message": "..."}}`.
 |--------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | 400    | `empty_document`, `invalid_document`, `document_access_error`, `document_parse_error`                                                                                                                                                                                                           |
 | 404    | `document_not_found`, `report_not_found`, `rule_not_found`, `legal_act_not_found`, `document_type_not_found`, `document_type_suggestion_not_found`, `not_found`                                                                                                                                 |
-| 409    | `audit_configuration_required`, `no_applicable_rules`, `rule_conflict`, `legal_act_conflict`, `document_type_conflict`, `document_type_in_use`, `document_type_suggestion_closed`                                                                                                               |
+| 409    | `audit_configuration_required`, `no_applicable_rules`, `rule_conflict`, `rule_document_types_inactive`, `legal_act_conflict`, `document_type_conflict`, `document_type_in_use`, `document_type_suggestion_closed`                                                                               |
 | 413    | `document_too_large`, `document_too_large_for_audit`                                                                                                                                                                                                                                            |
 | 415    | `unsupported_document_format`, `unsupported_legal_act_format`                                                                                                                                                                                                                                   |
 | 422    | `validation_error`, `invalid_severity`, `invalid_check_type`, `unsupported_check_type`, `invalid_rule_parameters`, `invalid_applicability_scope`, `unknown_document_type`, `reserved_document_type`, `unknown_rule`, `unknown_legal_act`, `all_mode_not_confirmed`, `audit_configuration_error` |
