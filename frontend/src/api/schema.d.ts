@@ -336,7 +336,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Get Rule */
+        get: operations["get_rule_api_rules__rule_id__get"];
         put?: never;
         post?: never;
         /** Delete Rule */
@@ -1798,6 +1799,7 @@ export interface operations {
                 document_type?: string | null;
                 check_type?: string | null;
                 applicability_scope?: components["schemas"]["ApplicabilityScope"] | null;
+                legal_act_id?: number | null;
                 limit?: number;
                 offset?: number;
             };
@@ -1842,6 +1844,37 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuleResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_rule_api_rules__rule_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                rule_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

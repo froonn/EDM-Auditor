@@ -32,6 +32,7 @@ export interface RuleFilters {
   document_type?: string;
   check_type?: string;
   applicability_scope?: ApplicabilityScope;
+  legal_act_id?: number;
 }
 
 /** Reads every page of a list; meant for small catalogs such as rules and legal acts. */
@@ -152,7 +153,9 @@ export const api = {
 
   rules: {
     allActive: (signal?: AbortSignal) => fetchAll<Rule>("/api/rules", { query: { is_active: true }, signal }),
-    all: (signal?: AbortSignal) => fetchAll<Rule>("/api/rules", { signal }),
+    forLegalAct: (legalActId: number, signal?: AbortSignal) =>
+      fetchAll<Rule>("/api/rules", { query: { legal_act_id: legalActId }, signal }),
+    get: (id: number, signal?: AbortSignal) => apiRequest<Rule>(`/api/rules/${id}`, { signal }),
     list: (request: PageRequest & RuleFilters, signal?: AbortSignal) =>
       apiRequestPage<Rule>("/api/rules", { query: { ...request }, signal }),
     create: (rule: RuleCreate) => apiRequest<Rule>("/api/rules", { json: rule }),

@@ -111,8 +111,8 @@ describe("audit screen", () => {
 
   it("lists rules without findings only when asked", async () => {
     const api = routes({
-      "GET /api/rules": () =>
-        page([
+      "GET /api/rules/4": () =>
+        json(
           {
             id: 4,
             rule_code: "ACT-4",
@@ -126,7 +126,7 @@ describe("audit screen", () => {
             legal_act_id: 1,
             is_generated: true,
           },
-        ]),
+        ),
     });
     renderApp("/documents/1/audit");
     const toggle = await screen.findByRole("button", { name: /Без нарушений 1/ });
@@ -137,19 +137,22 @@ describe("audit screen", () => {
     expect(within(passed).getByText("Обязательная подпись")).toBeInTheDocument();
     expect(within(passed).queryByText("Срок уведомления")).not.toBeInTheDocument();
     expect(within(passed).queryByText("Командировка")).not.toBeInTheDocument();
-    expect(api.calls.filter((call) => call.path === "/api/rules")).toHaveLength(1);
+    // Rule details are read only for the opened card.
+    expect(api.calls.some((call) => call.path.startsWith("/api/rules"))).toBe(false);
 
     await userEvent.click(within(passed).getByRole("button", { name: /Обязательная подпись/ }));
+    expect(await within(passed).findByText("Документ должен содержать подписи сторон.")).toBeInTheDocument();
+    expect(api.calls.filter((call) => call.path.startsWith("/api/rules")).map((call) => call.path)).toEqual(["/api/rules/4"]);
     expect(within(passed).getByText("Документ должен содержать подписи сторон.")).toBeInTheDocument();
     expect(within(passed).getByText("Соглашение подписывается обеими сторонами.")).toBeInTheDocument();
     expect(within(passed).getByText("Среднее")).toBeInTheDocument();
   });
 
-  it("does not load rules until the passed list is opened, and explains a deleted rule", async () => {
-    const api = routes({ "GET /api/rules": () => page([]) });
+  it("does not load rules until a passed rule is opened, and explains a deleted rule", async () => {
+    const api = routes({ "GET /api/rules/4": () => apiError(404, "rule_not_found") });
     renderApp("/documents/1/audit");
     const toggle = await screen.findByRole("button", { name: /Без нарушений 1/ });
-    expect(api.calls.some((call) => call.path === "/api/rules")).toBe(false);
+    expect(api.calls.some((call) => call.path.startsWith("/api/rules"))).toBe(false);
     await userEvent.click(toggle);
     const passed = screen.getByRole("region", { name: "Правила без нарушений" });
     await userEvent.click(within(passed).getByRole("button", { name: /Обязательная подпись/ }));
