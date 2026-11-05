@@ -8,6 +8,7 @@ from sqlalchemy import create_engine, select
 from edm_auditor.api import create_app
 from edm_auditor.api.config import ApiSettings
 from edm_auditor.database import Base, create_session_factory
+from edm_auditor.model_providers import ModelRateLimited, ModelRequestTimeout
 from edm_auditor.database.models import (
     AuditFinding,
     AuditReport,
@@ -1382,3 +1383,131 @@ def test_audit_refuses_a_document_needing_too_many_model_requests(
     assert response.json()["error"]["code"] == "document_too_large_for_audit"
     assert calls == []
     assert client.get("/api/reports").json() == []
+
+
+def _add_universal_rule(client: TestClient) -> None:
+    created = client.post(
+        "/api/rules",
+        json={
+            "rule_code": "universal-rule",
+            "name": "Правило",
+            "severity": "low",
+            "check_type": "keyword",
+            "parameters": {"keywords": ["запрет"], "mode": "forbidden"},
+        },
+    )
+    assert created.status_code == 201
+
+
+MODEL_ERRORS = [
+    (ModelRateLimited("limit"), 429, "model_rate_limited"),
+    (ModelRequestTimeout("slow"), 504, "model_timeout"),
+]
+
+
+@pytest.mark.parametrize("error, status, code", MODEL_ERRORS)
+def test_audit_reports_model_limits_and_timeouts(
+    tmp_path: Path, monkeypatch, error, status, code
+) -> None:
+    class Entities(FakeEntityProvider):
+        def extract(self, text: str):
+            raise error
+
+    monkeypatch.setattr(
+        "edm_auditor.api.app.create_entity_extraction_provider", lambda config: Entities()
+    )
+    client = make_client(tmp_path)
+    document = _upload(client, TRIP_ORDER)
+    _add_universal_rule(client)
+
+    response = client.post(
+        f"/api/documents/{document['id']}/audit",
+        json={"selection_mode": "all", "confirm_all": True},
+    )
+
+    assert response.status_code == status
+    assert response.json()["error"]["code"] == code
+    assert client.get("/api/reports").json() == []
+
+
+@pytest.mark.parametrize("error, status, code", MODEL_ERRORS)
+def test_llm_analysis_reports_model_limits_and_timeouts(
+    tmp_path: Path, monkeypatch, error, status, code
+) -> None:
+    class Llm(FakeLLMProvider):
+        def generate(self, *, system_prompt, user_prompt, context=()):
+            raise error
+
+    monkeypatch.setattr("edm_auditor.api.app.create_llm_provider", lambda config: Llm())
+    client = make_client(tmp_path)
+    document = _upload(client, TRIP_ORDER)
+    _add_universal_rule(client)
+
+    response = client.post(
+        f"/api/documents/{document['id']}/audit",
+        json={"selection_mode": "all", "confirm_all": True},
+    )
+
+    assert response.status_code == status
+    assert response.json()["error"]["code"] == code
+
+
+@pytest.mark.parametrize("error, status, code", MODEL_ERRORS)
+def test_classification_reports_model_limits_and_timeouts(
+    tmp_path: Path, monkeypatch, error, status, code
+) -> None:
+    class Classifier(FakeClassificationProvider):
+        def classify(self, *args, **kwargs):
+            raise error
+
+    monkeypatch.setattr(
+        "edm_auditor.api.app.create_document_classification_provider",
+        lambda config: Classifier(),
+    )
+    client = make_client(tmp_path)
+
+    document = _upload(client, TRIP_ORDER)
+    assert document["classification_status"] == "pending"
+
+    response = client.post(f"/api/documents/{document['id']}/classify")
+
+    assert response.status_code == status
+    assert response.json()["error"]["code"] == code
+
+
+@pytest.mark.parametrize("error, status, code", MODEL_ERRORS)
+def test_rule_extraction_stops_at_a_model_limit_or_timeout(
+    tmp_path: Path, monkeypatch, error, status, code
+) -> None:
+    calls: list[str] = []
+
+    class Extractor:
+        def extract_rules(self, text: str, **_):
+            calls.append(text)
+            raise error
+
+    monkeypatch.setattr(
+        "edm_auditor.api.app.create_rule_extraction_provider", lambda config: Extractor()
+    )
+    client = make_client(tmp_path)
+
+    response = client.post(
+        "/api/legal-acts/upload",
+        data={"code": "ACT", "title": "Акт"},
+        files={
+            "file": (
+                "act.txt",
+                "Статья 1. Первая.\nСтатья 2. Вторая.\nСтатья 3. Третья.".encode(),
+                "text/plain",
+            )
+        },
+    )
+
+    assert response.status_code == status
+    assert response.json()["error"]["code"] == code
+    assert len(calls) == 1
+    act = client.get("/api/legal-acts").json()[0]
+    assert act["processing_status"] == "failed"
+    assert act["chunks_processed"] == 0
+    diagnostics = client.get(f"/api/legal-acts/{act['id']}/diagnostics").json()["diagnostics"]
+    assert [item["error_code"] for item in diagnostics] == [code]

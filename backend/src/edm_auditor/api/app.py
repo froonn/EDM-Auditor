@@ -76,6 +76,8 @@ from edm_auditor.document_parser import parse_document
 from edm_auditor.document_parser.exceptions import DocumentParserError
 from edm_auditor.model_config import ModelSettings, detect_source_language
 from edm_auditor.model_providers import (
+    ModelRateLimited,
+    ModelRequestTimeout,
     create_document_classification_provider,
     create_entity_extraction_provider,
     create_llm_provider,
@@ -311,6 +313,8 @@ def create_app(
 
         validated_rules: list[dict[str, object]] = []
         failed_chunks = 0
+        accepted_chunks = 0
+        model_failure: Exception | None = None
         for chunk_index, chunk in enumerate(chunks):
             if chunk_index:
                 delay = model_settings.extractor.inter_chunk_delay_seconds
@@ -354,6 +358,11 @@ def create_app(
                     exc if isinstance(exc, RuleValidationError)
                     else RuleValidationError("extraction_failed", type(exc).__name__)
                 )
+                if isinstance(exc, (ModelRateLimited, ModelRequestTimeout)):
+                    model_failure = exc
+                    chunk_error = RuleValidationError(
+                        _model_failure(exc, ApiError(503, "", "")).code, str(exc)
+                    )
             if chunk_error is not None:
                 failed_chunks += 1
                 with session_factory.begin() as session:
@@ -368,7 +377,11 @@ def create_app(
                             processing_version=processing_version,
                         )
                     )
+                if model_failure is not None:
+                    # The remaining chunks would fail the same way and use up the limit.
+                    break
                 continue
+            accepted_chunks += 1
             validated_rules.extend(chunk_rules)
             with session_factory.begin() as session:
                 session.add(
@@ -386,11 +399,14 @@ def create_app(
             with session_factory.begin() as session:
                 legal_act = session.get(LegalAct, legal_act_id)
                 legal_act.processing_status = "failed"
-                legal_act.chunks_processed = len(chunks) - failed_chunks
-            raise ApiError(
-                503,
-                "rule_extraction_error",
-                f"Online rule extraction failed for {failed_chunks} chunk(s)",
+                legal_act.chunks_processed = accepted_chunks
+            raise _model_failure(
+                model_failure,
+                ApiError(
+                    503,
+                    "rule_extraction_error",
+                    f"Online rule extraction failed for {failed_chunks} chunk(s)",
+                ),
             )
 
         with session_factory.begin() as session:
@@ -784,8 +800,9 @@ def create_app(
             raise ApiError(413, "document_too_large_for_audit", str(exc)) from exc
         except AuditModelError as exc:
             logger.exception("Audit of document %s failed", document_id)
-            raise ApiError(
-                503, "model_provider_error", f"Audit was not completed: {exc}"
+            raise _model_failure(
+                exc,
+                ApiError(503, "model_provider_error", f"Audit was not completed: {exc}"),
             ) from exc
         except (ValueError, TypeError) as exc:
             raise ApiError(422, "audit_configuration_error", str(exc)) from exc
@@ -1245,7 +1262,23 @@ def _pending_suggestion(session: Session, suggestion_id: int) -> DocumentTypeSug
 
 
 def _classification_error(error: ClassificationModelError) -> ApiError:
-    return ApiError(503, "classification_model_error", f"Document type is not known: {error}")
+    return _model_failure(
+        error,
+        ApiError(503, "classification_model_error", f"Document type is not known: {error}"),
+    )
+
+
+def _model_failure(error: BaseException | None, fallback: ApiError) -> ApiError:
+    """Report a limit or a timeout separately: the client can repeat the same request."""
+    while error is not None:
+        if isinstance(error, ModelRateLimited):
+            return ApiError(
+                429, "model_rate_limited", "Model request limit reached; try again in a minute"
+            )
+        if isinstance(error, ModelRequestTimeout):
+            return ApiError(504, "model_timeout", "The model did not respond in time; try again")
+        error = error.__cause__
+    return fallback
 
 
 def _document_type_dependencies(session: Session, code: str) -> list[str]:

@@ -21,6 +21,14 @@ from .rag.embeddings import (
 from .rag.exceptions import EmbeddingError
 
 
+class ModelRateLimited(RuntimeError):
+    """The provider refused a request because the request limit was reached."""
+
+
+class ModelRequestTimeout(RuntimeError):
+    """The provider did not answer within the configured timeout."""
+
+
 NEURAL_RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -691,7 +699,7 @@ class GoogleAIStudioLLMProvider:
             return _google_response_text(response)
         except Exception as exc:
             logger.warning("Google AI Studio generation failed: %s", exc)
-            raise RuntimeError("Google AI Studio generation failed") from exc
+            raise _google_failure("Google AI Studio generation failed", exc) from exc
 
 
 class GoogleAIStudioEntityExtractionProvider:
@@ -742,7 +750,7 @@ class GoogleAIStudioEntityExtractionProvider:
             return result
         except Exception as exc:
             logger.warning("Google AI Studio entity extraction failed: %s", exc)
-            raise RuntimeError("Google AI Studio entity extraction failed") from exc
+            raise _google_failure("Google AI Studio entity extraction failed", exc) from exc
 
 
 class GoogleAIStudioRuleExtractionProvider:
@@ -798,6 +806,8 @@ class GoogleAIStudioRuleExtractionProvider:
                     backoff_factor=self._config.retry_backoff_factor,
                 )
             except _google_api_error() as api_err:
+                if _is_retryable_google_error(api_err):
+                    raise
                 logger.warning("Structured rule extraction with schema failed (%s), retrying with json_only", api_err)
                 response = _generate_google_with_retries(
                     self._client,
@@ -822,7 +832,7 @@ class GoogleAIStudioRuleExtractionProvider:
             return result
         except Exception as exc:
             logger.warning("Google AI Studio rule extraction failed: %s", exc)
-            raise RuntimeError("Google AI Studio rule extraction failed") from exc
+            raise _google_failure("Google AI Studio rule extraction failed", exc) from exc
 
 
 class GoogleAIStudioDocumentClassificationProvider:
@@ -857,7 +867,7 @@ class GoogleAIStudioDocumentClassificationProvider:
             return _parse_json_response(response)
         except Exception as exc:
             logger.warning("Google AI Studio document classification failed: %s", exc)
-            raise RuntimeError("Google AI Studio document classification failed") from exc
+            raise _google_failure("Google AI Studio document classification failed", exc) from exc
 
 
 class GoogleAIStudioEmbeddingProvider:
@@ -903,6 +913,7 @@ class GoogleAIStudioEmbeddingProvider:
 def _google_client(config: ModelConfig):
     try:
         from google import genai
+        from google.genai import types
     except ImportError as exc:
         raise RuntimeError(
             "google-genai is required for the google-ai-studio provider"
@@ -912,7 +923,23 @@ def _google_client(config: ModelConfig):
         if config.api_key_env:
             raise ValueError(f"environment variable {config.api_key_env} is not set")
         raise ValueError("Google AI Studio requires an API key")
-    return genai.Client(api_key=api_key)
+    return genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(
+            timeout=int(config.request_timeout_seconds * 1000)
+        ),
+    )
+
+
+def _google_failure(message: str, error: Exception) -> RuntimeError:
+    """Keep the failure kinds that callers report differently."""
+    import httpx
+
+    if getattr(error, "code", None) == 429:
+        return ModelRateLimited(message)
+    if isinstance(error, (httpx.TimeoutException, TimeoutError)):
+        return ModelRequestTimeout(message)
+    return RuntimeError(message)
 
 
 def _google_api_error():
@@ -1123,12 +1150,17 @@ def _post_json(
             detail = exc.read().decode("utf-8", errors="replace")
             retryable = exc.code == 429 or 500 <= exc.code < 600
             if not retryable or attempt == attempts - 1:
-                raise RuntimeError(
+                failure = ModelRateLimited if exc.code == 429 else RuntimeError
+                raise failure(
                     f"model provider request failed: HTTP {exc.code}: {detail}"
                 ) from exc
         except (error.URLError, TimeoutError) as exc:
             if attempt == attempts - 1:
-                raise RuntimeError(f"model provider request failed: {exc}") from exc
+                timed_out = isinstance(exc, TimeoutError) or isinstance(
+                    getattr(exc, "reason", None), TimeoutError
+                )
+                failure = ModelRequestTimeout if timed_out else RuntimeError
+                raise failure(f"model provider request failed: {exc}") from exc
         if attempt < attempts - 1:
             time.sleep(config.retry_backoff_factor * (2**attempt))
     if not isinstance(result, dict):

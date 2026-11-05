@@ -1,13 +1,17 @@
 from io import BytesIO
+from urllib.error import URLError
 from types import SimpleNamespace
 from urllib.error import HTTPError
 
 from google.genai.errors import ClientError, ServerError
+import httpx
 import pytest
 
 from edm_auditor.model_config import ModelConfig
 from edm_auditor.model_providers import (
     DocumentTypeOption,
+    ModelRateLimited,
+    ModelRequestTimeout,
     GoogleAIStudioDocumentClassificationProvider,
     GoogleAIStudioEmbeddingProvider,
     GoogleAIStudioEntityExtractionProvider,
@@ -18,6 +22,7 @@ from edm_auditor.model_providers import (
     OpenAICompatibleLLMProvider,
     OpenAICompatibleRuleExtractionProvider,
     RULE_EXTRACTION_SCHEMA,
+    _google_client,
     _google_generation_config,
     _google_schema,
     _post_json,
@@ -490,3 +495,120 @@ def test_google_classifier_reports_an_unusable_answer() -> None:
         provider.classify("Текст", title="", filename="", document_types=CATALOG)
 
     assert "Текст" in client.models.kwargs["contents"]
+
+
+GOOGLE_CONFIG = ModelConfig(
+    provider="google-ai-studio",
+    model="m",
+    structured_output="json_schema",
+    retry_attempts=0,
+    retry_backoff_factor=0,
+    request_timeout_seconds=12.5,
+)
+
+
+def test_google_client_uses_the_profile_timeout(monkeypatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    config = ModelConfig(
+        provider="google-ai-studio",
+        model="m",
+        api_key_env="GEMINI_API_KEY",
+        request_timeout_seconds=12.5,
+    )
+
+    client = _google_client(config)
+
+    assert client._api_client._http_options.timeout == 12500
+
+
+def _failing_google_client(error: Exception):
+    calls: list[dict] = []
+
+    def generate_content(**kwargs):
+        calls.append(kwargs)
+        raise error
+
+    return SimpleNamespace(models=SimpleNamespace(generate_content=generate_content)), calls
+
+
+@pytest.mark.parametrize(
+    "provider_class, call",
+    [
+        (GoogleAIStudioEntityExtractionProvider, lambda p: p.extract("Текст")),
+        (GoogleAIStudioRuleExtractionProvider, lambda p: p.extract_rules("Текст")),
+        (
+            GoogleAIStudioLLMProvider,
+            lambda p: p.generate(system_prompt="s", user_prompt="u"),
+        ),
+        (
+            GoogleAIStudioDocumentClassificationProvider,
+            lambda p: p.classify("Текст", title="", filename="", document_types=CATALOG),
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "error, expected",
+    [
+        (ClientError(429, {"error": {"code": 429, "message": "quota"}}), ModelRateLimited),
+        (httpx.ReadTimeout("timed out"), ModelRequestTimeout),
+    ],
+)
+def test_google_providers_report_limits_and_timeouts(
+    provider_class, call, error, expected
+) -> None:
+    client, _ = _failing_google_client(error)
+
+    with pytest.raises(expected):
+        call(provider_class(GOOGLE_CONFIG, client=client))
+
+
+def test_rate_limit_does_not_trigger_the_schema_fallback_request() -> None:
+    error = ClientError(429, {"error": {"code": 429, "message": "quota"}})
+    client, calls = _failing_google_client(error)
+
+    with pytest.raises(ModelRateLimited):
+        GoogleAIStudioRuleExtractionProvider(GOOGLE_CONFIG, client=client).extract_rules("Текст")
+
+    assert len(calls) == 1
+
+
+def test_other_google_failure_stays_a_general_error() -> None:
+    client, _ = _failing_google_client(ValueError("broken"))
+
+    with pytest.raises(RuntimeError) as failure:
+        GoogleAIStudioEntityExtractionProvider(GOOGLE_CONFIG, client=client).extract("Текст")
+
+    assert not isinstance(failure.value, (ModelRateLimited, ModelRequestTimeout))
+
+
+OPENAI_CONFIG = ModelConfig(
+    provider="openai-compatible",
+    model="m",
+    base_url="http://localhost/v1",
+    retry_attempts=0,
+)
+
+
+def test_openai_request_reports_rate_limit_and_timeout(monkeypatch) -> None:
+    def rate_limited(*args, **kwargs):
+        raise HTTPError("http://localhost", 429, "limit", {}, BytesIO(b"{}"))
+
+    monkeypatch.setattr("edm_auditor.model_providers.request.urlopen", rate_limited)
+    with pytest.raises(ModelRateLimited):
+        _post_json(OPENAI_CONFIG, "chat/completions", {}, 1)
+
+    for error in (TimeoutError("slow"), URLError(TimeoutError("slow"))):
+        def timed_out(*args, error=error, **kwargs):
+            raise error
+
+        monkeypatch.setattr("edm_auditor.model_providers.request.urlopen", timed_out)
+        with pytest.raises(ModelRequestTimeout):
+            _post_json(OPENAI_CONFIG, "chat/completions", {}, 1)
+
+    def unreachable(*args, **kwargs):
+        raise URLError("connection refused")
+
+    monkeypatch.setattr("edm_auditor.model_providers.request.urlopen", unreachable)
+    with pytest.raises(RuntimeError) as failure:
+        _post_json(OPENAI_CONFIG, "chat/completions", {}, 1)
+    assert not isinstance(failure.value, ModelRequestTimeout)
