@@ -48,6 +48,13 @@
 
 ## Журнал
 
+### 2026-11-05: удалены неиспользуемые примеры
+
+- Удалены `examples/api_check.py` и `examples/audit_document.py`: их заменяют `examples/README.md` и
+  `/docs`. `audit_document.py` не запускался с перехода на LLM-классификацию, а `api_check.py`
+  загружал акт без правил, поэтому получал `409`.
+- Удалены и `examples/contract.txt` с `examples/legal_act.txt`: их использовал только `api_check.py`.
+
 ### 2026-11-05: удалён тестовый интерфейс
 
 - Удалены `api/web.py` и маршрут `GET /`: интерфейс будет на отдельном фронтенде. До него API

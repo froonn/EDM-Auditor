@@ -214,12 +214,6 @@ not in `models.toml`.
 Detailed field descriptions and setup examples are in
 [`docs/model-configuration.md`](../docs/model-configuration.md).
 
-Run an audit without FastAPI against a document already stored in the database:
-
-```bash
-python examples/audit_document.py 1
-```
-
 The audit engine supports keyword, regex, numeric, date, duration and semantic
 rules. Every audit calls the configured models for entity extraction and LLM
 analysis, including audits without findings. If a model fails, the audit stops:
@@ -338,38 +332,9 @@ Deleting an act removes its generated and linked rules. Existing findings are
 preserved, but their references to the deleted act and its rules are cleared.
 The RAG index is rebuilt after the deletion.
 
-For a local end-to-end check, load an example legal act directly into the same
-SQLite database, rebuild the local RAG index, upload a document, run the audit,
-and print the complete report with:
+For a local end-to-end check, follow the requests in
+[`examples/README.md`](examples/README.md).
 
-```bash
-python examples/api_check.py \
-  examples/legal_act.txt \
-  --legal-act examples/legal_act.txt \
-  --legal-code EXAMPLE-1 \
-  --legal-title "Example employment requirements"
-```
-
-The `--legal-act` option is optional if the database and RAG index are already
-prepared. The script uses the same default paths as the API:
-`sqlite:///data/edm_auditor.sqlite3` and `data/rag-index.sqlite3`. If the server
-was started with custom paths, pass the matching `--database-url`,
-`--database-path`, and `--index-path` values. It prints the uploaded document,
-audit summary, findings, and neural-analysis fields as JSON. The audit must have
-applicable rules: a legal act ingested with `--legal-act` creates no rules by itself,
-so without existing rules for the document the script reports the `409` response.
-
-For a quick example, create two UTF-8 text files before running the
-script:
-
-```bash
-printf 'Отпуск предоставляется продолжительностью 14 календарных дней.\n' \
-  > examples/legal_act.txt
-printf 'Работнику предоставляется отпуск 14 дней.\n' > examples/contract.txt
-python examples/api_check.py examples/contract.txt \
-  --legal-act examples/legal_act.txt
-```
-
-The example is intentionally synthetic and does not represent legal advice.
+The examples are intentionally synthetic and do not represent legal advice.
 Real НПА texts should be checked for source, version, and applicable
 jurisdiction before being indexed.
