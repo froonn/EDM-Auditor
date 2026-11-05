@@ -566,6 +566,7 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            latest_report?: components["schemas"]["LatestReportSummary"] | null;
             /** Text */
             text: string;
         };
@@ -608,6 +609,7 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            latest_report?: components["schemas"]["LatestReportSummary"] | null;
         };
         /** DocumentTypeCandidate */
         DocumentTypeCandidate: {
@@ -712,6 +714,26 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** LatestReportSummary */
+        LatestReportSummary: {
+            /** Id */
+            id: number;
+            /** Total Findings */
+            total_findings: number;
+            /** Critical Count */
+            critical_count: number;
+            /** High Count */
+            high_count: number;
+            /** Medium Count */
+            medium_count: number;
+            /** Low Count */
+            low_count: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** LegalActCreate */
         LegalActCreate: {
@@ -1687,6 +1709,7 @@ export interface operations {
             query?: {
                 limit?: number;
                 offset?: number;
+                document_id?: number | null;
             };
             header?: never;
             path?: never;

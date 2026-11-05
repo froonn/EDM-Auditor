@@ -54,8 +54,9 @@ Run `npm run api:types` after changing the API and commit the result. It reads
 | `src/app/`         | Routes, router, layout, providers, query client              |
 | `src/auth/`        | Permissions, session, `AuthProvider`, `<Can>`, route guard    |
 | `src/components/`  | Shared components; `ui/` holds shadcn/ui primitives          |
+| `src/features/`    | Screens with their logic: `documents/`, `audit/`, shared queries |
 | `src/i18n/`        | Dictionary and formatting                                    |
-| `src/pages/`       | Screens                                                      |
+| `src/pages/`       | Generic pages: not found, forbidden, crash                   |
 | `src/styles/`      | Tailwind entry point and theme variables                     |
 
 shadcn/ui is configured in `components.json`; add a component with `npx shadcn@latest add <name>`.

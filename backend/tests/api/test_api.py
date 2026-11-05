@@ -414,6 +414,32 @@ def test_report_document_endpoints(tmp_path: Path) -> None:
     assert reports.json()[0]["id"] == audit.json()["report_id"]
 
 
+def test_documents_show_their_latest_report_and_reports_filter_by_document(
+    tmp_path: Path,
+) -> None:
+    client = make_client(tmp_path)
+    rule = client.post("/api/rules", json=_rule_payload("leave", "14 days")).json()
+    audited = _upload(client, "Employee receives 14 days leave.", "first.txt")
+    other = _upload(client, "Employee receives 14 days leave.", "second.txt")
+    assert audited["latest_report"] is None
+    selection = {"selection_mode": "manual", "included_rule_ids": [rule["id"]]}
+    first = client.post(f"/api/documents/{audited['id']}/audit", json=selection).json()
+    latest = client.post(f"/api/documents/{audited['id']}/audit", json=selection).json()
+    client.post(f"/api/documents/{other['id']}/audit", json=selection)
+
+    listed = {item["id"]: item for item in client.get("/api/documents").json()}
+    summary = listed[audited["id"]]["latest_report"]
+    assert summary["id"] == latest["report_id"] != first["report_id"]
+    assert (summary["total_findings"], summary["high_count"]) == (1, 1)
+    detail = client.get(f"/api/documents/{audited['id']}").json()
+    assert detail["latest_report"]["id"] == latest["report_id"]
+
+    response = client.get("/api/reports", params={"document_id": audited["id"]})
+    assert [item["id"] for item in response.json()] == [latest["report_id"], first["report_id"]]
+    assert response.headers["X-Total-Count"] == "2"
+    assert client.get("/api/reports?document_id=999").json() == []
+
+
 def test_upload_legal_act_from_text_file(tmp_path: Path) -> None:
     client = make_client(tmp_path)
     response = client.post(
