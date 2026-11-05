@@ -5,8 +5,9 @@
 ## Текущее состояние
 
 Курсовой проект БГУИР: аудит электронных документов на соответствие законодательству
-Республики Беларусь. Требования описаны в [`docs/TASK.md`](TASK.md). Активная ветка:
-`feature/audit-configuration`.
+Республики Беларусь. Требования описаны в [`TASK.md`](TASK.md), запуск и API в
+[`backend/README.md`](../backend/README.md), отладка в [`DEBUG.md`](DEBUG.md). Планы завершённых этапов лежат
+в [`archive/`](archive/) и не обновляются. Активная ветка: `feature/audit-configuration`.
 
 **Работает** (бэкенд на FastAPI, SQLAlchemy и SQLite):
 
@@ -47,13 +48,23 @@
   пауза `inter_chunk_delay_seconds`;
 - порог уверенности 0.7 проверен только на нескольких примерах, а модель почти всегда ставит 0.8–1.0;
 - порог RAG-рекомендаций 0.5 выбран без замеров;
-- корневой `README.md` пуст.
+- корневой `README.md` пуст: его заполним в конце работы.
 
 **Локальные данные** (в Git не входят): `backend/data/edm_auditor.sqlite3` находится на ревизии
 `0008_llm_classification`. Сервер не запустится, пока её не обновить до `0009_finding_snapshot`
 командой `alembic upgrade head` из `backend/`, предварительно сделав копию базы.
 
 ## Журнал
+
+### 2026-11-05: документация приведена в соответствие с кодом
+
+- Файлы `feature-*.md` перенесены в `docs/archive/`, `debug.md` переименован в `DEBUG.md`,
+  `remove-copilot-from-history.md` убран из Git и добавлен в `.gitignore`, файл остался на диске.
+- `backend/README.md`, `backend/examples/README.md`, `DEBUG.md` и `model-configuration.md` переписаны по коду.
+- В `TASK.md` указаны текущий стек, схема базы и статус требований. FR-2, FR-3.2 и FR-6.3 отмечены как
+  перенесённые в дипломный проект. FR-6.1 и FR-6.2 пока не входят в план работ.
+- Найдено, что `max_prompt_chars`, `max_response_tokens` и `max_rules_per_chunk` нигде не применяются,
+  это записано в `model-configuration.md`. Код не менялся.
 
 ### 2026-11-05: API для фронта, запрет `semantic`, стабильная важность
 
@@ -157,9 +168,9 @@
 
 - Добавлены каталог типов, классификатор, области применимости правил, resolver, предпросмотр и
   настройка аудита в интерфейсе; конфигурация выбора сохраняется в отчёте. См.
-  [`docs/feature-audit-configuration-stage-2.md`](feature-audit-configuration-stage-2.md).
+  [`archive/feature-audit-configuration-stage-2.md`](archive/feature-audit-configuration-stage-2.md).
 - Поле правила `document_type` заменено на `applicability_scope` и связь `document_types`. Старые
-  базы обновляются миграцией, см. [`docs/debug.md`](debug.md).
+  базы обновляются миграцией, см. [`DEBUG.md`](DEBUG.md).
 - Исправлена цепочка миграций, падавшая на пустой базе; API-тесты больше не трогают настоящую базу.
 
 ### 2026-11-04: отказ от заглушек моделей

@@ -1,342 +1,285 @@
-# Backend
+# EDM-Auditor backend
 
-## Document parser
+A REST API that audits electronic documents against legal acts. It extracts checkable rules from a
+legal act with a language model, selects the rules that apply to a document, checks the document
+with code, and asks the model to confirm and explain the results.
 
-The parser supports `.docx`, UTF-8 `.txt`, and text-layer `.pdf` files. Scanned PDFs
-without an extractable text layer require OCR, which is not implemented yet.
+Audit output is a technical automated check. It does not replace review by a qualified legal
+professional.
 
-### 1. Install the backend dependencies
+## How it works
 
-Run the commands from the `backend/` directory:
+1. **Legal act upload.** A TXT act is split into chunks. The model returns rules for each chunk with
+   an exact quote of the norm, a check type, a severity and the document types the rule applies to.
+   The rules are validated and published together: a failed chunk publishes nothing.
+2. **Document upload.** The parser extracts the text of a TXT, DOCX or text-layer PDF file. The model
+   chooses the document type from the catalog. A choice below the confidence threshold needs a
+   person's confirmation.
+3. **Rule selection.** The resolver selects the rules for the document. Preview the result with
+   `POST /api/documents/{id}/audit/preview`. Each report stores the selection it used.
+4. **Audit.** Code checks the keyword, regex, numeric, date and duration rules. The model extracts
+   entities and explains every finding. It also confirms or rejects each duration and numeric
+   finding from the norm and the surrounding text.
+
+No substitute exists for the models. If a required model call fails, the audit stops, no report is
+saved and the document status becomes `error`. The model cannot change the severity or the source
+range of a finding, and the server builds the legal references from the rule itself.
+
+## Setup
+
+Python 3.11 or newer is required. Run all commands from `backend/`:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[test]"
+cp .env.example .env    # then set EDM_MODEL_PRESET and the API key
+alembic upgrade head
+uvicorn edm_auditor.api.app:create_app --factory --reload
 ```
 
-On Windows PowerShell, activate the environment with:
+OpenAPI documentation is available at <http://127.0.0.1:8000/docs>. The API has no authentication
+and must stay in a trusted development environment.
 
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
+To try the whole flow, follow [`examples/README.md`](examples/README.md). For debugging and
+`curl` requests, see [`docs/DEBUG.md`](../docs/DEBUG.md).
 
-### 2. Run the automated checks
+## Configuration
 
-The parser test suite creates synthetic DOCX and PDF documents, so no
-additional documents are required:
+The API loads `.env` automatically. Variables already set in the shell take precedence, so a different
+`GEMINI_API_KEY` in your shell profile hides the one in `.env`. In that case run
+`set -a; source .env; set +a` before starting the server. Never commit `.env` or real API keys.
 
-```bash
-pytest tests/document_parser -q
-```
+| Variable               | Default                    | Purpose                                            |
+|------------------------|----------------------------|----------------------------------------------------|
+| `EDM_MODEL_PRESET`     | none, required             | Model preset from `config/models.toml`             |
+| `GEMINI_API_KEY`       | none                       | Key for the `google-ai-studio` preset              |
+| `OPENROUTER_API_KEY`   | none                       | Key for the `openrouter` preset                    |
+| `EDM_MODEL_CONFIG`     | `config/models.toml`       | Path to the model configuration                    |
+| `EDM_DATABASE_URL`     | `sqlite:///data/edm_auditor.sqlite3` | Database used by the API                 |
+| `EDM_UPLOAD_DIR`       | `data/uploads`             | Directory for uploaded documents                   |
+| `EDM_MAX_UPLOAD_BYTES` | `20971520`                 | Upload size limit                                  |
+| `EDM_SOURCE_LANGUAGE`  | `auto`                     | Legal act language: `auto`, `ru` or `en`           |
+| `RAG_INDEX_PATH`       | `data/rag-index.sqlite3`   | RAG index file                                     |
+| `EDM_DATABASE_PATH`    | `data/edm_auditor.sqlite3` | Database file used by the RAG command line tool    |
+| `EDM_LOG_FILE`         | `data/debug.log`           | Detailed request log                               |
 
-The test suite checks DOCX paragraphs and tables, PDF page numbers, file-like
-input, missing or damaged files, PDFs without a text layer, and the size limit.
-UTF-8 `.txt` files are also supported and are parsed into indexed paragraphs.
-
-### 3. Check a real document manually
-
-Place a document in `backend/` or provide an absolute path, then run:
-
-```bash
-python - <<'PY'
-from edm_auditor.document_parser import parse_document
-
-document = parse_document("contract.pdf")  # or "contract.docx"
-
-print(f"File: {document.source.filename}")
-print(f"Format: {document.source.format}")
-print(f"Size: {document.source.size_bytes} bytes")
-print(f"Paragraphs: {len(document.paragraphs)}")
-print("Text:")
-print(document.text)
-
-for paragraph in document.paragraphs:
-    print(
-        f"[{paragraph.index}] "
-        f"chars {paragraph.start_char}:{paragraph.end_char} "
-        f"page={paragraph.page_number}: {paragraph.text}"
-    )
-PY
-```
-
-For a successful parse, the command prints the document metadata and extracted
-text. For PDF files, `page` starts at `1`; for DOCX files it is `None`.
-
-The parser can also read a binary file-like object:
-
-```bash
-python - <<'PY'
-from pathlib import Path
-
-from edm_auditor.document_parser import parse_document
-
-path = Path("contract.pdf")
-with path.open("rb") as file:
-    document = parse_document(file, filename=path.name)
-
-print(document.text)
-PY
-```
-
-### Expected errors
-
-The following input conditions are reported as explicit parser exceptions:
-
-- unsupported extension: `UnsupportedDocumentFormat`;
-- missing path: `DocumentNotFound`;
-- damaged DOCX/PDF: `InvalidDocument`;
-- scanned PDF without text: `TextLayerRequired`;
-- configured size limit exceeded: `DocumentTooLarge`.
-
-These errors are expected behavior and should be handled by the API layer when
-the parser is integrated into file uploads.
+Models, limits and presets are described in
+[`docs/model-configuration.md`](../docs/model-configuration.md).
 
 ## Database
 
-The database layer uses SQLAlchemy 2.x and Alembic with SQLite. The default
-development database is `backend/data/edm_auditor.sqlite3`; its contents are
-not committed to Git.
-
-Apply the current schema from the `backend/` directory:
+The API uses SQLite through SQLAlchemy 2 and Alembic. The database and uploaded files are not stored
+in Git. The server refuses to start on an outdated schema and names the command to run.
 
 ```bash
+cp data/edm_auditor.sqlite3 data/edm_auditor.backup.sqlite3
 alembic upgrade head
 ```
 
-Revert the schema to an empty database:
+`alembic.ini` sets the database path directly and ignores `EDM_DATABASE_URL`: the commands above always
+change `data/edm_auditor.sqlite3`. To migrate another file, create an `alembic.config.Config` and set
+`sqlalchemy.url` on it, as `tests/database/test_migrations.py` does.
 
-```bash
-alembic downgrade base
-```
+## API
 
-Run all backend checks, including database integration tests:
+Paginated lists accept `limit` (up to 100) and `offset`, and return the total in the `X-Total-Count`
+header.
 
-```bash
-pytest tests/database tests/document_parser -q
-```
+### Documents and audit
 
-The database repository accepts a `ParsedDocument` returned by
-`parse_document` and stores its normalized text and paragraphs in one
-transaction:
+| Method and path                                    | Purpose                                         |
+|----------------------------------------------------|-------------------------------------------------|
+| `GET /health`                                      | Service check                                   |
+| `POST /api/documents/upload`                       | Upload a file (`file`, optional `title`)        |
+| `GET /api/documents`                               | List documents, paginated                       |
+| `GET /api/documents/{id}`                          | Document with its `text`                        |
+| `DELETE /api/documents/{id}`                       | Delete a document, its reports and its file     |
+| `POST /api/documents/{id}/classify`                | Determine the document type again               |
+| `PATCH /api/documents/{id}/classification`         | Confirm the document types manually             |
+| `POST /api/documents/{id}/audit/preview`           | Show the rules an audit would use               |
+| `POST /api/documents/{id}/audit`                   | Run an audit                                    |
+| `GET /api/documents/{id}/report`                   | Latest report, or the one set by `report_id`    |
+| `GET /api/reports`                                 | List reports, paginated                         |
+| `GET /api/reports/{id}`                            | One report                                      |
 
-```bash
-python - <<'PY'
-from edm_auditor.database import (
-    DocumentRepository,
-    create_engine_for,
-    create_session_factory,
-)
-from edm_auditor.document_parser import parse_document
+### Rules
 
-engine = create_engine_for("sqlite:///data/edm_auditor.sqlite3")
-repository = DocumentRepository(create_session_factory(engine))
-parsed = parse_document("contract.pdf")
-document = repository.save_parsed_document(parsed)
-PY
-```
+| Method and path                      | Purpose                                                      |
+|--------------------------------------|--------------------------------------------------------------|
+| `GET /api/rules`                     | List rules, paginated. Filters: `is_active`, `document_type`, `check_type`, `applicability_scope` |
+| `POST /api/rules`                    | Create a rule                                                |
+| `PATCH /api/rules/{id}`              | Change `name`, `description`, `severity`, `check_type`, `parameters` or `is_active` |
+| `PATCH /api/rules/{id}/applicability`| Set the scope and document types manually                    |
+| `DELETE /api/rules/{id}`             | Delete a rule; its findings stay in reports                  |
 
-Foreign keys are enabled for every SQLite connection. Deleting a document
-cascades to its paragraphs, audit reports, and findings. The repository does
-not store binary document contents; `file_path` points to the external file
-storage.
+Check types and their parameters:
 
-## RAG indexer
+| `check_type` | `parameters`                                                                     |
+|--------------|----------------------------------------------------------------------------------|
+| `keyword`    | `keywords`, optional `mode` (`forbidden`, `required`), `match` (`literal`, `stem`, `regex`) |
+| `regex`      | `pattern`                                                                        |
+| `numeric`    | `entity` (`number`, `duration`, `money`, `percent`) with `min` and/or `max`      |
+| `date`       | `before` and/or `after` as ISO dates                                             |
+| `duration`   | `min_days` and/or `max_days`                                                     |
 
-The RAG layer splits legal-act text into source-preserving chunks and stores
-their embeddings in a local SQLite vector index. Embeddings always come from the
-provider of the selected model preset. If that provider fails, the rebuild fails
-and the previous index stays active; hash-based or other substitute vectors are
-never written to the index.
+A manually created rule may also have a `recommendation` parameter. Semantic rules are not executed
+in this version, so the model cannot create them and the API refuses them.
 
-Run the RAG tests with:
+### Legal acts
 
-```bash
-pytest tests/rag -q
-```
+| Method and path                         | Purpose                                                   |
+|-----------------------------------------|-----------------------------------------------------------|
+| `GET /api/legal-acts`                   | List acts without their text, paginated. Filter: `search` |
+| `POST /api/legal-acts`                  | Create an act from JSON; rules are not extracted          |
+| `POST /api/legal-acts/upload`           | Upload a TXT act and extract its rules                    |
+| `GET /api/legal-acts/{id}`              | Act with its text                                         |
+| `GET /api/legal-acts/{id}/diagnostics`  | Extraction result of each chunk                           |
+| `POST /api/legal-acts/{id}/reprocess`   | Extract the rules again                                   |
+| `PATCH /api/legal-acts/{id}`            | Change an act                                             |
+| `DELETE /api/legal-acts/{id}`           | Delete an act with its rules; findings stay in reports    |
 
-The index stores source ranges and metadata, replaces stale entries on a full
-rebuild, and rejects incompatible embedding models or vector dimensions.
+Changing the text of a processed act sets its status to `needs_reprocessing`. The act keeps its rules
+until `reprocess` replaces them. `reprocess` loses manual changes to the generated rules of the act,
+including `is_active` and applicability. Findings in earlier reports keep their stored rule details.
 
-To load a local UTF-8 legal-act text file into the database, use the separate
-ingestion adapter after applying the database migration:
+Changes to acts and to fields used for search rebuild the RAG index, which calls the embedding model.
 
-```bash
-python - <<'PY'
-from edm_auditor.database import create_engine_for, create_session_factory
-from edm_auditor.rag import TextLegalActIngestor
+### Document types
 
-engine = create_engine_for("sqlite:///data/edm_auditor.sqlite3")
-ingestor = TextLegalActIngestor(create_session_factory(engine))
-ingestor.ingest(
-    "data/legal-acts/trudovoi-kodeks-rb.txt",
-    code="TK-RB",
-    title="Трудовой кодекс Республики Беларусь",
-)
-PY
-```
+| Method and path                                   | Purpose                                         |
+|---------------------------------------------------|-------------------------------------------------|
+| `GET /api/document-types`                         | List the catalog (`include_inactive` is optional) |
+| `POST /api/document-types`                        | Add a type                                      |
+| `PATCH /api/document-types/{code}`                | Change the name or description                  |
+| `DELETE /api/document-types/{code}`               | Deactivate a type that is not in use            |
+| `GET /api/document-type-suggestions`              | List new types suggested by the model           |
+| `POST /api/document-type-suggestions/{id}/accept` | Add a suggested type to the catalog             |
+| `POST /api/document-type-suggestions/{id}/dismiss`| Dismiss a suggestion                            |
 
-The adapter accepts only `.txt` files, decodes them as UTF-8, preserves the
-normalized text and paragraph boundaries, and stores the result in `legal_acts`.
+The model only suggests new types. A person decides whether to add them.
 
-Build and query the index from the database with the configured embedding model:
+### Rule selection
 
-```bash
-python -m edm_auditor.rag build
-python -m edm_auditor.rag count
-python -m edm_auditor.rag search "annual leave" --threshold 0.1
-```
+The body of an audit or a preview request is optional. Without one, the `automatic` mode is used.
 
-The commands use `data/edm_auditor.sqlite3` and
-`data/rag-index.sqlite3` by default. Override them with
-`EDM_DATABASE_PATH` and `RAG_INDEX_PATH`.
-The CLI uses the embedding profile selected by `EDM_MODEL_PRESET`.
+| `selection_mode` | Rules used                                                                      |
+|------------------|---------------------------------------------------------------------------------|
+| `automatic`      | Universal rules and rules of the confirmed types; `legal_act_ids` narrows them  |
+| `manual`         | Only `included_rule_ids` and the rules of `legal_act_ids`                       |
+| `combined`       | The automatic set plus the manual choice                                        |
+| `all`            | All active rules; requires `"confirm_all": true`, and false findings are possible |
 
-## Model configuration
+`excluded_rule_ids` always wins, and inactive rules never run. Rules with the `manual_only` scope run
+only through `included_rule_ids`. Without a confirmed type, the `automatic` mode responds with `409`
+`audit_configuration_required`: confirm a type or choose the rules manually. RAG results are only shown
+as recommendations and never select a rule.
 
-Embedding and LLM settings are stored in `config/models.toml`. The file
-contains provider profiles and safe presets; it never contains API keys.
-Select a preset with `EDM_MODEL_PRESET` or load a different file with
-`EDM_MODEL_CONFIG`:
+### Report
 
-```bash
-EDM_MODEL_PRESET=google-ai-studio python -c \
-  'from edm_auditor.model_config import ModelSettings; print(ModelSettings.from_env())'
-```
+Each item of `findings` contains:
 
-`EDM_MODEL_PRESET` is required: there is no default preset and no offline mode.
-`google-ai-studio` needs `GEMINI_API_KEY`. `lm-studio` and `openrouter` use the
-OpenAI-compatible API shape; their embedding model, endpoint, and LLM model must
-be adjusted to the locally available models. Set `OPENROUTER_API_KEY` in the
-environment for the OpenRouter preset. Keep real secrets in a local `.env` file or secret store,
-not in `models.toml`.
+- `start_char`, `end_char` and `quote`: the position in the `text` of the document;
+- `finding_key`: the key of the matching item in `neural_analyses`, which holds the explanation,
+  recommendation and legal basis;
+- `rule_code`, `rule_name`, `legal_act_code`, `legal_act_title` and `norm_quote`: copies stored in the
+  report, available after the rule or act is deleted. They can be empty in reports created before
+  these fields existed, if the rule or act had already been deleted.
 
-Detailed field descriptions and setup examples are in
-[`docs/model-configuration.md`](../docs/model-configuration.md).
+`summary.rejected_candidates` lists the findings the model rejected, with its reason.
+`summary.diagnostics` lists rules that could not be evaluated. `selection` stores the rule selection.
 
-The audit engine supports keyword, regex, numeric, date, duration and semantic
-rules. Every audit calls the configured models for entity extraction and LLM
-analysis, including audits without findings. If a model fails, the audit stops:
-no report is saved and the document status becomes `error`. Semantic results are normative context candidates, not
-automatic legal conclusions. Audit output is a technical automated check and
-does not replace review by a qualified legal professional.
+### Errors
 
-Run all backend tests with:
+Every error has the same form: `{"error": {"code": "...", "message": "..."}}`.
+
+| Status | Codes                                                                                     |
+|--------|-------------------------------------------------------------------------------------------|
+| 400    | `empty_document`, `invalid_document`, `document_access_error`, `document_parse_error`     |
+| 404    | `document_not_found`, `report_not_found`, `rule_not_found`, `legal_act_not_found`, `document_type_not_found`, `document_type_suggestion_not_found`, `not_found` |
+| 409    | `audit_configuration_required`, `no_applicable_rules`, `rule_conflict`, `legal_act_conflict`, `document_type_conflict`, `document_type_in_use`, `document_type_suggestion_closed` |
+| 413    | `document_too_large`, `document_too_large_for_audit`                                      |
+| 415    | `unsupported_document_format`, `unsupported_legal_act_format`                             |
+| 422    | `validation_error`, `invalid_severity`, `invalid_check_type`, `unsupported_check_type`, `invalid_rule_parameters`, `invalid_applicability_scope`, `unknown_document_type`, `reserved_document_type`, `unknown_rule`, `unknown_legal_act`, `all_mode_not_confirmed`, `audit_configuration_error` |
+| 429    | `model_rate_limited`: repeat the request in a minute                                      |
+| 503    | `model_provider_error`, `classification_model_error`, `rule_extraction_error`, `rag_index_error` |
+| 504    | `model_timeout`: repeat the request                                                       |
+| 500    | `internal_error`, `rule_persistence_error`, `invalid_report_summary`, `invalid_rule_parameters` for damaged stored data |
+
+`rag_index_error` means the change was saved, but the search index was not rebuilt.
+
+## Tests
 
 ```bash
 pytest -q
 ```
 
-The suite does not require network access, credentials, or real legal
-documents: test doubles for model providers live in `tests/fakes.py`.
+The suite needs no network, credentials or real legal documents. Test doubles for the models are in
+`tests/fakes.py`, and `tests/fixtures/recorded_gemini_audit.json` holds recorded Gemini responses for
+the regression test.
 
-## Audit engine
+## Source layout
 
-The audit engine applies keyword, regular-expression, numeric, date, and duration
-rules. It extracts source-preserving ranges from document text,
-creates `AuditFinding` entries, and stores an atomic `AuditReport`. Rule
-parameters are JSON objects, for example:
+| Path                                | Contents                                                 |
+|-------------------------------------|----------------------------------------------------------|
+| `src/edm_auditor/api/`              | FastAPI application, schemas, errors, upload storage     |
+| `src/edm_auditor/document_parser/`  | Text extraction from TXT, DOCX and PDF                   |
+| `src/edm_auditor/classification/`   | Document type catalog and classification                 |
+| `src/edm_auditor/applicability/`    | Rule scope and rule selection                            |
+| `src/edm_auditor/audit_engine/`     | Rule checks, model interpretation, report storage        |
+| `src/edm_auditor/rag/`              | Chunking, vector index, search and its command line tool |
+| `src/edm_auditor/database/`         | SQLAlchemy models and the document repository            |
+| `src/edm_auditor/model_providers.py`| Model clients, prompts and response schemas              |
+| `src/edm_auditor/rule_validation.py`| Validation of generated and manual rules                 |
+| `migrations/`                       | Alembic migrations                                       |
+| `config/models.toml`                | Model profiles, presets and limits                       |
+| `examples/`                         | Synthetic legal acts and documents                       |
 
-```json
-{"keywords": ["14 дней"], "recommendation": "Check the leave duration."}
+## Document parser
+
+The parser supports UTF-8 `.txt`, `.docx` and text-layer `.pdf` files. Scanned PDFs need OCR, which is
+not implemented. It can be used without the API:
+
+```python
+from edm_auditor.document_parser import parse_document
+
+document = parse_document("contract.pdf")
+print(document.text)
+for paragraph in document.paragraphs:
+    print(paragraph.index, paragraph.start_char, paragraph.end_char, paragraph.page_number)
 ```
 
-Regular expressions extract entities alongside the entity extraction model, whose
-results are merged in. Duration and numeric rules compare every value of a kind, so
-the LLM confirms each such finding from the norm and the surrounding text; rejected
-candidates are stored in `summary.rejected_candidates`. The LLM also explains the
-findings, but it cannot change their severity or source ranges.
+Parser exceptions are `UnsupportedDocumentFormat`, `DocumentNotFound`, `InvalidDocument`,
+`TextLayerRequired` and `DocumentTooLarge`. The API turns them into the `400`, `413` and `415` errors
+above. Legal acts must be TXT files.
 
-## FastAPI
+## RAG index
 
-Install the backend with the test extras, then start the local API from
-`backend/`:
+The API rebuilds the index after changes to legal acts and rules. If the embedding model fails, the
+rebuild fails and the previous index stays active. The index can also be used directly with the
+embedding model of the selected preset:
 
 ```bash
-python -m pip install -e ".[test]"
-alembic upgrade head
-uvicorn edm_auditor.api.app:create_app --factory --reload
+python -m edm_auditor.rag build
+python -m edm_auditor.rag count
+python -m edm_auditor.rag search "annual leave" -k 5 --threshold 0.1
 ```
 
-The API uses SQLite and `data/uploads/` by default. Override these paths with
-`EDM_DATABASE_URL`, `EDM_UPLOAD_DIR`, and `EDM_MAX_UPLOAD_BYTES`. The API runs
-audits synchronously and does not start without a model preset. When a model is
-unavailable, `POST /api/documents/{id}/audit` responds with `503` and the
-`model_provider_error` code.
+After changing the embedding model or its dimension, rebuild the index: an incompatible index is
+rejected.
 
-An audit runs only the rules chosen for the document. Uploaded documents are
-classified against the `document_types` catalog, and the resolver selects rules
-from their confirmed types. If no type is confirmed, the audit responds with `409`
-and `audit_configuration_required` instead of applying every rule; confirm a type
-or pass a `selection_mode` of `manual`, `combined`, or an explicitly confirmed
-`all`. Preview the selection with `POST /api/documents/{id}/audit/preview`. Each
-new report stores the selection in its `selection` field. Classification is a
-heuristic hint and does not replace review by a qualified legal professional. See
-[`docs/debug.md`](../docs/debug.md) for the workflow and the database upgrade.
+## Limitations
 
-Available endpoints:
+- Only small legal acts work reliably. One failed chunk stops the publication of the whole act, and a
+  large act quickly exceeds the request limit of a free model plan.
+- Requirements without a comparable value are not checked: "once a month" is not detected against a
+  norm of "at least twice a month". This needs the semantic audit planned for the diploma project.
+- The model's verdicts and severity stability were checked only on the examples in `examples/`.
+- Legal act codes are unique only at the API level, with no database constraint.
+- Report export is not implemented yet.
 
-- `GET /health`
-- `POST /api/documents/upload`
-- `GET /api/documents`
-- `GET /api/documents/{id}`
-- `POST /api/documents/{id}/classify`
-- `PATCH /api/documents/{id}/classification`
-- `POST /api/documents/{id}/audit/preview`
-- `POST /api/documents/{id}/audit`
-- `GET /api/document-types`
-- `POST /api/document-types`
-- `DELETE /api/document-types/{code}`
-- `PATCH /api/rules/{id}/applicability`
-- `GET /api/documents/{id}/report`
-- `GET /api/reports`
-- `GET /api/rules` and `POST /api/rules`
-- `GET /api/legal-acts`
-- `POST /api/legal-acts`
-- `POST /api/legal-acts/upload`
-- `GET /api/legal-acts/{id}`
-- `PATCH /api/legal-acts/{id}`
-- `DELETE /api/legal-acts/{id}`
+See [`docs/TODO.md`](../docs/TODO.md) for the plan and [`docs/DEVLOG.md`](../docs/DEVLOG.md) for the
+current state.
 
-OpenAPI documentation is available at `/docs`. The local API does not include
-authentication yet and should not be exposed outside a trusted development
-environment.
-
-The application automatically loads `.env` from the current working directory
-when the API starts. For example, create `backend/.env`:
-
-```bash
-EDM_MODEL_CONFIG=config/models.toml
-EDM_MODEL_PRESET=google-ai-studio
-GEMINI_API_KEY=your-api-key
-```
-
-Then start the API normally:
-
-```bash
-uvicorn edm_auditor.api.app:create_app --factory --reload
-```
-
-Environment variables already exported in the shell take precedence over values
-from `.env`. Never commit `.env` or real API keys.
-### Complete local check
-
-Legal acts can be managed over HTTP. The list endpoint intentionally omits
-`article_text`; use the detail endpoint when the full text is needed. After
-creating, changing, or deleting an act, the API automatically rebuilds the
-RAG index before returning a successful response. The same applies to newly
-created rules. When neural mode is enabled, uploading a TXT legal act sends its
-text to the configured structured-output model, which may generate only
-explicit, auditable requirements. Generated rules are linked to the uploaded
-act and appear in `GET /api/rules`; regexes and other deterministic extractors
-are not used to create rules.
-Deleting an act removes its generated and linked rules. Existing findings are
-preserved, but their references to the deleted act and its rules are cleared.
-The RAG index is rebuilt after the deletion.
-
-For a local end-to-end check, follow the requests in
-[`examples/README.md`](examples/README.md).
-
-The examples are intentionally synthetic and do not represent legal advice.
-Real НПА texts should be checked for source, version, and applicable
-jurisdiction before being indexed.
+The examples are synthetic and are not legal advice. Check the source, version and jurisdiction of
+real legal acts before loading them.
