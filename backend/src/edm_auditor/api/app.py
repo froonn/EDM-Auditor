@@ -12,6 +12,7 @@ from uuid import uuid4
 from fastapi import FastAPI, File, Form, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy import delete, func, inspect as inspect_schema, select, update
 from sqlalchemy.exc import IntegrityError
@@ -84,7 +85,11 @@ from edm_auditor.model_providers import (
     create_rule_extraction_provider,
 )
 from edm_auditor.model_providers import create_embedding_provider
-from edm_auditor.rule_validation import RuleValidationError, validate_generated_rule
+from edm_auditor.rule_validation import (
+    RuleValidationError,
+    validate_generated_rule,
+    validate_manual_rule_parameters,
+)
 from edm_auditor.rag import (
     DatabaseIndexSourceLoader,
     RAGIndexer,
@@ -128,6 +133,7 @@ trace_logger = logging.getLogger("edm_auditor.trace")
 
 # A document without a stored result: it is classified again before an audit.
 CLASSIFICATION_PENDING = "pending"
+NEEDS_REPROCESSING = "needs_reprocessing"
 RAG_RECOMMENDATION_THRESHOLD = 0.5
 RAG_RECOMMENDATION_LIMIT = 5
 RAG_QUERY_CHARS = 2000
@@ -551,11 +557,19 @@ def create_app(
 
     @app.exception_handler(RequestValidationError)
     async def handle_validation_error(request, exc):
-        return JSONResponse(
-            status_code=422,
-            content={"error": {"code": "validation_error", "message": str(exc)}},
-            headers={"X-Request-ID": request.state.request_id},
+        return _error_response(
+            request, 422, "validation_error", _validation_message(exc.errors())
         )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def handle_http_error(request, exc):
+        code = {404: "not_found", 405: "method_not_allowed"}.get(exc.status_code, "http_error")
+        return _error_response(request, exc.status_code, code, str(exc.detail))
+
+    @app.exception_handler(Exception)
+    async def handle_unexpected_error(request, exc):
+        logger.exception("Unhandled error", exc_info=exc)
+        return _error_response(request, 500, "internal_error", "Internal server error")
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -657,7 +671,7 @@ def create_app(
     @app.post("/api/documents/upload", response_model=DocumentResponse, status_code=201)
     async def upload_document(
         file: UploadFile = File(...),
-        title: str | None = None,
+        title: str | None = Form(default=None),
     ) -> DocumentResponse:
         try:
             path, _ = await store_upload(
@@ -667,6 +681,9 @@ def create_app(
             raise ApiError(413, "document_too_large", str(exc)) from exc
         try:
             parsed = parse_document(path, max_size_bytes=config.max_upload_bytes)
+            if not parsed.text.strip():
+                path.unlink(missing_ok=True)
+                raise _empty_document_error()
             repository = DocumentRepository(session_factory)
             document = repository.save_parsed_document(
                 parsed,
@@ -927,6 +944,10 @@ def create_app(
             raise ApiError(422, "invalid_severity", "Unsupported severity")
         if payload.check_type not in {item.value for item in CheckType}:
             raise ApiError(422, "invalid_check_type", "Unsupported check type")
+        try:
+            validate_manual_rule_parameters(payload.check_type, payload.parameters)
+        except RuleValidationError as exc:
+            raise ApiError(422, "invalid_rule_parameters", str(exc)) from exc
         with session_factory.begin() as session:
             if payload.legal_act_id is not None and session.get(
                 LegalAct, payload.legal_act_id
@@ -1061,6 +1082,7 @@ def create_app(
     @app.post("/api/legal-acts", response_model=LegalActResponse, status_code=201)
     def create_legal_act(payload: LegalActCreate) -> LegalActResponse:
         with session_factory.begin() as session:
+            _require_free_legal_act_code(session, payload.code)
             values = payload.model_dump()
             values["article_text"] = normalize_source_text(values["article_text"])
             values["document_types"] = _active_document_types(
@@ -1082,54 +1104,51 @@ def create_app(
         source_url: str | None = Form(default=None),
         document_types: str | None = Form(default=None),
     ) -> LegalActResponse:
-        path = None
         try:
             path, _ = await store_upload(file, config.upload_dir, config.max_upload_bytes)
-            parsed = parse_document(path, max_size_bytes=config.max_upload_bytes)
-            if parsed.source.format != "txt":
-                raise ApiError(415, "unsupported_legal_act_format", "Legal acts must be TXT files")
-            logger.info(
-                "Upload legal act: code='%s', title='%s', number='%s', neural_mode='required'",
-                code, title, number,
-            )
-            with session_factory.begin() as session:
-                legal_act = LegalAct(
-                    code=code,
-                    title=title,
-                    number=number,
-                    source_url=source_url,
-                    article_text=normalize_source_text(parsed.text),
-                    document_types=_active_document_types(
-                        session,
-                        [
-                            item.strip()
-                            for item in (document_types or "").split(",")
-                            if item.strip()
-                        ],
-                    ),
-                )
-                session.add(legal_act)
-                session.flush()
-                legal_act_id = legal_act.id
-                response = LegalActResponse.model_validate(legal_act)
-            logger.info("Saved legal act id=%d. Extracting rules...", legal_act_id)
-            if rule_extractor is None:
-                raise ApiError(
-                    503,
-                    "rule_extraction_unavailable",
-                    "Online rule extraction is not configured",
-                )
-            # Model and index calls block, so they must not stop the event loop.
-            await run_in_threadpool(process_legal_act, legal_act_id)
-            await run_in_threadpool(_rebuild_after_mutation, rebuild_rag_index)
-            with session_factory() as session:
-                return LegalActResponse.model_validate(session.get(LegalAct, legal_act_id))
         except ValueError as exc:
             raise ApiError(413, "document_too_large", str(exc)) from exc
+        try:
+            parsed = parse_document(path, max_size_bytes=config.max_upload_bytes)
         except DocumentParserError as exc:
-            if path is not None:
-                path.unlink(missing_ok=True)
             raise parser_error(exc) from exc
+        finally:
+            # The text is stored in the database, so the uploaded file is not needed.
+            path.unlink(missing_ok=True)
+        if parsed.source.format != "txt":
+            raise ApiError(415, "unsupported_legal_act_format", "Legal acts must be TXT files")
+        if not parsed.text.strip():
+            raise _empty_document_error()
+        logger.info(
+            "Upload legal act: code='%s', title='%s', number='%s', neural_mode='required'",
+            code, title, number,
+        )
+        with session_factory.begin() as session:
+            _require_free_legal_act_code(session, code)
+            legal_act = LegalAct(
+                code=code,
+                title=title,
+                number=number,
+                source_url=source_url,
+                article_text=normalize_source_text(parsed.text),
+                document_types=_active_document_types(
+                    session,
+                    [
+                        item.strip()
+                        for item in (document_types or "").split(",")
+                        if item.strip()
+                    ],
+                ),
+            )
+            session.add(legal_act)
+            session.flush()
+            legal_act_id = legal_act.id
+        logger.info("Saved legal act id=%d. Extracting rules...", legal_act_id)
+        # Model and index calls block, so they must not stop the event loop.
+        await run_in_threadpool(process_legal_act, legal_act_id)
+        await run_in_threadpool(_rebuild_after_mutation, rebuild_rag_index)
+        with session_factory() as session:
+            return LegalActResponse.model_validate(session.get(LegalAct, legal_act_id))
 
     @app.post("/api/legal-acts/{legal_act_id}/reprocess", response_model=LegalActResponse)
     def reprocess_legal_act(legal_act_id: int) -> LegalActResponse:
@@ -1149,9 +1168,14 @@ def create_app(
             legal_act = session.get(LegalAct, legal_act_id)
             if legal_act is None:
                 raise ApiError(404, "legal_act_not_found", "Legal act does not exist")
+            if payload.code is not None and payload.code != legal_act.code:
+                _require_free_legal_act_code(session, payload.code)
             for field, value in payload.model_dump(exclude_unset=True).items():
-                if field == "article_text" and value is not None:
+                if field == "article_text":
                     value = normalize_source_text(value)
+                    # Rules quote the old text until the act is processed again.
+                    if value != legal_act.article_text and legal_act.processing_status != "uploaded":
+                        legal_act.processing_status = NEEDS_REPROCESSING
                 if field == "document_types":
                     value = _active_document_types(session, value or [])
                 setattr(legal_act, field, value)
@@ -1193,6 +1217,21 @@ def create_app(
         _rebuild_after_mutation(rebuild_rag_index)
 
     return app
+
+
+def _error_response(request, status_code: int, code: str, message: str) -> JSONResponse:
+    return JSONResponse(
+        status_code=status_code,
+        content={"error": {"code": code, "message": message}},
+        headers={"X-Request-ID": getattr(request.state, "request_id", "")},
+    )
+
+
+def _validation_message(errors) -> str:
+    """Name the field and the problem without internal details of the server."""
+    return "; ".join(
+        f"{'.'.join(str(part) for part in item['loc'])}: {item['msg']}" for item in errors
+    )
 
 
 def _document_response(document: Document) -> DocumentResponse:
@@ -1242,6 +1281,15 @@ def _save_document_type(
     document_type.description = description
     document_type.is_active = True
     return document_type
+
+
+def _require_free_legal_act_code(session: Session, code: str) -> None:
+    if session.scalar(select(LegalAct.id).where(LegalAct.code == code)) is not None:
+        raise ApiError(409, "legal_act_conflict", f"Legal act code already exists: {code}")
+
+
+def _empty_document_error() -> ApiError:
+    return ApiError(400, "empty_document", "The document contains no text")
 
 
 def _pending_suggestion(session: Session, suggestion_id: int) -> DocumentTypeSuggestion:

@@ -110,6 +110,14 @@ def validate_generated_rule(
     }
 
 
+def validate_manual_rule_parameters(check_type: str, parameters: dict[str, Any]) -> None:
+    """Check a rule written by a person, who may also add a recommendation."""
+    _validate_parameters(
+        check_type,
+        {key: value for key, value in parameters.items() if key != "recommendation"},
+    )
+
+
 def _find_quote_matches(source_text: str, quote: str) -> list[tuple[int, int]]:
     """Find a quote while treating whitespace runs as equivalent."""
     parts = [re.escape(part) for part in re.split(r"\s+", quote) if part]

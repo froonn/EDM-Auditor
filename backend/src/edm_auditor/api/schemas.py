@@ -275,6 +275,13 @@ class LegalActCreate(BaseModel):
     source_url: str | None = Field(default=None, max_length=1000)
     document_types: list[str] = Field(default_factory=list)
 
+    @field_validator("article_text")
+    @classmethod
+    def _text_is_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("article_text must not be blank")
+        return value
+
 
 class LegalActUpdate(BaseModel):
     code: str | None = Field(default=None, min_length=1, max_length=100)
@@ -283,3 +290,11 @@ class LegalActUpdate(BaseModel):
     number: str | None = Field(default=None, max_length=100)
     source_url: str | None = Field(default=None, max_length=1000)
     document_types: list[str] | None = None
+
+    @field_validator("code", "title", "article_text")
+    @classmethod
+    def _required_value_is_kept(cls, value: str | None) -> str:
+        """Leave a field out to keep it; these fields cannot be cleared."""
+        if value is None or not value.strip():
+            raise ValueError("value must not be null or blank")
+        return value

@@ -1611,3 +1611,204 @@ def test_rule_deleted_during_the_audit_does_not_break_the_report(
     assert response.status_code == 200
     report = client.get(f"/api/documents/{document['id']}/report").json()
     assert [item["rule_id"] for item in report["findings"]] == [None]
+
+
+def test_legal_act_required_fields_cannot_be_cleared(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    act = client.post(
+        "/api/legal-acts", json={"code": "A", "title": "Акт", "article_text": "Текст."}
+    ).json()
+
+    for payload in ({"title": None}, {"code": None}, {"article_text": None}, {"article_text": " "}):
+        response = client.patch(f"/api/legal-acts/{act['id']}", json=payload)
+        assert response.status_code == 422, payload
+        assert response.json()["error"]["code"] == "validation_error"
+
+    assert client.patch(
+        f"/api/legal-acts/{act['id']}", json={"number": None}
+    ).status_code == 200
+
+
+def test_changing_the_text_of_a_processed_act_asks_for_reprocessing(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    uploaded = client.post(
+        "/api/legal-acts/upload",
+        data={"code": "A", "title": "Акт"},
+        files={"file": ("act.txt", "Текст.".encode(), "text/plain")},
+    ).json()
+    url = f"/api/legal-acts/{uploaded['id']}"
+    assert uploaded["processing_status"] == "completed"
+
+    same = client.patch(url, json={"article_text": "Текст."}).json()
+    assert same["processing_status"] == "completed"
+
+    changed = client.patch(url, json={"article_text": "Новый текст."}).json()
+    assert changed["processing_status"] == "needs_reprocessing"
+
+    assert client.post(f"{url}/reprocess").json()["processing_status"] == "completed"
+
+
+def test_text_change_of_an_unprocessed_act_needs_no_reprocessing(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    act = client.post(
+        "/api/legal-acts", json={"code": "A", "title": "Акт", "article_text": "Текст."}
+    ).json()
+
+    changed = client.patch(f"/api/legal-acts/{act['id']}", json={"article_text": "Новый."})
+
+    assert changed.json()["processing_status"] == "uploaded"
+
+
+@pytest.mark.parametrize(
+    "check_type, parameters",
+    [
+        ("regex", {"pattern": "("}),
+        ("regex", {}),
+        ("keyword", {}),
+        ("keyword", {"keywords": []}),
+        ("duration", {}),
+        ("numeric", {"field": "x"}),
+        ("numeric", {"entity": "money"}),
+        ("date", {"before": "завтра"}),
+    ],
+)
+def test_rule_with_invalid_parameters_is_rejected(tmp_path, check_type, parameters) -> None:
+    client = make_client(tmp_path)
+
+    response = client.post(
+        "/api/rules",
+        json={
+            "rule_code": "broken",
+            "name": "Правило",
+            "severity": "low",
+            "check_type": check_type,
+            "parameters": parameters,
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_rule_parameters"
+    assert client.get("/api/rules").json() == []
+
+
+def test_manual_rule_may_carry_a_recommendation(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+
+    response = client.post(
+        "/api/rules",
+        json={
+            "rule_code": "with-advice",
+            "name": "Правило",
+            "severity": "low",
+            "check_type": "keyword",
+            "parameters": {"keywords": ["штраф"], "recommendation": "Убрать."},
+        },
+    )
+
+    assert response.status_code == 201
+
+
+def test_legal_act_code_must_be_unique(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    first = client.post(
+        "/api/legal-acts", json={"code": "A", "title": "Акт", "article_text": "Текст."}
+    ).json()
+    second = client.post(
+        "/api/legal-acts", json={"code": "B", "title": "Акт", "article_text": "Текст."}
+    ).json()
+
+    responses = [
+        client.post(
+            "/api/legal-acts", json={"code": "A", "title": "Копия", "article_text": "Текст."}
+        ),
+        client.post(
+            "/api/legal-acts/upload",
+            data={"code": "A", "title": "Копия"},
+            files={"file": ("act.txt", "Текст.".encode(), "text/plain")},
+        ),
+        client.patch(f"/api/legal-acts/{second['id']}", json={"code": "A"}),
+    ]
+
+    assert [item.status_code for item in responses] == [409, 409, 409]
+    assert {item.json()["error"]["code"] for item in responses} == {"legal_act_conflict"}
+    assert client.patch(f"/api/legal-acts/{first['id']}", json={"code": "A"}).status_code == 200
+    assert len(client.get("/api/legal-acts").json()) == 2
+
+
+def test_document_title_is_read_from_the_form(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+
+    response = client.post(
+        "/api/documents/upload",
+        data={"title": "Название из формы"},
+        files={"file": ("a.txt", "Текст.".encode(), "text/plain")},
+    )
+
+    assert response.json()["title"] == "Название из формы"
+
+
+@pytest.mark.parametrize("content", [b"", b"  \n "])
+def test_empty_files_are_rejected_and_not_kept(tmp_path: Path, content: bytes) -> None:
+    client = make_client(tmp_path)
+
+    document = client.post(
+        "/api/documents/upload", files={"file": ("a.txt", content, "text/plain")}
+    )
+    act = client.post(
+        "/api/legal-acts/upload",
+        data={"code": "A", "title": "Акт"},
+        files={"file": ("act.txt", content, "text/plain")},
+    )
+    json_act = client.post(
+        "/api/legal-acts",
+        json={"code": "B", "title": "Акт", "article_text": content.decode()},
+    )
+
+    assert document.status_code == 400
+    assert document.json()["error"]["code"] == "empty_document"
+    assert act.status_code == 400
+    assert act.json()["error"]["code"] == "empty_document"
+    assert json_act.status_code == 422
+    assert client.get("/api/documents").json() == []
+    assert client.get("/api/legal-acts").json() == []
+    assert list((tmp_path / "uploads").glob("*")) == []
+
+
+def test_legal_act_upload_leaves_no_file_behind(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+
+    accepted = client.post(
+        "/api/legal-acts/upload",
+        data={"code": "A", "title": "Акт"},
+        files={"file": ("act.txt", "Текст.".encode(), "text/plain")},
+    )
+    rejected = client.post(
+        "/api/legal-acts/upload",
+        data={"code": "B", "title": "Акт", "document_types": "missing"},
+        files={"file": ("act.txt", "Текст.".encode(), "text/plain")},
+    )
+
+    assert accepted.status_code == 201
+    assert rejected.status_code == 422
+    assert list((tmp_path / "uploads").glob("*")) == []
+
+
+def test_every_error_uses_the_same_format(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    client.app.add_api_route("/boom", lambda: 1 / 0)
+    unsafe = TestClient(client.app, raise_server_exceptions=False)
+
+    responses = {
+        "not_found": unsafe.get("/api/missing"),
+        "method_not_allowed": unsafe.post("/health"),
+        "validation_error": unsafe.get("/api/documents?limit=0"),
+        "internal_error": unsafe.get("/boom"),
+    }
+
+    for code, response in responses.items():
+        assert response.json()["error"]["code"] == code
+        assert response.headers.get("x-request-id")
+    message = responses["validation_error"].json()["error"]["message"]
+    assert message.startswith("query.limit:")
+    assert "File" not in message
+    assert "ZeroDivisionError" not in responses["internal_error"].text
