@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 from hashlib import sha256
+import json
 from math import sqrt
 import re
 
@@ -33,7 +34,7 @@ class DeterministicEmbeddingProvider:
 
 
 class FakeLLMProvider:
-    """Record prompts and return a valid analysis without any findings."""
+    """Record prompts and confirm every finding."""
 
     model_name = "fake-llm"
 
@@ -42,7 +43,22 @@ class FakeLLMProvider:
 
     def generate(self, *, system_prompt, user_prompt, context=()) -> str:
         self.prompts.append(user_prompt)
-        return '{"schema_version":"2","analyses":[],"general_summary":"Reviewed."}'
+        return json.dumps(
+            {
+                "schema_version": "3",
+                "analyses": [
+                    {
+                        "finding_key": item["finding_key"],
+                        "explanation": "Подтверждено.",
+                        "recommendation": "",
+                        "confidence": 0.9,
+                        "is_violation": True,
+                    }
+                    for item in json.loads(user_prompt).get("findings", [])
+                ],
+                "general_summary": "Reviewed.",
+            }
+        )
 
 
 class FailingLLMProvider:

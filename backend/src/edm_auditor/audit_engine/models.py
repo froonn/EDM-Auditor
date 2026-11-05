@@ -19,6 +19,7 @@ class RuleSpec:
     parameters: dict[str, Any] = field(default_factory=dict)
     legal_act_id: int | None = None
     is_active: bool = True
+    source_quote: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +55,8 @@ class FindingDraft:
     legal_act_id: int | None = None
     deduplication_key: str = ""
     source_context: dict[str, Any] | None = None
+    check_type: str = ""
+    norm_quote: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -241,4 +241,6 @@ def _draft(
         recommendation=rule.parameters.get("recommendation"),
         legal_act_id=rule.legal_act_id,
         deduplication_key=f"{rule.rule_code}:{start}:{end}:{description}",
+        check_type=rule.check_type,
+        norm_quote=rule.source_quote,
     )

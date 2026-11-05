@@ -242,8 +242,10 @@ parameters are JSON objects, for example:
 ```
 
 Regular expressions extract entities alongside the entity extraction model, whose
-results are merged in. The LLM then explains the findings; it cannot change their
-severity or source ranges.
+results are merged in. Duration and numeric rules compare every value of a kind, so
+the LLM confirms each such finding from the norm and the surrounding text; rejected
+candidates are stored in `summary.rejected_candidates`. The LLM also explains the
+findings, but it cannot change their severity or source ranges.
 
 ## FastAPI
 

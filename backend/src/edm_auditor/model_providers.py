@@ -42,25 +42,14 @@ NEURAL_RESPONSE_SCHEMA = {
                     "explanation": {"type": "string"},
                     "recommendation": {"type": "string"},
                     "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-                    "legal_basis": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "legal_act_id": {"type": "integer"},
-                                "quote": {"type": "string"},
-                            },
-                            "required": ["legal_act_id", "quote"],
-                            "additionalProperties": False,
-                        },
-                    },
+                    "is_violation": {"type": "boolean"},
                 },
                 "required": [
                     "finding_key",
                     "explanation",
                     "recommendation",
                     "confidence",
-                    "legal_basis",
+                    "is_violation",
                 ],
                 "additionalProperties": False,
             },

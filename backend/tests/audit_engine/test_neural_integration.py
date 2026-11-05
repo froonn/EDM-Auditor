@@ -114,7 +114,7 @@ class _BatchProvider:
                         "explanation": "Пояснение",
                         "recommendation": "",
                         "confidence": 0.5,
-                        "legal_basis": [],
+                        "is_violation": True,
                     }
                     for item in prompt["findings"]
                 ],
@@ -163,3 +163,74 @@ def test_failure_in_any_batch_fails_the_analysis() -> None:
 
     with pytest.raises(RuntimeError):
         LLMInterpreter(FailsLater(), batch_size=10).analyze(_batch_findings(11))
+
+
+def _candidate() -> NeuralFinding:
+    return NeuralFinding(
+        key="report:1:2",
+        rule_code="report",
+        severity="high",
+        description="Отчёт не позднее 3 дней",
+        quote="20 дней",
+        norm_quote="Отчёт не позднее 3 дней",
+        surrounding_text="Командировка на 20 дней.",
+        requires_confirmation=True,
+    )
+
+
+def _answer(**values) -> str:
+    return json.dumps(
+        {
+            "analyses": [
+                {
+                    "finding_key": "report:1:2",
+                    "explanation": "Значение относится к сроку командировки.",
+                    "recommendation": "",
+                    "confidence": 0.9,
+                    **values,
+                }
+            ],
+            "general_summary": "Итог.",
+        }
+    )
+
+
+def test_model_can_reject_a_candidate() -> None:
+    result = LLMInterpreter(FakeLLM(_answer(is_violation=False))).analyze([_candidate()])
+
+    assert result.analyses[0].is_violation is False
+
+
+def test_candidate_without_a_verdict_is_an_error() -> None:
+    with pytest.raises(InvalidNeuralResponse, match="is_violation"):
+        LLMInterpreter(FakeLLM(_answer())).analyze([_candidate()])
+
+
+def test_candidate_left_out_of_the_answer_is_an_error() -> None:
+    empty = '{"analyses":[],"general_summary":"Итог."}'
+
+    with pytest.raises(InvalidNeuralResponse, match="every candidate"):
+        LLMInterpreter(FakeLLM(empty)).analyze([_candidate()])
+
+
+def test_model_cannot_reject_a_finding_that_needs_no_confirmation() -> None:
+    plain = NeuralFinding(
+        key="report:1:2", rule_code="report", severity="high", description="d", quote="q"
+    )
+
+    result = LLMInterpreter(FakeLLM(_answer(is_violation=False))).analyze([plain])
+
+    assert result.analyses[0].is_violation is True
+
+
+def test_prompt_carries_the_context_language_and_the_norm() -> None:
+    provider = _BatchProvider()
+    finding = _candidate()
+
+    LLMInterpreter(provider).analyze([finding], output_language="en")
+
+    prompt = provider.prompts[0]
+    assert prompt["output_language"] == "en"
+    assert prompt["findings"][0]["surrounding_text"] == "Командировка на 20 дней."
+    assert prompt["findings"][0]["norm_quote"] == "Отчёт не позднее 3 дней"
+    assert prompt["findings"][0]["requires_confirmation"] is True

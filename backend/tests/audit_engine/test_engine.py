@@ -10,6 +10,7 @@ from edm_auditor.applicability import (
     SelectionConfig,
     SelectionWarning,
 )
+from edm_auditor.audit_engine.extractors import entities_from_provider
 from edm_auditor.audit_engine.neural_errors import DocumentTooLargeForAudit
 from edm_auditor.audit_engine import (
     AuditEngine,
@@ -598,3 +599,21 @@ def test_too_large_document_is_not_reported_as_a_model_failure() -> None:
 
     with pytest.raises(DocumentTooLargeForAudit):
         AuditEngine(entity_extractor=too_large).audit("Текст", ())
+
+
+def test_day_of_month_is_not_extracted_as_a_period() -> None:
+    text = "Расчет производится 5 числа следующего месяца, срок договора 2 месяца."
+
+    durations = [item.value for item in extract_entities(text) if item.kind == "duration"]
+
+    assert durations == ["2 месяца"]
+
+
+def test_day_of_month_from_the_model_is_not_a_period() -> None:
+    text = "Расчет производится 5 числа следующего месяца."
+
+    entities = entities_from_provider(
+        text, [{"kind": "duration", "value": "5 числа следующего месяца"}]
+    )
+
+    assert entities == ()

@@ -28,16 +28,21 @@ from edm_auditor.database.models import (
     Document,
     LegalAct,
 )
+from edm_auditor.model_config import detect_source_language
 from edm_auditor.rag.exceptions import RAGError
 
 from .engine import AuditEngine
 from .llm_interpreter import LLMInterpreter
-from .models import FindingDraft, RuleSpec
+from .models import AuditResult, FindingDraft, RuleSpec
 from .neural_errors import AuditModelError
 from .neural_models import NeuralFinding, NeuralResult
 
 
 logger = logging.getLogger(__name__)
+
+# These checks compare every value of a kind, so the model confirms what each value means.
+VALUE_COMPARISON_CHECKS = frozenset({"duration", "numeric"})
+SURROUNDING_CHARS = 200
 
 
 class AuditSelectionRequired(Exception):
@@ -84,10 +89,15 @@ class AuditPersistence:
                 document.status = DocumentStatus.PROCESSING.value
                 session.flush()
 
-                result = self._engine.audit(document.raw_text, resolution.selected_rules)
+                candidates = self._engine.audit(document.raw_text, resolution.selected_rules)
                 neural = self._analyze(
-                    result.findings,
+                    candidates.findings,
                     ", ".join(item.code for item in document.confirmed_types) or None,
+                    document.raw_text,
+                )
+                result, neural, rejected = _apply_model_verdicts(candidates, neural)
+                neural = _with_legal_basis(
+                    neural, result.findings, _applied_legal_acts(session, resolution)
                 )
                 counts = result.counts
                 summary = {
@@ -101,6 +111,7 @@ class AuditPersistence:
                         if finding.source_context is not None
                     ],
                     "neural": neural.as_dict(),
+                    "rejected_candidates": rejected,
                     "selection": selection_snapshot(
                         selection or SelectionConfig(),
                         _document_context(document),
@@ -182,7 +193,10 @@ class AuditPersistence:
             return (), True
 
     def _analyze(
-        self, findings: tuple[FindingDraft, ...], document_type: str | None
+        self,
+        findings: tuple[FindingDraft, ...],
+        document_type: str | None,
+        text: str,
     ) -> NeuralResult:
         neural_findings = tuple(
             NeuralFinding(
@@ -196,12 +210,17 @@ class AuditPersistence:
                     if finding.source_context is not None
                     else ()
                 ),
+                norm_quote=finding.norm_quote,
+                surrounding_text=_surrounding_text(text, finding),
+                requires_confirmation=finding.check_type in VALUE_COMPARISON_CHECKS,
             )
             for finding in findings
         )
         try:
             return self._neural_interpreter.analyze(
-                neural_findings, document_type=document_type
+                neural_findings,
+                document_type=document_type,
+                output_language=detect_source_language(text),
             )
         except (RuntimeError, ValueError, TypeError) as exc:
             raise AuditModelError("LLM analysis failed") from exc
@@ -220,6 +239,76 @@ def _document_context(document: Document) -> DocumentContext:
         confirmed_document_types=tuple(item.code for item in document.confirmed_types),
         candidate_document_types=tuple(item["code"] for item in candidates),
         confidence=document.classification_confidence or 0.0,
+    )
+
+
+def _surrounding_text(text: str, finding: FindingDraft) -> str | None:
+    """Show the model what the value refers to; a window survives wrapped lines."""
+    if finding.start_char is None or finding.end_char is None:
+        return None
+    start = max(finding.start_char - SURROUNDING_CHARS, 0)
+    return text[start : finding.end_char + SURROUNDING_CHARS].strip()
+
+
+def _apply_model_verdicts(
+    candidates: AuditResult, neural: NeuralResult
+) -> tuple[AuditResult, NeuralResult, list[dict[str, object]]]:
+    """Report only confirmed findings and keep the rejected ones for inspection."""
+    verdicts = {item.finding_key: item for item in neural.analyses}
+    findings: list[FindingDraft] = []
+    rejected: list[dict[str, object]] = []
+    for finding in candidates.findings:
+        verdict = verdicts.get(_finding_key(finding))
+        if verdict is None or verdict.is_violation:
+            findings.append(finding)
+            continue
+        rejected.append(
+            {
+                "rule_code": finding.rule_code,
+                "start_char": finding.start_char,
+                "end_char": finding.end_char,
+                "quote": finding.quote,
+                "reason": verdict.explanation,
+            }
+        )
+    return (
+        replace(candidates, findings=tuple(findings)),
+        replace(
+            neural,
+            analyses=tuple(item for item in neural.analyses if item.is_violation),
+        ),
+        rejected,
+    )
+
+
+def _with_legal_basis(
+    neural: NeuralResult,
+    findings: Sequence[FindingDraft],
+    legal_acts: Sequence[dict[str, object]],
+) -> NeuralResult:
+    """Cite the norm from the rule itself: a model could invent a reference."""
+    acts = {act["id"]: act for act in legal_acts}
+    by_key = {_finding_key(finding): finding for finding in findings}
+
+    def basis(key: str) -> tuple[dict[str, object], ...]:
+        finding = by_key.get(key)
+        act = acts.get(finding.legal_act_id) if finding is not None else None
+        if act is None:
+            return ()
+        return (
+            {
+                "legal_act_id": act["id"],
+                "code": act["code"],
+                "title": act["title"],
+                "quote": finding.norm_quote,
+            },
+        )
+
+    return replace(
+        neural,
+        analyses=tuple(
+            replace(item, legal_basis=basis(item.finding_key)) for item in neural.analyses
+        ),
     )
 
 
@@ -253,6 +342,7 @@ def _to_rule_spec(rule: AuditRule) -> RuleSpec:
         parameters=parameters,
         legal_act_id=rule.legal_act_id,
         is_active=rule.is_active,
+        source_quote=rule.source_quote,
     )
 
 
