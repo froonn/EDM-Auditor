@@ -34,7 +34,7 @@ from edm_auditor.rag.exceptions import RAGError
 from .engine import AuditEngine
 from .llm_interpreter import LLMInterpreter
 from .models import AuditResult, FindingDraft, RuleSpec
-from .neural_errors import AuditModelError
+from .neural_errors import AuditModelError, DocumentTooLargeForAudit
 from .neural_models import NeuralFinding, NeuralResult
 
 
@@ -87,38 +87,41 @@ class AuditPersistence:
                 if resolution.status is not ResolutionStatus.READY:
                     raise AuditSelectionRequired(resolution)
                 document.status = DocumentStatus.PROCESSING.value
-                session.flush()
+                text = document.raw_text
+                document_type = (
+                    ", ".join(item.code for item in document.confirmed_types) or None
+                )
+                context = _document_context(document)
+                applied_acts = _applied_legal_acts(session, resolution)
 
-                candidates = self._engine.audit(document.raw_text, resolution.selected_rules)
-                neural = self._analyze(
-                    candidates.findings,
-                    ", ".join(item.code for item in document.confirmed_types) or None,
-                    document.raw_text,
-                )
-                result, neural, rejected = _apply_model_verdicts(candidates, neural)
-                neural = _with_legal_basis(
-                    neural, result.findings, _applied_legal_acts(session, resolution)
-                )
-                counts = result.counts
-                summary = {
-                    "diagnostics": [
-                        {"rule_code": item.rule_code, "message": item.message}
-                        for item in result.diagnostics
-                    ],
-                    "rag_contexts": [
-                        finding.source_context
-                        for finding in result.findings
-                        if finding.source_context is not None
-                    ],
-                    "neural": neural.as_dict(),
-                    "rejected_candidates": rejected,
-                    "selection": selection_snapshot(
-                        selection or SelectionConfig(),
-                        _document_context(document),
-                        resolution,
-                        _applied_legal_acts(session, resolution),
-                    ),
-                }
+            # SQLite allows one writer, so no transaction stays open during model calls.
+            candidates = self._engine.audit(text, resolution.selected_rules)
+            neural = self._analyze(candidates.findings, document_type, text)
+            result, neural, rejected = _apply_model_verdicts(candidates, neural)
+            neural = _with_legal_basis(neural, result.findings, applied_acts)
+            counts = result.counts
+            summary = {
+                "diagnostics": [
+                    {"rule_code": item.rule_code, "message": item.message}
+                    for item in result.diagnostics
+                ],
+                "rag_contexts": [
+                    finding.source_context
+                    for finding in result.findings
+                    if finding.source_context is not None
+                ],
+                "neural": neural.as_dict(),
+                "rejected_candidates": rejected,
+                "selection": selection_snapshot(
+                    selection or SelectionConfig(), context, resolution, applied_acts
+                ),
+            }
+
+            with self._session_factory.begin() as session:
+                document = self._load(session, document_id)
+                # A rule or an act could be deleted while the models were running.
+                rule_ids = set(session.scalars(select(AuditRule.id)).all())
+                legal_act_ids = set(session.scalars(select(LegalAct.id)).all())
                 report = AuditReport(
                     document_id=document.id,
                     total_findings=len(result.findings),
@@ -130,8 +133,12 @@ class AuditPersistence:
                 )
                 report.findings = [
                     AuditFinding(
-                        rule_id=finding.rule_id,
-                        legal_act_id=finding.legal_act_id,
+                        rule_id=finding.rule_id if finding.rule_id in rule_ids else None,
+                        legal_act_id=(
+                            finding.legal_act_id
+                            if finding.legal_act_id in legal_act_ids
+                            else None
+                        ),
                         severity=finding.severity,
                         description=finding.description,
                         start_char=finding.start_char,
@@ -145,7 +152,14 @@ class AuditPersistence:
                 document.status = DocumentStatus.AUDITED.value
                 session.flush()
                 return report
-        except (LookupError, ValueError, TypeError, AuditModelError, SQLAlchemyError):
+        except (
+            LookupError,
+            ValueError,
+            TypeError,
+            AuditModelError,
+            DocumentTooLargeForAudit,
+            SQLAlchemyError,
+        ):
             self._mark_error(document_id)
             raise
 

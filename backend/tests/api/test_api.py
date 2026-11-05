@@ -1381,6 +1381,7 @@ def test_audit_refuses_a_document_needing_too_many_model_requests(
     assert response.status_code == 413
     assert response.json()["error"]["code"] == "document_too_large_for_audit"
     assert calls == []
+    assert client.get(f"/api/documents/{document_id}").json()["status"] == "error"
     assert client.get("/api/reports").json() == []
 
 
@@ -1539,3 +1540,74 @@ def test_legal_act_upload_extracts_rules_outside_the_event_loop(
 
     assert response.status_code == 201
     assert running_loops == [False]
+
+
+def test_database_accepts_writes_while_the_audit_calls_models(
+    tmp_path: Path, monkeypatch
+) -> None:
+    written: list[int] = []
+    holder: dict[str, TestClient] = {}
+
+    class Entities(FakeEntityProvider):
+        def extract(self, text: str):
+            response = holder["client"].post(
+                "/api/document-types",
+                json={"code": "memo", "name": "Записка", "description": "Служебная записка."},
+            )
+            written.append(response.status_code)
+            return ()
+
+    monkeypatch.setattr(
+        "edm_auditor.api.app.create_entity_extraction_provider", lambda config: Entities()
+    )
+    client = make_client(tmp_path)
+    holder["client"] = client
+    document = _upload(client, TRIP_ORDER)
+    _add_universal_rule(client)
+
+    response = client.post(
+        f"/api/documents/{document['id']}/audit",
+        json={"selection_mode": "all", "confirm_all": True},
+    )
+
+    assert written == [201]
+    assert response.status_code == 200
+    assert client.get(f"/api/documents/{document['id']}").json()["status"] == "audited"
+
+
+def test_rule_deleted_during_the_audit_does_not_break_the_report(
+    tmp_path: Path, monkeypatch
+) -> None:
+    holder: dict[str, object] = {}
+
+    class Entities(FakeEntityProvider):
+        def extract(self, text: str):
+            holder["client"].delete(f"/api/rules/{holder['rule_id']}")
+            return ()
+
+    monkeypatch.setattr(
+        "edm_auditor.api.app.create_entity_extraction_provider", lambda config: Entities()
+    )
+    client = make_client(tmp_path)
+    holder["client"] = client
+    document = _upload(client, "Приказ о командировке. Запрет.")
+    created = client.post(
+        "/api/rules",
+        json={
+            "rule_code": "deleted-rule",
+            "name": "Правило",
+            "severity": "low",
+            "check_type": "keyword",
+            "parameters": {"keywords": ["запрет"], "mode": "forbidden"},
+        },
+    )
+    holder["rule_id"] = created.json()["id"]
+
+    response = client.post(
+        f"/api/documents/{document['id']}/audit",
+        json={"selection_mode": "all", "confirm_all": True},
+    )
+
+    assert response.status_code == 200
+    report = client.get(f"/api/documents/{document['id']}/report").json()
+    assert [item["rule_id"] for item in report["findings"]] == [None]
