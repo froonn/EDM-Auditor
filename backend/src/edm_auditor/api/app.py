@@ -16,7 +16,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy import delete, func, inspect as inspect_schema, select, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, object_session, selectinload
 
 from edm_auditor.applicability import (
     ApplicabilityScope,
@@ -121,6 +121,7 @@ from .schemas import (
     LegalActCreate,
     LegalActDetailResponse,
     LegalActUpdate,
+    LatestReportSummary,
     ReportResponse,
     ReportListResponse,
     RuleCreate,
@@ -894,11 +895,14 @@ def create_app(
         response: Response,
         limit: int = Query(default=50, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
+        document_id: int | None = Query(default=None),
     ) -> list[ReportListResponse]:
         with session_factory() as session:
             statement = select(AuditReport, Document.title).join(
                 Document, Document.id == AuditReport.document_id
             )
+            if document_id is not None:
+                statement = statement.where(AuditReport.document_id == document_id)
             _set_total_count(session, response, statement)
             statement = (
                 statement.order_by(AuditReport.created_at.desc(), AuditReport.id.desc())
@@ -1387,6 +1391,31 @@ def _document_response(document: Document) -> DocumentResponse:
             classification.status is not ClassificationStatus.CLASSIFIED
         ),
         created_at=document.created_at,
+        latest_report=_latest_report_summary(document),
+    )
+
+
+def _latest_report_summary(document: Document) -> LatestReportSummary | None:
+    """Summarize the newest report so a document list needs no request per document."""
+    session = object_session(document)
+    if session is None:
+        return None
+    report = session.scalar(
+        select(AuditReport)
+        .where(AuditReport.document_id == document.id)
+        .order_by(AuditReport.created_at.desc(), AuditReport.id.desc())
+        .limit(1)
+    )
+    if report is None:
+        return None
+    return LatestReportSummary(
+        id=report.id,
+        total_findings=report.total_findings,
+        critical_count=report.critical_count,
+        high_count=report.high_count,
+        medium_count=report.medium_count,
+        low_count=report.low_count,
+        created_at=report.created_at,
     )
 
 

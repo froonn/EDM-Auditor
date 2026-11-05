@@ -2,44 +2,50 @@ import { screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { sessionWith } from "@/auth/session";
+import { DOCUMENT_TYPES, documentItem } from "@/test/fixtures";
+import { json, mockApi, page } from "@/test/fetchMock";
 import { renderApp } from "@/test/render";
 
 import { APP_ROUTES } from "./routes";
 
 afterEach(() => vi.unstubAllGlobals());
 
-function stubHealth(response: () => Promise<Response>) {
-  vi.stubGlobal("fetch", vi.fn(response));
-}
+const listRoutes = {
+  "GET /api/documents": () => page([documentItem()]),
+  "GET /api/document-types": () => json(DOCUMENT_TYPES),
+};
 
 describe("application shell", () => {
-  it("shows the menu and the server status", async () => {
-    stubHealth(async () => Response.json({ status: "ok" }));
+  it("shows the menu and the documents", async () => {
+    mockApi(listRoutes);
     renderApp("/");
     expect(screen.getByRole("navigation", { name: "Основное меню" })).toBeInTheDocument();
-    expect(await screen.findByText("Сервер API отвечает.")).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "remote_work_agreement" })).toBeInTheDocument();
   });
 
   it("explains that the backend is down and offers a retry", async () => {
-    stubHealth(async () => {
-      throw new TypeError("Failed to fetch");
-    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("Failed to fetch");
+      }),
+    );
     renderApp("/");
-    expect(await screen.findByRole("alert")).toHaveTextContent("Сервер API недоступен");
+    expect(await screen.findByText(/Сервер API недоступен/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Повторить" })).toBeInTheDocument();
   });
 
   it("shows a not found page for an unknown address", () => {
-    stubHealth(async () => Response.json({ status: "ok" }));
+    mockApi(listRoutes);
     renderApp("/no-such-page");
     expect(screen.getByRole("heading", { name: "Страница не найдена" })).toBeInTheDocument();
   });
 
   it("protects routes and hides menu items without the permission", () => {
-    stubHealth(async () => Response.json({ status: "ok" }));
+    mockApi(listRoutes);
     renderApp("/", sessionWith([]));
     expect(screen.getByRole("heading", { name: "Недостаточно прав" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Состояние системы" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Документы" })).not.toBeInTheDocument();
   });
 
   it("declares unique paths", () => {

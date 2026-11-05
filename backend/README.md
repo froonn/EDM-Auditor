@@ -88,20 +88,20 @@ header.
 
 ### Documents and audit
 
-| Method and path                            | Purpose                                      |
-|--------------------------------------------|----------------------------------------------|
-| `GET /health`                              | Service check                                |
-| `POST /api/documents/upload`               | Upload a file (`file`, optional `title`)     |
-| `GET /api/documents`                       | List documents, paginated                    |
-| `GET /api/documents/{id}`                  | Document with its `text`                     |
-| `DELETE /api/documents/{id}`               | Delete a document, its reports and its file  |
-| `POST /api/documents/{id}/classify`        | Determine the document type again            |
-| `PATCH /api/documents/{id}/classification` | Confirm the document types manually          |
-| `POST /api/documents/{id}/audit/preview`   | Show the rules an audit would use            |
-| `POST /api/documents/{id}/audit`           | Run an audit                                 |
-| `GET /api/documents/{id}/report`           | Latest report, or the one set by `report_id` |
-| `GET /api/reports`                         | List reports, paginated                      |
-| `GET /api/reports/{id}`                    | One report                                   |
+| Method and path                            | Purpose                                         |
+|--------------------------------------------|-------------------------------------------------|
+| `GET /health`                              | Service check                                   |
+| `POST /api/documents/upload`               | Upload a file (`file`, optional `title`)        |
+| `GET /api/documents`                       | List documents with `latest_report`, paginated  |
+| `GET /api/documents/{id}`                  | Document with its `text`                        |
+| `DELETE /api/documents/{id}`               | Delete a document, its reports and its file     |
+| `POST /api/documents/{id}/classify`        | Determine the document type again               |
+| `PATCH /api/documents/{id}/classification` | Confirm the document types manually             |
+| `POST /api/documents/{id}/audit/preview`   | Show the rules an audit would use               |
+| `POST /api/documents/{id}/audit`           | Run an audit                                    |
+| `GET /api/documents/{id}/report`           | Latest report, or the one set by `report_id`    |
+| `GET /api/reports`                         | List reports, paginated. Filter: `document_id`  |
+| `GET /api/reports/{id}`                    | One report                                      |
 
 ### Rules
 

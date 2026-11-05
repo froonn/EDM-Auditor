@@ -75,6 +75,16 @@ class ClassificationUpdate(BaseModel):
     confirmed_document_types: list[str]
 
 
+class LatestReportSummary(BaseModel):
+    id: int
+    total_findings: int
+    critical_count: int
+    high_count: int
+    medium_count: int
+    low_count: int
+    created_at: datetime
+
+
 class DocumentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -91,6 +101,7 @@ class DocumentResponse(BaseModel):
     automatic_classification: dict[str, Any] | None = None
     needs_configuration: bool = True
     created_at: datetime
+    latest_report: LatestReportSummary | None = None
 
 
 class DocumentDetailResponse(DocumentResponse):
