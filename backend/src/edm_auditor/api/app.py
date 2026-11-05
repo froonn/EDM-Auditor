@@ -12,7 +12,7 @@ from uuid import uuid4
 from fastapi import FastAPI, File, Form, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from sqlalchemy import delete, func, inspect as inspect_schema, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -122,7 +122,6 @@ from .schemas import (
     RuleExtractionDiagnosticResponse,
 )
 from .storage import store_upload
-from .web import page
 
 logger = logging.getLogger("edm_auditor.api")
 trace_logger = logging.getLogger("edm_auditor.trace")
@@ -561,10 +560,6 @@ def create_app(
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
-
-    @app.get("/", response_class=HTMLResponse, include_in_schema=False)
-    def web_ui() -> HTMLResponse:
-        return page()
 
     @app.get("/api/document-types", response_model=list[DocumentTypeResponse])
     def list_document_types(

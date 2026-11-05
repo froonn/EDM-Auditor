@@ -281,7 +281,6 @@ heuristic hint and does not replace review by a qualified legal professional. Se
 Available endpoints:
 
 - `GET /health`
-- `GET /` — локальный web-интерфейс для ручной проверки
 - `POST /api/documents/upload`
 - `GET /api/documents`
 - `GET /api/documents/{id}`
@@ -306,10 +305,6 @@ Available endpoints:
 OpenAPI documentation is available at `/docs`. The local API does not include
 authentication yet and should not be exposed outside a trusted development
 environment.
-
-Open `http://127.0.0.1:8000/` after starting the server to use the browser
-interface. It supports uploading and deleting UTF-8 TXT legal acts, uploading
-TXT/PDF/DOCX documents, starting audits, and opening saved audit reports.
 
 The application automatically loads `.env` from the current working directory
 when the API starts. For example, create `backend/.env`:
