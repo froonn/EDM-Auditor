@@ -18,6 +18,7 @@ import { AuditRunButton, AuditRunStatus, useAuditRunner, type AuditRunner } from
 import { DocumentText } from "./DocumentText";
 import { FindingsPanel, PassedRules } from "./FindingsPanel";
 import { buildSegments } from "./highlight";
+import { ReportExport } from "./ReportExport";
 import { ReportExtras } from "./ReportExtras";
 import { toReportView, type FindingView } from "./reportModel";
 
@@ -323,6 +324,7 @@ function ReportPicker({
           </Button>
         </span>
       )}
+      <ReportExport reportId={report.id} />
     </div>
   );
 }

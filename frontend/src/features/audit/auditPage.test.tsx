@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DOCUMENT_TYPES, documentDetail, report } from "@/test/fixtures";
 import { apiError, json, mockApi, page } from "@/test/fetchMock";
+import { PERMISSIONS } from "@/auth/permissions";
+import { sessionWith } from "@/auth/session";
 import { renderApp } from "@/test/render";
 
 const scrollIntoView = vi.fn();
@@ -232,5 +234,48 @@ describe("audit screen", () => {
     expect(attempts).toBe(1);
     await userEvent.click(screen.getByRole("button", { name: "Повторить" }));
     await waitFor(() => expect(attempts).toBe(2));
+  });
+
+  it("downloads the HTML report with the browser's time zone and the server's file name", async () => {
+    const createObjectURL = vi.fn(() => "blob:report");
+    // jsdom has no object URLs; the test file runs in its own environment.
+    Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() });
+    const clicked: HTMLAnchorElement[] = [];
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      clicked.push(this);
+    });
+    const { calls } = routes({
+      "GET /api/reports/10/export": () =>
+        new Response("<!DOCTYPE html><title>r</title>", {
+          headers: {
+            "Content-Type": "text/html; charset=utf-8",
+            "Content-Disposition": `attachment; filename="audit-report.html"; filename*=UTF-8''${encodeURIComponent("Отчёт аудита — договор — №10.html")}`,
+          },
+        }),
+    });
+    renderApp("/documents/1/audit");
+    await userEvent.click(await screen.findByRole("button", { name: "Скачать HTML" }));
+
+    await waitFor(() => expect(clicked).toHaveLength(1));
+    expect(clicked[0]!.download).toBe("Отчёт аудита — договор — №10.html");
+    expect(clicked[0]!.href).toBe("blob:report");
+    const request = calls.find((call) => call.path === "/api/reports/10/export")!;
+    expect(request.url.searchParams.get("format")).toBe("html");
+    expect(request.url.searchParams.get("timezone")).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    click.mockRestore();
+  });
+
+  it("explains a failed export", async () => {
+    routes({ "GET /api/reports/10/export": () => apiError(404, "report_not_found") });
+    renderApp("/documents/1/audit");
+    await userEvent.click(await screen.findByRole("button", { name: "Скачать HTML" }));
+    expect(await screen.findByText("Отчёт не найден.")).toBeInTheDocument();
+  });
+
+  it("hides the export without the permission", async () => {
+    routes();
+    renderApp("/documents/1/audit", sessionWith(PERMISSIONS.filter((item) => item !== "reports.export")));
+    await screen.findByRole("region", { name: "Текст документа" });
+    expect(screen.queryByRole("button", { name: "Скачать HTML" })).not.toBeInTheDocument();
   });
 });

@@ -347,6 +347,9 @@ export const ru = {
   "audit.markLabel": "Нарушение, важность: {severity}",
   "audit.olderReport": "Это не последний отчёт документа.",
   "audit.openLatest": "Открыть последний",
+  "export.html": "Скачать HTML",
+  "export.html.hint": "Отчёт одним файлом: открывается в браузере без сети, его можно распечатать или сохранить в PDF.",
+  "export.preparing": "Готовим файл…",
   "audit.disclaimer":
     "Текст документа в интерфейсе не изменяется: исправьте документ сами по рекомендациям и загрузите заново.",
 
@@ -459,6 +462,8 @@ export const ru = {
   "error.reserved_document_type": "Этот код типа зарезервирован системой.",
   "error.unknown_rule": "Выбрано несуществующее правило.",
   "error.unknown_legal_act": "Выбран несуществующий НПА.",
+  "error.unsupported_export_format": "Этот формат отчёта не поддерживается.",
+  "error.invalid_timezone": "Сервер не знает часовой пояс браузера. Проверьте настройки времени.",
   "error.all_mode_not_confirmed": "Запуск по всем правилам нужно подтвердить явно.",
   "error.audit_configuration_error": "Настройка аудита некорректна.",
   "error.model_rate_limited":

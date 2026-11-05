@@ -1,4 +1,4 @@
-import { ApiError, apiRequest, apiRequestPage, type Page, type RequestOptions } from "./client";
+import { ApiError, apiDownload, apiRequest, apiRequestPage, type Page, type RequestOptions } from "./client";
 import type {
   ApplicabilityScope,
   AuditPreview,
@@ -8,6 +8,7 @@ import type {
   DocumentItem,
   DocumentType,
   DocumentTypeSuggestion,
+  ExportFormat,
   LegalAct,
   LegalActDetail,
   LegalActDiagnostics,
@@ -97,6 +98,11 @@ export const api = {
       apiRequestPage<ReportListItem>("/api/reports", {
         query: { document_id: documentId, limit: MAX_PAGE_SIZE },
         signal,
+      }),
+    /** Dates in the file are shown in the given IANA time zone, as on the screen. */
+    export: (reportId: number, format: ExportFormat, timeZone: string) =>
+      apiDownload(`/api/reports/${reportId}/export`, `audit-report-${reportId}.${format}`, {
+        query: { format, timezone: timeZone },
       }),
   },
 

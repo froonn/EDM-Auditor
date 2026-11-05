@@ -6,6 +6,7 @@ export const PERMISSIONS = [
   "documents.upload",
   "audit.run",
   "reports.read",
+  "reports.export",
   "rules.edit",
   "legal_acts.edit",
   "document_types.edit",
