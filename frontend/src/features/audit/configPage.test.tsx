@@ -113,7 +113,7 @@ describe("audit configuration", () => {
     renderApp("/documents/1/configure");
     const row = (await screen.findByRole("combobox", { name: "Выбор: Срок" })).closest("tr")!;
     const cells = within(row).getAllByRole("cell");
-    expect(cells[0]).toHaveTextContent(/^Высокое$/);
+    expect(cells[0]).toHaveTextContent(/^Высокая$/);
     expect(cells[1]).toHaveTextContent("Срок");
   });
 

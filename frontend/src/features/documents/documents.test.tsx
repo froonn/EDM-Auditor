@@ -62,7 +62,7 @@ describe("documents page", () => {
     renderApp("/");
     const audited = (await screen.findByRole("link", { name: "remote_work_agreement" })).closest("tr")!;
     expect(within(audited).getByText("Соглашение о дистанционной работе")).toBeInTheDocument();
-    expect(within(audited).getByText("Высокое")).toBeInTheDocument();
+    expect(within(audited).getByText("Высокая")).toBeInTheDocument();
     const pending = screen.getByRole("link", { name: "unknown" }).closest("tr")!;
     expect(within(pending).getByText("Нужно подтвердить тип")).toBeInTheDocument();
     expect(within(pending).getByText("Аудита не было")).toBeInTheDocument();

@@ -23,7 +23,7 @@ describe("badges", () => {
         <StatusBadge kind="document" status="something_new" />
       </>,
     );
-    expect(screen.getByText("Критическое")).toHaveClass("bg-severity-critical-bg");
+    expect(screen.getByText("Критическая")).toHaveClass("bg-severity-critical-bg");
     expect(screen.getByText("Нужно подтвердить тип")).toBeInTheDocument();
     expect(screen.getByText("something_new")).toBeInTheDocument();
   });
