@@ -1124,8 +1124,9 @@ def create_app(
                     "rule_extraction_unavailable",
                     "Online rule extraction is not configured",
                 )
-            process_legal_act(legal_act_id)
-            _rebuild_after_mutation(rebuild_rag_index)
+            # Model and index calls block, so they must not stop the event loop.
+            await run_in_threadpool(process_legal_act, legal_act_id)
+            await run_in_threadpool(_rebuild_after_mutation, rebuild_rag_index)
             with session_factory() as session:
                 return LegalActResponse.model_validate(session.get(LegalAct, legal_act_id))
         except ValueError as exc:

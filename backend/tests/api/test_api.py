@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 import sqlite3
 
@@ -1511,3 +1512,32 @@ def test_rule_extraction_stops_at_a_model_limit_or_timeout(
     assert act["chunks_processed"] == 0
     diagnostics = client.get(f"/api/legal-acts/{act['id']}/diagnostics").json()["diagnostics"]
     assert [item["error_code"] for item in diagnostics] == [code]
+
+
+def test_legal_act_upload_extracts_rules_outside_the_event_loop(
+    tmp_path: Path, monkeypatch
+) -> None:
+    running_loops: list[bool] = []
+
+    class Extractor:
+        def extract_rules(self, text: str, **_):
+            try:
+                asyncio.get_running_loop()
+                running_loops.append(True)
+            except RuntimeError:
+                running_loops.append(False)
+            return ()
+
+    monkeypatch.setattr(
+        "edm_auditor.api.app.create_rule_extraction_provider", lambda config: Extractor()
+    )
+    client = make_client(tmp_path)
+
+    response = client.post(
+        "/api/legal-acts/upload",
+        data={"code": "ACT", "title": "Акт"},
+        files={"file": ("act.txt", "Текст акта.".encode(), "text/plain")},
+    )
+
+    assert response.status_code == 201
+    assert running_loops == [False]
