@@ -1,84 +1,114 @@
-"""Deterministic document classifier based on explicit catalog signals."""
+"""Document classification by a language model against the active type catalog."""
 
-from collections.abc import Collection, Iterable
+from collections.abc import Sequence
+import logging
+
+from edm_auditor.model_providers import DocumentClassificationProvider, DocumentTypeOption
 
 from .models import (
     ClassificationCandidate,
+    ClassificationOutcome,
     ClassificationResult,
     ClassificationStatus,
-    DocumentTypeProfile,
+    TypeSuggestion,
 )
 
-HEADING_WEIGHT = 0.5
-TITLE_WEIGHT = 0.3
-BODY_TERM_WEIGHT = 0.15
-BODY_WEIGHT_LIMIT = 0.3
-STRUCTURE_WEIGHT = 0.1
-ENTITY_WEIGHT = 0.1
-
-CONFIRMED_CONFIDENCE = 0.6
-CANDIDATE_CONFIDENCE = 0.25
-REQUIRED_MARGIN = 0.2
+logger = logging.getLogger(__name__)
 
 
-def classify_document(
-    text: str,
-    profiles: Iterable[DocumentTypeProfile],
-    *,
-    title: str = "",
-    filename: str = "",
-    entity_kinds: Collection[str] = (),
-) -> ClassificationResult:
-    """Score catalog types using the heading, file name, terms, structure, and entities."""
-    heading, _, body = text.strip().partition("\n")
-    heading = heading.casefold()
-    body = body.casefold()
-    names = f"{title} {filename}".casefold()
+def classification_sample(text: str, *, head_chars: int, tail_chars: int) -> str:
+    """Keep the heading and the closing part: they identify a document's type."""
+    if len(text) <= head_chars + tail_chars:
+        return text
+    tail = text[-tail_chars:] if tail_chars else ""
+    return f"{text[:head_chars]}\n[...]\n{tail}"
 
-    scored: list[tuple[ClassificationCandidate, bool]] = []
-    for profile in profiles:
-        in_heading = _contains_any(heading, profile.title_terms)
-        score = HEADING_WEIGHT if in_heading else 0.0
-        if _contains_any(names, profile.title_terms):
-            score += TITLE_WEIGHT
-        matched_terms = sum(term in body for term in profile.body_terms)
-        score += min(matched_terms * BODY_TERM_WEIGHT, BODY_WEIGHT_LIMIT)
-        if any(heading.startswith(term) for term in profile.structure_terms):
-            score += STRUCTURE_WEIGHT
-        if profile.entity_kinds and set(profile.entity_kinds) <= set(entity_kinds):
-            score += ENTITY_WEIGHT
-        score = round(min(score, 1.0), 2)
-        if score >= CANDIDATE_CONFIDENCE:
-            scored.append((ClassificationCandidate(profile.code, score), in_heading))
 
-    if not scored:
-        return ClassificationResult(ClassificationStatus.UNKNOWN)
-    scored.sort(key=lambda item: (-item[0].confidence, item[0].code))
-    candidates = tuple(item[0] for item in scored)
-    best = candidates[0]
+class DocumentClassifier:
+    """Accept only catalog codes and confirm only confident answers."""
 
-    confirmed = [
-        candidate.code
-        for candidate, in_heading in scored
-        if candidate.confidence >= CONFIRMED_CONFIDENCE and in_heading
-    ]
-    runner_up = max(
-        (item.confidence for item in candidates if item.code not in confirmed),
-        default=0.0,
-    )
-    if confirmed and best.confidence - runner_up >= REQUIRED_MARGIN:
-        return ClassificationResult(
-            ClassificationStatus.CLASSIFIED,
-            confirmed_document_types=tuple(confirmed),
-            candidate_types=candidates,
-            confidence=best.confidence,
+    def __init__(
+        self,
+        provider: DocumentClassificationProvider,
+        *,
+        min_confidence: float = 0.7,
+        head_chars: int = 4000,
+        tail_chars: int = 1000,
+    ) -> None:
+        self._provider = provider
+        self._min_confidence = min_confidence
+        self._head_chars = head_chars
+        self._tail_chars = tail_chars
+
+    def classify(
+        self,
+        text: str,
+        *,
+        title: str = "",
+        filename: str = "",
+        document_types: Sequence[DocumentTypeOption],
+    ) -> ClassificationOutcome:
+        if not document_types:
+            return ClassificationOutcome(ClassificationResult(ClassificationStatus.UNKNOWN))
+        payload = self._provider.classify(
+            classification_sample(
+                text, head_chars=self._head_chars, tail_chars=self._tail_chars
+            ),
+            title=title,
+            filename=filename,
+            document_types=document_types,
         )
-    return ClassificationResult(
-        ClassificationStatus.NEEDS_REVIEW,
-        candidate_types=candidates,
-        confidence=best.confidence,
+        candidates = _candidates(payload, {item.code for item in document_types})
+        confirmed = tuple(
+            item.code for item in candidates if item.confidence >= self._min_confidence
+        )
+        best = candidates[0].confidence if candidates else 0.0
+        if confirmed:
+            status = ClassificationStatus.CLASSIFIED
+        elif candidates:
+            status = ClassificationStatus.NEEDS_REVIEW
+        else:
+            status = ClassificationStatus.UNKNOWN
+        return ClassificationOutcome(
+            ClassificationResult(
+                status,
+                confirmed_document_types=confirmed,
+                candidate_types=candidates,
+                confidence=best,
+            ),
+            None if confirmed else _suggestion(payload),
+        )
+
+
+def _candidates(
+    payload: object, known_codes: set[str]
+) -> tuple[ClassificationCandidate, ...]:
+    if not isinstance(payload, dict) or not isinstance(payload.get("document_types"), list):
+        raise ValueError("classification response must contain a document_types array")
+    confidences: dict[str, float] = {}
+    for item in payload["document_types"]:
+        if not isinstance(item, dict):
+            raise ValueError("each classified type must be an object")
+        code, confidence = item.get("code"), item.get("confidence")
+        if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
+            raise ValueError("classification confidence must be numeric")
+        if not 0 <= confidence <= 1:
+            raise ValueError("classification confidence must be between 0 and 1")
+        if code not in known_codes:
+            logger.warning("Classification model returned a code outside the catalog")
+            continue
+        confidences[code] = max(float(confidence), confidences.get(code, 0.0))
+    return tuple(
+        ClassificationCandidate(code, confidence)
+        for code, confidence in sorted(
+            confidences.items(), key=lambda entry: (-entry[1], entry[0])
+        )
     )
 
 
-def _contains_any(value: str, terms: Iterable[str]) -> bool:
-    return any(term in value for term in terms)
+def _suggestion(payload: dict) -> TypeSuggestion | None:
+    name = payload.get("suggested_type_name")
+    reason = payload.get("suggested_type_reason")
+    if not isinstance(name, str) or not name.strip():
+        return None
+    return TypeSuggestion(name.strip(), reason.strip() if isinstance(reason, str) else "")

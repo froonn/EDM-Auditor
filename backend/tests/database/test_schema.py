@@ -31,6 +31,7 @@ def test_schema_contains_all_tables(session_factory) -> None:
     assert set(inspect(engine).get_table_names()) == {
         "users",
         "document_types",
+        "document_type_suggestions",
         "document_confirmed_types",
         "rule_document_types",
         "legal_act_document_types",

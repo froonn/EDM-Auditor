@@ -104,6 +104,32 @@ class LegalActProcessingConfig:
                 raise ValueError(f"{name} must not be empty")
 
 
+@dataclass(frozen=True, slots=True)
+class DocumentProcessingConfig:
+    """Limits on the document text sent to models and the confidence they must reach."""
+
+    classification_head_chars: int = 4000
+    classification_tail_chars: int = 1000
+    classification_min_confidence: float = 0.7
+    entity_chunk_max_chars: int = 4000
+    entity_chunk_overlap_chars: int = 200
+    entity_max_chunks: int = 100
+
+    def __post_init__(self) -> None:
+        if self.classification_head_chars <= 0:
+            raise ValueError("classification_head_chars must be positive")
+        if self.classification_tail_chars < 0:
+            raise ValueError("classification_tail_chars must not be negative")
+        if not 0 < self.classification_min_confidence <= 1:
+            raise ValueError("classification_min_confidence must be in (0, 1]")
+        if self.entity_chunk_max_chars <= 0:
+            raise ValueError("entity_chunk_max_chars must be positive")
+        if not 0 <= self.entity_chunk_overlap_chars < self.entity_chunk_max_chars:
+            raise ValueError("entity_chunk_overlap_chars must be in [0, entity_chunk_max_chars)")
+        if self.entity_max_chunks <= 0:
+            raise ValueError("entity_max_chunks must be positive")
+
+
 def detect_source_language(text: str) -> str:
     """Detect the supported source language using a conservative script ratio."""
     letters = re.findall(r"[^\W\d_]", text, flags=re.UNICODE)
@@ -121,6 +147,7 @@ class ModelSettings:
     llm: ModelConfig
     extractor: ModelConfig | None = None
     processing: LegalActProcessingConfig = LegalActProcessingConfig()
+    document_processing: DocumentProcessingConfig = DocumentProcessingConfig()
     preset_name: str | None = None
 
     @classmethod
@@ -172,6 +199,9 @@ class ModelSettings:
             llm=llm,
             extractor=extractor,
             processing=processing,
+            document_processing=_document_processing_config(
+                data.get("document_processing", {})
+            ),
             preset_name=selected_name,
         )
 
@@ -219,6 +249,28 @@ def _model_config(
         inter_chunk_delay_seconds=float(
             values.get("inter_chunk_delay_seconds", 0)
         ),
+    )
+
+
+def _document_processing_config(values: dict[str, Any]) -> DocumentProcessingConfig:
+    defaults = DocumentProcessingConfig()
+    return DocumentProcessingConfig(
+        classification_head_chars=int(
+            values.get("classification_head_chars", defaults.classification_head_chars)
+        ),
+        classification_tail_chars=int(
+            values.get("classification_tail_chars", defaults.classification_tail_chars)
+        ),
+        classification_min_confidence=float(
+            values.get("classification_min_confidence", defaults.classification_min_confidence)
+        ),
+        entity_chunk_max_chars=int(
+            values.get("entity_chunk_max_chars", defaults.entity_chunk_max_chars)
+        ),
+        entity_chunk_overlap_chars=int(
+            values.get("entity_chunk_overlap_chars", defaults.entity_chunk_overlap_chars)
+        ),
+        entity_max_chunks=int(values.get("entity_max_chunks", defaults.entity_max_chunks)),
     )
 
 

@@ -1,9 +1,15 @@
 """Deterministic entity extraction with source-preserving ranges."""
 
 from collections.abc import Iterable
+from dataclasses import replace
 import re
+import time
+
+from edm_auditor.model_providers import EntityExtractionProvider
+from edm_auditor.rag.chunking import chunk_text
 
 from .models import ExtractedEntity
+from .neural_errors import DocumentTooLargeForAudit
 
 _PATTERNS = {
     "date": re.compile(r"\b(?:\d{1,2}[./]\d{1,2}[./]\d{2,4}|\d{1,2}\s+"
@@ -58,3 +64,51 @@ def entities_from_provider(
     return tuple(
         sorted(unique.values(), key=lambda entity: (entity.start_char, entity.kind))
     )
+
+
+class ChunkedEntityExtractor:
+    """Send a long document to the model in parts and restore document offsets."""
+
+    def __init__(
+        self,
+        provider: EntityExtractionProvider,
+        *,
+        max_chars: int = 4000,
+        overlap_chars: int = 200,
+        max_chunks: int = 100,
+        delay_seconds: float = 0.0,
+    ) -> None:
+        self._provider = provider
+        self._max_chars = max_chars
+        self._overlap_chars = overlap_chars
+        self._max_chunks = max_chunks
+        self._delay_seconds = delay_seconds
+
+    def __call__(self, text: str) -> tuple[ExtractedEntity, ...]:
+        chunks = chunk_text(
+            text,
+            legal_act_id=0,
+            max_chars=self._max_chars,
+            overlap_chars=self._overlap_chars,
+        )
+        if len(chunks) > self._max_chunks:
+            raise DocumentTooLargeForAudit(
+                f"Document needs {len(chunks)} entity extraction requests; "
+                f"the limit is {self._max_chunks}"
+            )
+        unique: dict[tuple[str, int, int], ExtractedEntity] = {}
+        for index, chunk in enumerate(chunks):
+            if index and self._delay_seconds:
+                time.sleep(self._delay_seconds)
+            for entity in entities_from_provider(
+                chunk.text, self._provider.extract(chunk.text)
+            ):
+                located = replace(
+                    entity,
+                    start_char=entity.start_char + chunk.start_char,
+                    end_char=entity.end_char + chunk.start_char,
+                )
+                unique[(located.kind, located.start_char, located.end_char)] = located
+        return tuple(
+            sorted(unique.values(), key=lambda entity: (entity.start_char, entity.kind))
+        )

@@ -13,6 +13,17 @@ extraction_schema_version = "1"
 prompt_version = "1"
 processing_version = "1"
 
+[document_processing]
+# The classifier reads only the start and the end of a document.
+classification_head_chars = 4000
+classification_tail_chars = 1000
+# A type or a rule scope below this model confidence needs a person's decision.
+classification_min_confidence = 0.7
+# Entity extraction reads the whole document in parts; a longer document is refused.
+entity_chunk_max_chars = 4000
+entity_chunk_overlap_chars = 200
+entity_max_chunks = 100
+
 [profiles.embedding.local-multilingual]
 provider = "openai-compatible"
 model = "text-embedding-nomic-embed-text-v1.5"
@@ -91,7 +102,8 @@ provider = "google-ai-studio"
 model = "gemini-3.1-flash-lite"
 api_key_env = "GEMINI_API_KEY"
 temperature = 0.2
-max_tokens = 2000
+# A document part with many numbers yields a long entity list.
+max_tokens = 8192
 structured_output = "json_schema"
 request_timeout_seconds = 30
 retry_attempts = 3

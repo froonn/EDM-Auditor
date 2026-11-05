@@ -69,8 +69,48 @@ class FailingEntityProvider:
 class FakeRuleExtractor:
     model_name = "fake-extractor"
 
-    def extract_rules(self, text: str, *, source_language: str, source_location: str):
+    def extract_rules(self, text: str, *, source_language: str, source_location: str, **_):
         return ()
+
+
+class FakeClassificationProvider:
+    """Answer from the document heading, as a model that recognizes the example documents."""
+
+    model_name = "fake-classifier"
+    TERMS = {
+        "business_trip_order": ("командировк",),
+        "remote_work_agreement": ("дистанционн", "удаленн"),
+        "payroll_order": ("заработной плат", "оплате труда"),
+        "vacation_order": ("об отпуске", "предоставлении отпуска"),
+        "employment_contract": ("трудовой договор", "трудовой контракт"),
+    }
+
+    def __init__(self) -> None:
+        self.requests: list[dict[str, object]] = []
+
+    def classify(self, text: str, *, title, filename, document_types):
+        self.requests.append(
+            {"text": text, "title": title, "filename": filename, "document_types": document_types}
+        )
+        heading = text.strip().partition("\n")[0].casefold()
+        matched = [
+            item.code
+            for item in document_types
+            if item.name.casefold() in heading
+            or any(term in heading for term in self.TERMS.get(item.code, ()))
+        ]
+        return {
+            "document_types": [{"code": code, "confidence": 0.95} for code in matched],
+            "suggested_type_name": "",
+            "suggested_type_reason": "",
+        }
+
+
+class FailingClassificationProvider:
+    model_name = "failing-classifier"
+
+    def classify(self, text: str, *, title, filename, document_types):
+        raise RuntimeError("classifier unavailable")
 
 
 def no_entities(_: str) -> tuple:

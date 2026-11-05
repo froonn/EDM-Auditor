@@ -82,12 +82,39 @@ class DocumentType(Base):
     code: Mapped[str] = mapped_column(String(100), primary_key=True)
     name: Mapped[str] = mapped_column(String(255))
     description: Mapped[str] = mapped_column(Text, default="")
-    classifier_profile: Mapped[str] = mapped_column(Text, default="{}")
     is_active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(default=utc_now)
 
     __table_args__ = (
         CheckConstraint("code <> 'unknown'", name="ck_document_types_code"),
+    )
+
+
+class DocumentTypeSuggestion(Base):
+    """A catalog addition proposed by a model; it has no effect until a person accepts it."""
+
+    __tablename__ = "document_type_suggestions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(255))
+    normalized_name: Mapped[str] = mapped_column(String(255), unique=True)
+    reason: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    occurrences: Mapped[int] = mapped_column(default=1)
+    document_id: Mapped[int | None] = mapped_column(
+        ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
+    )
+    legal_act_id: Mapped[int | None] = mapped_column(
+        ForeignKey("legal_acts.id", ondelete="SET NULL"), nullable=True
+    )
+    accepted_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(default=utc_now)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'accepted', 'dismissed')",
+            name="ck_document_type_suggestions_status",
+        ),
     )
 
 
@@ -222,6 +249,7 @@ class AuditRule(Base):
     applicability_scope: Mapped[str] = mapped_column(String(20), default="unknown")
     applicability_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     applicability_source: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    applicability_auto: Mapped[str | None] = mapped_column(Text, nullable=True)
     severity: Mapped[str] = mapped_column(String(20))
     description: Mapped[str] = mapped_column(Text, default="")
     check_type: Mapped[str] = mapped_column(String(20))

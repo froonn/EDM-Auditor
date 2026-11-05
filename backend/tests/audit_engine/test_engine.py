@@ -10,9 +10,11 @@ from edm_auditor.applicability import (
     SelectionConfig,
     SelectionWarning,
 )
+from edm_auditor.audit_engine.neural_errors import DocumentTooLargeForAudit
 from edm_auditor.audit_engine import (
     AuditEngine,
     AuditSelectionRequired,
+    ChunkedEntityExtractor,
     LLMInterpreter,
     AuditPersistence,
     RuleSpec,
@@ -540,3 +542,59 @@ def test_rag_candidate_of_another_act_does_not_select_its_rule(session_factory) 
 
     assert preview.status is ResolutionStatus.NO_APPLICABLE_RULES
     assert preview.recommendations[0].rule_id == rule_id
+
+
+class _ChunkProvider:
+    model_name = "chunk-extractor"
+
+    def __init__(self, *values: str) -> None:
+        self.values = values
+        self.chunks: list[str] = []
+
+    def extract(self, text: str):
+        self.chunks.append(text)
+        return [
+            {"kind": "duration", "value": value} for value in self.values if value in text
+        ]
+
+
+def test_entity_extractor_reads_the_whole_document_in_limited_parts() -> None:
+    first = "В начале срок 24 дня."
+    last = "В конце срок 36 дней."
+    text = "\n".join([first, *["Обычная строка без значений."] * 100, last])
+    provider = _ChunkProvider("24 дня", "36 дней")
+
+    entities = ChunkedEntityExtractor(provider, max_chars=300, overlap_chars=0)(text)
+
+    assert len(provider.chunks) > 1
+    assert all(len(chunk) <= 300 for chunk in provider.chunks)
+    assert [text[item.start_char : item.end_char] for item in entities] == ["24 дня", "36 дней"]
+
+
+def test_entity_extractor_counts_an_overlapping_value_once() -> None:
+    text = "\n".join(["Срок 24 дня.", "Строка.", "Строка."])
+    provider = _ChunkProvider("24 дня")
+
+    entities = ChunkedEntityExtractor(provider, max_chars=20, overlap_chars=15)(text)
+
+    assert len(provider.chunks) > 1
+    assert len(entities) == 1
+
+
+def test_entity_extractor_refuses_before_calling_the_model() -> None:
+    provider = _ChunkProvider()
+
+    with pytest.raises(DocumentTooLargeForAudit):
+        ChunkedEntityExtractor(provider, max_chars=10, overlap_chars=0, max_chunks=2)(
+            "Первая строка.\nВторая строка.\nТретья строка."
+        )
+
+    assert provider.chunks == []
+
+
+def test_too_large_document_is_not_reported_as_a_model_failure() -> None:
+    def too_large(_: str):
+        raise DocumentTooLargeForAudit("limit")
+
+    with pytest.raises(DocumentTooLargeForAudit):
+        AuditEngine(entity_extractor=too_large).audit("Текст", ())

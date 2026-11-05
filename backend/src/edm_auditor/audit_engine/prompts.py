@@ -39,3 +39,20 @@ def build_user_prompt(
         ],
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def build_summary_prompt(
+    summaries: Sequence[str], *, document_type: str | None = None
+) -> str:
+    """Merge the summaries of finding batches into one report summary."""
+    payload = {
+        "schema_version": PROMPT_VERSION,
+        "document_type": document_type,
+        "batch_summaries": list(summaries),
+        "instructions": [
+            "Merge batch_summaries into one general_summary.",
+            "Return an empty analyses array.",
+            "Do not invent legal acts or findings.",
+        ],
+    }
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True)

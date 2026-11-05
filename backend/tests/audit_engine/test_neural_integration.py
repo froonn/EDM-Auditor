@@ -78,3 +78,88 @@ def test_interpreter_calls_provider_when_there_are_no_findings() -> None:
 def test_interpreter_rejects_untrusted_responses(response: str, message: str) -> None:
     with pytest.raises(InvalidNeuralResponse, match=message):
         LLMInterpreter(FakeLLM(response)).analyze([finding()])
+
+
+def _batch_findings(count: int) -> tuple[NeuralFinding, ...]:
+    return tuple(
+        NeuralFinding(
+            key=f"finding-{index}",
+            rule_code="rule",
+            severity="low",
+            description="Описание",
+            quote=None,
+            context=(),
+        )
+        for index in range(count)
+    )
+
+
+class _BatchProvider:
+    model_name = "batch-llm"
+
+    def __init__(self) -> None:
+        self.prompts: list[dict] = []
+
+    def generate(self, *, system_prompt, user_prompt, context=()) -> str:
+        prompt = json.loads(user_prompt)
+        self.prompts.append(prompt)
+        if "batch_summaries" in prompt:
+            return json.dumps({"schema_version": "2", "analyses": [], "general_summary": "Итог"})
+        return json.dumps(
+            {
+                "schema_version": "2",
+                "analyses": [
+                    {
+                        "finding_key": item["finding_key"],
+                        "explanation": "Пояснение",
+                        "recommendation": "",
+                        "confidence": 0.5,
+                        "legal_basis": [],
+                    }
+                    for item in prompt["findings"]
+                ],
+                "general_summary": f"Часть {len(self.prompts)}",
+            }
+        )
+
+
+def test_interpreter_explains_every_finding_in_batches() -> None:
+    provider = _BatchProvider()
+
+    result = LLMInterpreter(provider, batch_size=10).analyze(_batch_findings(25))
+
+    assert len(result.analyses) == 25
+    assert [len(item["findings"]) for item in provider.prompts[:3]] == [10, 10, 5]
+    assert provider.prompts[3]["batch_summaries"] == ["Часть 1", "Часть 2", "Часть 3"]
+    assert result.general_summary == "Итог"
+
+
+def test_single_batch_needs_no_summary_request() -> None:
+    provider = _BatchProvider()
+
+    result = LLMInterpreter(provider, batch_size=10).analyze(_batch_findings(10))
+
+    assert len(provider.prompts) == 1
+    assert result.general_summary == "Часть 1"
+
+
+def test_no_findings_still_make_one_request() -> None:
+    provider = _BatchProvider()
+
+    result = LLMInterpreter(provider).analyze(())
+
+    assert len(provider.prompts) == 1
+    assert result.analyses == ()
+
+
+def test_failure_in_any_batch_fails_the_analysis() -> None:
+    class FailsLater(_BatchProvider):
+        def generate(self, *, system_prompt, user_prompt, context=()) -> str:
+            if self.prompts:
+                raise RuntimeError("model unavailable")
+            return super().generate(
+                system_prompt=system_prompt, user_prompt=user_prompt, context=context
+            )
+
+    with pytest.raises(RuntimeError):
+        LLMInterpreter(FailsLater(), batch_size=10).analyze(_batch_findings(11))

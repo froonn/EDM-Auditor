@@ -1,6 +1,7 @@
 """Structured interpretation of deterministic audit findings."""
 
 import json
+import logging
 from collections.abc import Sequence
 from typing import Any
 
@@ -12,7 +13,14 @@ from .neural_models import (
     NeuralFinding,
     NeuralResult,
 )
-from .prompts import PROMPT_VERSION, SYSTEM_PROMPT, build_user_prompt
+from .prompts import (
+    PROMPT_VERSION,
+    SYSTEM_PROMPT,
+    build_summary_prompt,
+    build_user_prompt,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class LLMInterpreter:
@@ -22,11 +30,13 @@ class LLMInterpreter:
         self,
         provider: LLMProvider,
         *,
-        max_findings: int = 20,
+        batch_size: int = 10,
         max_contexts: int = 5,
     ) -> None:
+        if batch_size <= 0:
+            raise ValueError("batch_size must be positive")
         self.provider = provider
-        self.max_findings = max_findings
+        self.batch_size = batch_size
         self.max_contexts = max_contexts
 
     def analyze(
@@ -35,12 +45,39 @@ class LLMInterpreter:
         *,
         document_type: str | None = None,
     ) -> NeuralResult:
-        selected = tuple(findings[: self.max_findings])
-        known_keys = {item.key for item in selected}
-        raw = self.provider.generate(
-            system_prompt=SYSTEM_PROMPT,
-            user_prompt=build_user_prompt(selected, document_type=document_type),
+        """Explain every finding in batches small enough for one model response."""
+        batches = [
+            findings[index : index + self.batch_size]
+            for index in range(0, len(findings), self.batch_size)
+        ] or [()]
+        analyses: list[NeuralAnalysis] = []
+        summaries: list[str] = []
+        for batch in batches:
+            known_keys = {item.key for item in batch}
+            batch_analyses, summary = self._request(
+                build_user_prompt(batch, document_type=document_type), known_keys
+            )
+            if missing := known_keys - {item.finding_key for item in batch_analyses}:
+                logger.warning("The model did not explain %d finding(s)", len(missing))
+            analyses.extend(batch_analyses)
+            summaries.append(summary)
+        general_summary = summaries[0]
+        if len(summaries) > 1:
+            _, general_summary = self._request(
+                build_summary_prompt(summaries, document_type=document_type), set()
+            )
+        return NeuralResult(
+            status="completed",
+            model=self.provider.model_name,
+            prompt_version=PROMPT_VERSION,
+            analyses=tuple(analyses),
+            general_summary=general_summary[:4000],
         )
+
+    def _request(
+        self, user_prompt: str, known_keys: set[str]
+    ) -> tuple[tuple[NeuralAnalysis, ...], str]:
+        raw = self.provider.generate(system_prompt=SYSTEM_PROMPT, user_prompt=user_prompt)
         try:
             payload = json.loads(raw)
         except (TypeError, json.JSONDecodeError) as exc:
@@ -50,19 +87,11 @@ class LLMInterpreter:
         analyses = payload.get("analyses", [])
         if not isinstance(analyses, list):
             raise InvalidNeuralResponse("analyses must be a JSON array")
-        validated = tuple(
-            self._parse_analysis(item, known_keys) for item in analyses
-        )
+        validated = tuple(self._parse_analysis(item, known_keys) for item in analyses)
         summary = payload.get("general_summary", "")
         if not isinstance(summary, str):
             raise InvalidNeuralResponse("general_summary must be a string")
-        return NeuralResult(
-            status="completed",
-            model=self.provider.model_name,
-            prompt_version=PROMPT_VERSION,
-            analyses=validated,
-            general_summary=summary[:4000],
-        )
+        return validated, summary
 
     def _parse_analysis(
         self, value: Any, known_keys: set[str]

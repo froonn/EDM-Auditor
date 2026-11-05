@@ -275,21 +275,29 @@ curl -s http://127.0.0.1:8000/api/documents/1/report | jq .
 
 ## 6.1. Настройка аудита: классификация и выбор правил
 
-При загрузке документ автоматически классифицируется. Классификатор
-детерминированный: он сравнивает заголовок, имя файла, термины, структуру и
-сущности с каталогом типов. Это подсказка, а не юридическое решение: тип и набор
-правил нужно проверять, а результат аудита не заменяет проверку юристом.
+При загрузке документ автоматически классифицируется: LLM выбирает типы из каталога
+по их названиям и описаниям. Если модель недоступна, документ сохраняется со статусом
+`pending`, а тип запрашивается повторно перед аудитом. Это подсказка, а не юридическое
+решение: тип и набор правил нужно проверять, а результат аудита не заменяет проверку
+юристом.
 
 Если тип не подтверждён (`classification_status` равен `needs_review` или
 `unknown`), автоматический аудит отвечает `409 audit_configuration_required` и не
-создаёт отчёт. Кандидаты классификатора сами по себе правила не включают.
+создаёт отчёт. Кандидаты модели сами по себе правила не включают.
 
 ```bash
 # Каталог типов
 curl -s http://127.0.0.1:8000/api/document-types | jq .
 curl -s -X POST http://127.0.0.1:8000/api/document-types \
   -H 'Content-Type: application/json' \
-  -d '{"code":"travel_expense_report","name":"Авансовый отчёт","title_terms":["авансовый отчет"],"body_terms":["суточные"]}' | jq .
+  -d '{"code":"travel_expense_report","name":"Авансовый отчёт","description":"Отчёт работника о расходах в командировке."}' | jq .
+
+# Новые типы, предложенные моделью: добавить в каталог или отклонить
+curl -s http://127.0.0.1:8000/api/document-type-suggestions | jq .
+curl -s -X POST http://127.0.0.1:8000/api/document-type-suggestions/1/accept \
+  -H 'Content-Type: application/json' \
+  -d '{"code":"travel_expense_report"}' | jq .
+curl -s -X POST http://127.0.0.1:8000/api/document-type-suggestions/1/dismiss
 
 # Классификация документа и её ручное подтверждение
 curl -s -X POST http://127.0.0.1:8000/api/documents/1/classify | jq .
@@ -410,4 +418,49 @@ python -m edm_auditor.rag search "продолжительность отпус�
 
 # Принудительная полная пересборка индекса из базы
 python -m edm_auditor.rag build
+```
+
+
+## быстрая проверка 
+
+Загрузить НПА
+```bash
+curl -sS -X POST http://127.0.0.1:8000/api/legal-acts/upload \
+  -F code=ACT-REMOTE \
+  -F title='Положение о дистанционной работе' \
+  -F file=@examples/legal_act_remote_work.txt | jq .
+  
+curl -sS -X POST http://127.0.0.1:8000/api/legal-acts/upload \
+  -F code=ACT-TRIP \
+  -F title='Положение о служебных командировках' \
+  -F file=@examples/legal_act_business_trip.txt | jq .
+
+curl -sS -X POST http://127.0.0.1:8000/api/legal-acts/upload \
+  -F code=ACT-PAYMENTS \
+  -F title='Положение о выплате заработной платы' \
+  -F file=@examples/legal_act_payments.txt | jq .
+```
+
+Посмотреть доступные правила
+```bash
+curl -s http://127.0.0.1:8000/api/rules | jq .
+```
+
+Загрузить документ
+```bash
+curl -sS -X POST http://127.0.0.1:8000/api/documents/upload \
+  -F file=@examples/remote_work_agreement.txt | jq .
+```
+
+Отправить документ на аудит
+```bash
+curl -sS -X POST \
+  http://127.0.0.1:8000/api/documents/<DOCUMENT_ID>/audit | jq .
+```
+
+Посмотреть отчет аудита документа
+```bash
+curl -s \
+  http://127.0.0.1:8000/api/documents/<DOCUMENT_ID>/report?report_id=<REPORT_ID> \
+  | jq .
 ```

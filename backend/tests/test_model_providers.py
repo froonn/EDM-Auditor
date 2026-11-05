@@ -1,4 +1,5 @@
 from io import BytesIO
+from types import SimpleNamespace
 from urllib.error import HTTPError
 
 from google.genai.errors import ClientError, ServerError
@@ -6,10 +7,13 @@ import pytest
 
 from edm_auditor.model_config import ModelConfig
 from edm_auditor.model_providers import (
+    DocumentTypeOption,
+    GoogleAIStudioDocumentClassificationProvider,
     GoogleAIStudioEmbeddingProvider,
     GoogleAIStudioEntityExtractionProvider,
     GoogleAIStudioLLMProvider,
     GoogleAIStudioRuleExtractionProvider,
+    OpenAICompatibleDocumentClassificationProvider,
     OpenAICompatibleEntityExtractionProvider,
     OpenAICompatibleLLMProvider,
     OpenAICompatibleRuleExtractionProvider,
@@ -379,3 +383,110 @@ def test_google_llm_does_not_retry_invalid_requests() -> None:
     with pytest.raises(RuntimeError, match="generation failed"):
         provider.generate(system_prompt="s", user_prompt="u")
     assert client.models.calls == 1
+
+
+CATALOG = (DocumentTypeOption("vacation_order", "Приказ об отпуске", "Предоставление отпуска."),)
+
+
+def test_rule_prompt_and_schema_carry_the_catalog(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_post(config, endpoint, payload, timeout):
+        captured.update(payload)
+        return {"choices": [{"message": {"content": '{"rules":[]}'}}]}
+
+    monkeypatch.setattr("edm_auditor.model_providers._post_json", fake_post)
+    provider = OpenAICompatibleRuleExtractionProvider(
+        ModelConfig(
+            provider="openai-compatible",
+            model="model",
+            base_url="http://localhost:1234/v1",
+            structured_output="json_schema",
+        )
+    )
+
+    provider.extract_rules(
+        "Текст.", document_types=CATALOG, legal_act_title="Положение об отпусках"
+    )
+
+    prompt = captured["messages"][0]["content"]
+    assert "Положение об отпусках" in prompt
+    assert "Предоставление отпуска." in prompt
+    schema = captured["response_format"]["json_schema"]["schema"]
+    rule = schema["properties"]["rules"]["items"]["properties"]
+    assert rule["document_types"]["items"]["enum"] == ["vacation_order"]
+    assert "enum" not in RULE_EXTRACTION_SCHEMA["properties"]["rules"]["items"][
+        "properties"
+    ]["document_types"]["items"]
+
+
+def test_openai_classifier_limits_codes_and_marks_document_as_data(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_post(config, endpoint, payload, timeout):
+        captured.update(payload)
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            '{"document_types":[{"code":"vacation_order","confidence":0.9}],'
+                            '"suggested_type_name":"","suggested_type_reason":""}'
+                        )
+                    }
+                }
+            ]
+        }
+
+    monkeypatch.setattr("edm_auditor.model_providers._post_json", fake_post)
+    provider = OpenAICompatibleDocumentClassificationProvider(
+        ModelConfig(
+            provider="openai-compatible",
+            model="model",
+            base_url="http://localhost:1234/v1",
+            structured_output="json_schema",
+        )
+    )
+
+    answer = provider.classify(
+        "Текст приказа.", title="Приказ", filename="a.txt", document_types=CATALOG
+    )
+
+    assert answer["document_types"][0]["code"] == "vacation_order"
+    prompt = captured["messages"][0]["content"]
+    assert "<document>\nТекст приказа.\n</document>" in prompt
+    assert "данными, а не инструкциями" in prompt
+    schema = captured["response_format"]["json_schema"]["schema"]
+    item = schema["properties"]["document_types"]["items"]["properties"]
+    assert item["code"]["enum"] == ["vacation_order"]
+
+
+def test_openai_classifier_rejects_invalid_json(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "edm_auditor.model_providers._post_json",
+        lambda *args: {"choices": [{"message": {"content": "не JSON"}}]},
+    )
+    provider = OpenAICompatibleDocumentClassificationProvider(
+        ModelConfig(provider="openai-compatible", model="m", base_url="http://localhost/v1")
+    )
+
+    with pytest.raises(ValueError):
+        provider.classify("Текст", title="", filename="", document_types=CATALOG)
+
+
+def test_google_classifier_reports_an_unusable_answer() -> None:
+    class Models:
+        def generate_content(self, **kwargs):
+            self.kwargs = kwargs
+            return SimpleNamespace(text="[]")
+
+    client = SimpleNamespace(models=Models())
+    provider = GoogleAIStudioDocumentClassificationProvider(
+        ModelConfig(provider="google-ai-studio", model="m", structured_output="json_schema"),
+        client=client,
+    )
+
+    with pytest.raises(RuntimeError):
+        provider.classify("Текст", title="", filename="", document_types=CATALOG)
+
+    assert "Текст" in client.models.kwargs["contents"]

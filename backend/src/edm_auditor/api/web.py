@@ -26,10 +26,11 @@ pre { white-space: pre-wrap; background: #f1f3f7; padding: 12px; border-radius: 
 .status { display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: .85em; font-weight: 600; }
 .status-completed { color: #067647; background: #d1fadf; }
 .status-partial { color: #b54708; background: #fef0c7; }
-.status-failed { color: #b42318; background: #fee4e2; }
+.status-pending { color: #b42318; background: #fee4e2; }
 .status-processing { color: #175cd3; background: #d1e9ff; }
 .diagnostics { margin-top: 8px; }
 .status-classified, .status-ready { color: #067647; background: #d1fadf; }
+.status-pending { color: #b42318; background: #fee4e2; }
 .status-needs_review, .status-needs_configuration, .status-no_applicable_rules { color: #b54708; background: #fef0c7; }
 .status-unknown { color: #53627a; background: #e6e9f0; }
 .warning { color: #b54708; background: #fef0c7; border-radius: 6px; padding: 8px 12px; margin: 8px 0; }
@@ -69,11 +70,11 @@ h3 { margin: 16px 0 6px; }
 <form id="type-form">
 <input name="code" placeholder="Код, например travel_expense_report" pattern="[a-z][a-z0-9_]*" required>
 <input name="name" placeholder="Название" required>
-<input name="title_terms" placeholder="Признаки в заголовке через запятую (необязательно)">
-<input name="body_terms" placeholder="Признаки в тексте через запятую (необязательно)">
+<input name="description" placeholder="Описание: по нему модель выбирает тип" required>
 <button>Добавить тип</button>
 </form>
 <div id="types"></div>
+<div id="type-suggestions"></div>
 </section>
 
 <section>
@@ -185,7 +186,7 @@ async function deleteAct(id) {
 }
 const WARNING_TEXT = {
   document_type_unknown: "Тип документа определить не удалось.",
-  classification_low_confidence: "Уверенность классификатора недостаточна: подтвердите тип документа.",
+  classification_low_confidence: "Модель не уверена в типе документа: подтвердите его.",
   manual_selection_required: "Нужно подтвердить тип документа или выбрать НПА и правила.",
   no_applicable_rules: "Для этого документа нет подходящих правил.",
   rules_with_unknown_applicability: "Есть правила с неизвестной применимостью: автоматически они не применяются.",
@@ -223,6 +224,26 @@ async function loadTypes() {
     ${types.map(t => `<tr><td>${escapeHtml(t.code)}</td><td>${escapeHtml(t.name)}</td>
     <td><button class="danger" data-code="${escapeHtml(t.code)}" onclick="deleteType(this.dataset.code)">Удалить</button></td></tr>`).join("")}</table>`
     : '<p class="muted">Каталог типов пуст.</p>';
+}
+async function loadSuggestions() {
+  const items = await request("/api/document-type-suggestions");
+  $("type-suggestions").innerHTML = items.length ? `<h3>Модель предлагает новые типы</h3><table><tr><th>Название</th><th>Обоснование</th><th>Встречалось</th><th></th></tr>
+    ${items.map(s => `<tr><td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.reason)}</td><td>${s.occurrences}</td>
+    <td><button onclick="acceptSuggestion(${s.id})">Добавить</button> <button class="danger" onclick="dismissSuggestion(${s.id})">Отклонить</button></td></tr>`).join("")}</table>`
+    : "";
+}
+async function acceptSuggestion(id) {
+  const code = prompt("Код нового типа, например travel_expense_report");
+  if (!code) return;
+  try {
+    await request(`/api/document-type-suggestions/${id}/accept`, jsonOptions("POST", {code: code.trim()}));
+    message("Тип добавлен. Чтобы применить его, заново классифицируйте документы и обработайте НПА.");
+    await Promise.all([loadTypes(), loadSuggestions()]);
+  } catch (error) { message(error.message, true); }
+}
+async function dismissSuggestion(id) {
+  try { await request(`/api/document-type-suggestions/${id}/dismiss`, {method: "POST"}); await loadSuggestions(); }
+  catch (error) { message(error.message, true); }
 }
 async function deleteType(code) {
   if (!confirm(`Деактивировать тип ${code}?`)) return;
@@ -289,7 +310,7 @@ function setSelectedMode(value) { document.querySelector(`input[name=selection_m
 function renderClassification(d) {
   const candidates = d.candidate_document_types.map(item => `${escapeHtml(item.code)} (${Math.round(item.confidence * 100)}%)`).join(", ");
   $("config-classification").innerHTML = `<p>${classificationBadge(d)} <span class="muted">источник: ${escapeHtml(d.classification_source || "—")}</span></p>
-    ${candidates ? `<p class="muted">Кандидаты классификатора: ${candidates}</p>` : ""}
+    ${candidates ? `<p class="muted">Кандидаты модели: ${candidates}</p>` : ""}
     ${d.needs_configuration ? '<div class="warning">Тип документа не подтверждён: подтвердите его или выберите правила вручную.</div>' : ""}`;
   $("config-types").innerHTML = state.types.map(t => `<label><input type="checkbox" class="config-type" value="${escapeHtml(t.code)}" ${d.confirmed_document_types.includes(t.code) ? "checked" : ""}> ${escapeHtml(t.name)}</label>`).join("");
 }
@@ -395,7 +416,7 @@ function escapeHtml(value) {
 $("act-form").onsubmit = async (event) => {
   event.preventDefault();
   try { await request("/api/legal-acts/upload", {method: "POST", body: formData(event.target)});
-    event.target.reset(); message("НПА загружен."); await Promise.all([loadActs(), loadRules()]);
+    event.target.reset(); message("НПА загружен."); await Promise.all([loadActs(), loadRules(), loadSuggestions()]);
   } catch (error) { message(error.message, true); }
 };
 $("type-form").onsubmit = async (event) => {
@@ -403,8 +424,7 @@ $("type-form").onsubmit = async (event) => {
   const form = new FormData(event.target);
   try {
     await request("/api/document-types", jsonOptions("POST", {
-      code: form.get("code"), name: form.get("name"),
-      title_terms: splitCodes(form.get("title_terms")), body_terms: splitCodes(form.get("body_terms")),
+      code: form.get("code"), name: form.get("name"), description: form.get("description"),
     }));
     event.target.reset(); message("Тип документа добавлен."); await loadTypes();
   } catch (error) { message(error.message, true); }
@@ -412,10 +432,10 @@ $("type-form").onsubmit = async (event) => {
 $("document-form").onsubmit = async (event) => {
   event.preventDefault();
   try { await request("/api/documents/upload", {method: "POST", body: formData(event.target)});
-    event.target.reset(); message("Документ загружен."); await loadDocuments();
+    event.target.reset(); message("Документ загружен."); await Promise.all([loadDocuments(), loadSuggestions()]);
   } catch (error) { message(error.message, true); }
 };
-Promise.all([loadActs(), loadRules(), loadTypes(), loadDocuments(), loadReports()]).catch(error => message(error.message, true));
+Promise.all([loadActs(), loadRules(), loadTypes(), loadSuggestions(), loadDocuments(), loadReports()]).catch(error => message(error.message, true));
 </script>
 </body>
 </html>""")

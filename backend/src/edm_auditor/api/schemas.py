@@ -32,10 +32,26 @@ class DocumentTypeResponse(BaseModel):
 class DocumentTypeCreate(BaseModel):
     code: str = Field(pattern=r"^[a-z][a-z0-9_]*$", max_length=100)
     name: str = Field(min_length=1, max_length=255)
-    description: str = ""
-    title_terms: list[str] = Field(default_factory=list)
-    body_terms: list[str] = Field(default_factory=list)
-    structure_terms: list[str] = Field(default_factory=list)
+    description: str = Field(min_length=1)
+
+
+class DocumentTypeSuggestionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    reason: str
+    status: str
+    occurrences: int
+    document_id: int | None
+    legal_act_id: int | None
+    accepted_code: str | None
+
+
+class DocumentTypeSuggestionAccept(BaseModel):
+    code: str = Field(pattern=r"^[a-z][a-z0-9_]*$", max_length=100)
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, min_length=1)
 
 
 class ClassificationUpdate(BaseModel):
@@ -186,6 +202,7 @@ class RuleResponse(BaseModel):
     document_types: list[str] = Field(default_factory=list)
     applicability_confidence: float | None = None
     applicability_source: str | None = None
+    automatic_applicability: dict[str, Any] | None = None
     severity: str
     description: str
     check_type: str

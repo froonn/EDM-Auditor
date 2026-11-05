@@ -1,4 +1,4 @@
-"""Contracts for document types and classification results."""
+"""Contracts for document classification results."""
 
 from dataclasses import dataclass
 from enum import StrEnum
@@ -12,20 +12,13 @@ class ClassificationStatus(StrEnum):
 
 
 class ClassificationSource(StrEnum):
-    DETERMINISTIC = "deterministic"
+    LLM = "llm"
     MANUAL = "manual"
     LEGACY = "legacy"
 
 
-@dataclass(frozen=True, slots=True)
-class DocumentTypeProfile:
-    """Signals that identify one catalog type; terms are lowercase word stems."""
-
-    code: str
-    title_terms: tuple[str, ...] = ()
-    body_terms: tuple[str, ...] = ()
-    structure_terms: tuple[str, ...] = ()
-    entity_kinds: tuple[str, ...] = ()
+class ClassificationModelError(RuntimeError):
+    """The model did not produce a usable classification."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,7 +38,7 @@ class ClassificationResult:
     confirmed_document_types: tuple[str, ...] = ()
     candidate_types: tuple[ClassificationCandidate, ...] = ()
     confidence: float = 0.0
-    source: ClassificationSource = ClassificationSource.DETERMINISTIC
+    source: ClassificationSource = ClassificationSource.LLM
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -55,3 +48,17 @@ class ClassificationResult:
             "confidence": self.confidence,
             "source": self.source.value,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class TypeSuggestion:
+    """A catalog addition proposed by the model; only a person can accept it."""
+
+    name: str
+    reason: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ClassificationOutcome:
+    result: ClassificationResult
+    suggestion: TypeSuggestion | None = None

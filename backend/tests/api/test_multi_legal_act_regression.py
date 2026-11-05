@@ -11,6 +11,7 @@ from edm_auditor.api.config import ApiSettings
 from edm_auditor.database import Base, create_session_factory
 from fakes import (
     DeterministicEmbeddingProvider,
+    FakeClassificationProvider,
     FakeEntityProvider,
     FakeLLMProvider,
 )
@@ -45,15 +46,27 @@ GENERATED_RULES = (
 )
 
 
+ACT_DOCUMENT_TYPES = {
+    "Положение о дистанционной работе": "remote_work_agreement",
+    "Положение о служебных командировках": "business_trip_order",
+    "Положение о выплате заработной платы": "payroll_order",
+}
+
+
 class ExampleRuleExtractor:
     """Return the prepared rules whose source quote occurs in the chunk."""
 
     model_name = "fake-extractor"
 
-    def extract_rules(self, text: str, *, source_language: str, source_location: str):
+    def extract_rules(
+        self, text: str, *, source_language: str, source_location: str, legal_act_title: str, **_
+    ):
         return tuple(
             {
                 **rule,
+                "applicability_scope": "typed",
+                "document_types": [ACT_DOCUMENT_TYPES[legal_act_title]],
+                "applicability_confidence": 0.9,
                 "name": rule["source_quote"],
                 "description": rule["source_quote"],
                 "severity": "high",
@@ -69,6 +82,7 @@ def client(tmp_path: Path, monkeypatch) -> TestClient:
     monkeypatch.setenv("EDM_MODEL_PRESET", "lm-studio")
     for factory, provider in (
         ("create_llm_provider", FakeLLMProvider),
+        ("create_document_classification_provider", FakeClassificationProvider),
         ("create_entity_extraction_provider", FakeEntityProvider),
         ("create_rule_extraction_provider", ExampleRuleExtractor),
         ("create_embedding_provider", DeterministicEmbeddingProvider),

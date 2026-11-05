@@ -22,6 +22,7 @@ from fakes import (
     DeterministicEmbeddingProvider,
     FailingEntityProvider,
     FailingLLMProvider,
+    FakeClassificationProvider,
     FakeEntityProvider,
     FakeLLMProvider,
     FakeRuleExtractor,
@@ -33,6 +34,7 @@ def fake_model_providers(monkeypatch) -> None:
     monkeypatch.setenv("EDM_MODEL_PRESET", "lm-studio")
     for factory, provider in (
         ("create_llm_provider", FakeLLMProvider),
+        ("create_document_classification_provider", FakeClassificationProvider),
         ("create_entity_extraction_provider", FakeEntityProvider),
         ("create_rule_extraction_provider", FakeRuleExtractor),
         ("create_embedding_provider", DeterministicEmbeddingProvider),
@@ -437,7 +439,7 @@ def test_upload_legal_act_generates_neural_rule(
 ) -> None:
     class FakeRuleExtractor:
         def extract_rules(
-            self, text: str, *, source_language: str, source_location: str
+            self, text: str, *, source_language: str, source_location: str, **_
         ):
             assert "24" in text
             return (
@@ -507,7 +509,7 @@ def test_reprocess_replaces_generated_rules_atomically(tmp_path: Path, monkeypat
     calls = {"count": 0}
 
     class FakeRuleExtractor:
-        def extract_rules(self, text: str, *, source_language: str, source_location: str):
+        def extract_rules(self, text: str, *, source_language: str, source_location: str, **_):
             calls["count"] += 1
             return (
                 {
@@ -558,7 +560,7 @@ def test_failed_chunk_is_persisted_without_publishing_partial_rules(
     calls = []
 
     class FakeRuleExtractor:
-        def extract_rules(self, text: str, *, source_language: str, source_location: str):
+        def extract_rules(self, text: str, *, source_language: str, source_location: str, **_):
             calls.append(source_location)
             if source_location.endswith("chunk-1"):
                 raise RuntimeError("provider unavailable")
@@ -665,20 +667,19 @@ def test_document_type_catalog_can_be_extended_and_deactivated(tmp_path: Path) -
         json={
             "code": "travel_expense_report",
             "name": "Авансовый отчет",
-            "title_terms": ["Авансовый отчет"],
-            "body_terms": ["суточные", "командировочные расходы"],
+            "description": "Отчёт работника о расходах в командировке.",
         },
     )
     assert created.status_code == 201
     assert client.post(
-        "/api/document-types", json={"code": "travel_expense_report", "name": "Копия"}
+        "/api/document-types", json={"code": "travel_expense_report", "name": "Копия", "description": "Копия"}
     ).status_code == 409
 
     report = _upload(client, "Авансовый отчет\nСуточные и командировочные расходы.")
     assert report["confirmed_document_types"] == ["travel_expense_report"]
 
     unused = client.post(
-        "/api/document-types", json={"code": "unused_type", "name": "Unused"}
+        "/api/document-types", json={"code": "unused_type", "name": "Unused", "description": "Unused"}
     )
     assert unused.status_code == 201
     assert client.delete("/api/document-types/unused_type").status_code == 204
@@ -692,7 +693,7 @@ def test_document_type_catalog_can_be_extended_and_deactivated(tmp_path: Path) -
 def test_unknown_is_not_a_valid_catalog_type(tmp_path: Path) -> None:
     client = make_client(tmp_path)
 
-    response = client.post("/api/document-types", json={"code": "unknown", "name": "No"})
+    response = client.post("/api/document-types", json={"code": "unknown", "name": "No", "description": "No"})
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "reserved_document_type"
@@ -730,7 +731,7 @@ def test_upload_classifies_and_manual_override_keeps_automatic_result(tmp_path: 
     document = _upload(client, TRIP_ORDER)
     assert document["classification_status"] == "classified"
     assert document["confirmed_document_types"] == ["business_trip_order"]
-    assert document["classification_source"] == "deterministic"
+    assert document["classification_source"] == "llm"
     assert document["needs_configuration"] is False
     assert document["classification_confidence"] >= 0.6
 
@@ -963,8 +964,21 @@ def test_audit_continues_when_rag_index_is_incompatible(
 def test_generated_rules_follow_legal_act_types_and_stay_unknown_otherwise(
     tmp_path: Path, monkeypatch
 ) -> None:
+    answers = {
+        "ACT-1": {"applicability_scope": "unknown", "applicability_confidence": 0.9},
+        "ACT-2": {"applicability_scope": "universal", "applicability_confidence": 0.9},
+        "ACT-3": {
+            "applicability_scope": "typed",
+            "document_types": ["business_trip_order"],
+            "applicability_confidence": 0.9,
+        },
+    }
+
     class Extractor:
-        def extract_rules(self, text: str, *, source_language: str, source_location: str):
+        def extract_rules(
+            self, text: str, *, source_language: str, source_location: str, **options
+        ):
+            assert {item.code for item in options["document_types"]} >= {"vacation_order"}
             return (
                 {
                     "rule_code": "model",
@@ -975,6 +989,7 @@ def test_generated_rules_follow_legal_act_types_and_stay_unknown_otherwise(
                     "parameters": {"min_days": 24},
                     "source_quote": "Срок не менее 24 дней.",
                     "source_location": source_location,
+                    **answers[options["legal_act_title"]],
                 },
             )
 
@@ -986,26 +1001,39 @@ def test_generated_rules_follow_legal_act_types_and_stay_unknown_otherwise(
     def upload(code: str, text: str, **data) -> dict:
         response = client.post(
             "/api/legal-acts/upload",
-            data={"code": code, "title": "Акт", **data},
+            data={"code": code, "title": code, **data},
             files={"file": ("act.txt", text.encode(), "text/plain")},
         )
         assert response.status_code == 201
         return response.json()
 
     unknown = upload("ACT-1", "Срок не менее 24 дней.")
-    explicit = upload(
-        "ACT-2", "Общие условия.\n\nСрок не менее 24 дней.", document_types="vacation_order"
-    )
-    classified = upload(
-        "ACT-3", "Положение о служебных командировках.\n\nОтчет о командировке. Срок не менее 24 дней."
-    )
+    universal = upload("ACT-2", "Срок не менее 24 дней.")
+    classified = upload("ACT-3", "Срок не менее 24 дней.")
+    explicit = client.post(
+        "/api/legal-acts/upload",
+        data={"code": "ACT-4", "title": "ACT-3", "document_types": "vacation_order"},
+        files={"file": ("act.txt", "Срок не менее 24 дней.".encode(), "text/plain")},
+    ).json()
     rules = {item["legal_act_id"]: item for item in client.get("/api/rules").json()}
 
     assert rules[unknown["id"]]["applicability_scope"] == "unknown"
+    assert rules[universal["id"]]["applicability_scope"] == "universal"
+    assert rules[universal["id"]]["applicability_source"] == "llm"
+    assert rules[classified["id"]]["document_types"] == ["business_trip_order"]
+    assert rules[classified["id"]]["applicability_source"] == "llm"
     assert rules[explicit["id"]]["document_types"] == ["vacation_order"]
     assert rules[explicit["id"]]["applicability_source"] == "legal_act"
-    assert rules[classified["id"]]["document_types"] == ["business_trip_order"]
-    assert rules[classified["id"]]["applicability_source"] == "legal_act_classifier"
+
+    # Clearing the explicit types brings back the answer of the model without a new request.
+    client.patch(f"/api/legal-acts/{explicit['id']}", json={"document_types": []})
+    rule = next(
+        item
+        for item in client.get("/api/rules").json()
+        if item["legal_act_id"] == explicit["id"]
+    )
+    assert rule["document_types"] == ["business_trip_order"]
+    assert rule["applicability_source"] == "llm"
 
     updated = client.patch(
         f"/api/legal-acts/{unknown['id']}", json={"document_types": ["payroll_order"]}
@@ -1105,3 +1133,252 @@ def test_report_created_before_selection_stays_readable(tmp_path: Path) -> None:
     assert report["selection"] is None
     assert report["summary"] == {"diagnostics": [], "neural": {"status": "completed"}}
     assert client.get("/api/reports").json()[0]["selection_mode"] is None
+
+
+def _legal_act_extractor(*answers: dict):
+    """Return one rule per answer; each quote exists in the uploaded act."""
+
+    class Extractor:
+        def extract_rules(self, text: str, *, source_language: str, source_location: str, **_):
+            return tuple(
+                {
+                    "rule_code": f"model-{index}",
+                    "name": "Срок",
+                    "description": "Срок не менее 24 дней.",
+                    "severity": "high",
+                    "check_type": "duration",
+                    "parameters": {"min_days": 24 + index},
+                    "source_quote": f"Пункт {index}: срок не менее 24 дней.",
+                    "source_location": source_location,
+                    **answer,
+                }
+                for index, answer in enumerate(answers)
+            )
+
+    return Extractor()
+
+
+def _upload_act(client: TestClient, count: int) -> dict:
+    text = "\n".join(f"Пункт {index}: срок не менее 24 дней." for index in range(count))
+    response = client.post(
+        "/api/legal-acts/upload",
+        data={"code": "ACT", "title": "Акт"},
+        files={"file": ("act.txt", text.encode(), "text/plain")},
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
+def test_one_act_gives_each_rule_its_own_types(tmp_path: Path, monkeypatch) -> None:
+    extractor = _legal_act_extractor(
+        {
+            "applicability_scope": "typed",
+            "document_types": ["vacation_order", "invented_type"],
+            "applicability_confidence": 0.9,
+        },
+        {
+            "applicability_scope": "typed",
+            "document_types": ["payroll_order"],
+            "applicability_confidence": 0.8,
+        },
+        {"applicability_scope": "universal", "applicability_confidence": 0.3},
+        {
+            "applicability_scope": "typed",
+            "document_types": ["invented_type"],
+            "applicability_confidence": 0.9,
+        },
+    )
+    monkeypatch.setattr(
+        "edm_auditor.api.app.create_rule_extraction_provider", lambda config: extractor
+    )
+    client = make_client(tmp_path)
+
+    _upload_act(client, 4)
+
+    rules = sorted(client.get("/api/rules").json(), key=lambda item: item["id"])
+    assert [item["document_types"] for item in rules] == [
+        ["vacation_order"],
+        ["payroll_order"],
+        [],
+        [],
+    ]
+    # A doubtful universal answer must not reach every document.
+    assert [item["applicability_scope"] for item in rules] == [
+        "typed",
+        "typed",
+        "unknown",
+        "unknown",
+    ]
+    assert rules[2]["automatic_applicability"]["scope"] == "universal"
+
+
+def test_suggested_type_needs_a_decision_and_is_not_repeated(
+    tmp_path: Path, monkeypatch
+) -> None:
+    suggestion = {
+        "applicability_scope": "unknown",
+        "applicability_confidence": 0.9,
+        "suggested_type_name": "Авансовый отчёт",
+        "suggested_type_reason": "Требование к отчёту о расходах.",
+    }
+    extractor = _legal_act_extractor(suggestion, {**suggestion, "suggested_type_name": "авансовый  отчёт"})
+    monkeypatch.setattr(
+        "edm_auditor.api.app.create_rule_extraction_provider", lambda config: extractor
+    )
+    client = make_client(tmp_path)
+    before = {item["code"] for item in client.get("/api/document-types").json()}
+
+    _upload_act(client, 2)
+
+    suggestions = client.get("/api/document-type-suggestions").json()
+    assert len(suggestions) == 1
+    assert suggestions[0]["occurrences"] == 2
+    assert {item["code"] for item in client.get("/api/document-types").json()} == before
+
+    accepted = client.post(
+        f"/api/document-type-suggestions/{suggestions[0]['id']}/accept",
+        json={"code": "travel_expense_report"},
+    )
+    assert accepted.status_code == 201
+    assert accepted.json()["name"] == "Авансовый отчёт"
+    assert accepted.json()["description"] == "Требование к отчёту о расходах."
+    assert client.get("/api/document-type-suggestions").json() == []
+    assert client.post(
+        f"/api/document-type-suggestions/{suggestions[0]['id']}/dismiss"
+    ).status_code == 409
+
+
+def test_dismissed_suggestion_stays_dismissed(tmp_path: Path, monkeypatch) -> None:
+    class Classifier(FakeClassificationProvider):
+        def classify(self, text, *, title, filename, document_types):
+            return {
+                "document_types": [],
+                "suggested_type_name": "Докладная записка",
+                "suggested_type_reason": "Такого типа нет в каталоге.",
+            }
+
+    monkeypatch.setattr(
+        "edm_auditor.api.app.create_document_classification_provider",
+        lambda config: Classifier(),
+    )
+    client = make_client(tmp_path)
+
+    document = _upload(client, "Докладная записка.")
+    assert document["classification_status"] == "unknown"
+    suggestion = client.get("/api/document-type-suggestions").json()[0]
+    assert suggestion["document_id"] == document["id"]
+    assert client.post(
+        f"/api/document-type-suggestions/{suggestion['id']}/dismiss"
+    ).status_code == 204
+
+    client.post(f"/api/documents/{document['id']}/classify")
+
+    assert client.get("/api/document-type-suggestions").json() == []
+    dismissed = client.get("/api/document-type-suggestions?status=dismissed").json()
+    assert dismissed[0]["occurrences"] == 2
+
+
+def test_failed_classification_keeps_the_document_and_blocks_the_audit(
+    tmp_path: Path, monkeypatch
+) -> None:
+    provider = FakeClassificationProvider()
+    calls = {"fail": True}
+
+    class Flaky:
+        def classify(self, *args, **kwargs):
+            if calls["fail"]:
+                raise RuntimeError("model unavailable")
+            return provider.classify(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "edm_auditor.api.app.create_document_classification_provider", lambda config: Flaky()
+    )
+    client = make_client(tmp_path)
+
+    document = _upload(client, TRIP_ORDER)
+    assert document["classification_status"] == "pending"
+    assert document["needs_configuration"] is True
+
+    url = f"/api/documents/{document['id']}"
+    for response in (
+        client.post(f"{url}/audit/preview"),
+        client.post(f"{url}/audit"),
+        client.post(f"{url}/classify"),
+    ):
+        assert response.status_code == 503
+        assert response.json()["error"]["code"] == "classification_model_error"
+    assert client.get("/api/reports").json() == []
+
+    calls["fail"] = False
+    assert client.post(f"{url}/audit/preview").status_code == 200
+    assert client.get(url).json()["confirmed_document_types"] == ["business_trip_order"]
+
+
+def test_repeated_classification_failure_keeps_the_previous_result(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client = make_client(tmp_path)
+    document = _upload(client, TRIP_ORDER)
+
+    class Failing:
+        def classify(self, *args, **kwargs):
+            raise RuntimeError("model unavailable")
+
+    monkeypatch.setattr(
+        "edm_auditor.api.app.create_document_classification_provider", lambda config: Failing()
+    )
+    failing = make_client(tmp_path)
+
+    assert failing.post(f"/api/documents/{document['id']}/classify").status_code == 503
+    stored = failing.get(f"/api/documents/{document['id']}").json()
+    assert stored["classification_status"] == "classified"
+    assert stored["confirmed_document_types"] == ["business_trip_order"]
+
+
+def test_audit_refuses_a_document_needing_too_many_model_requests(
+    tmp_path: Path, monkeypatch
+) -> None:
+    calls: list[str] = []
+
+    class Entities(FakeEntityProvider):
+        def extract(self, text: str):
+            calls.append(text)
+            return ()
+
+    monkeypatch.setattr(
+        "edm_auditor.api.app.create_entity_extraction_provider", lambda config: Entities()
+    )
+    client = make_client(tmp_path)
+    client.post(
+        "/api/rules",
+        json={
+            "rule_code": "universal-rule",
+            "name": "Правило",
+            "severity": "low",
+            "check_type": "keyword",
+            "description": "Ключевое слово",
+            "parameters": {"keywords": ["запрет"], "mode": "forbidden"},
+        },
+    )
+    with client.app.state.session_factory.begin() as session:
+        stored = Document(
+            title="Большой",
+            file_type="txt",
+            file_path="big.txt",
+            raw_text="\n".join(["Строка документа для проверки размера."] * 20000),
+            classification_status="classified",
+            classification_source="manual",
+        )
+        session.add(stored)
+        session.flush()
+        document_id = stored.id
+
+    response = client.post(
+        f"/api/documents/{document_id}/audit",
+        json={"selection_mode": "all", "confirm_all": True},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "document_too_large_for_audit"
+    assert calls == []
+    assert client.get("/api/reports").json() == []

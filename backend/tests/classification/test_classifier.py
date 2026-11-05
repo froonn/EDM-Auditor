@@ -1,114 +1,136 @@
-from pathlib import Path
-
 import pytest
 
 from edm_auditor.classification import (
     ClassificationStatus,
-    DocumentTypeProfile,
-    classify_document,
+    DocumentClassifier,
+    classification_sample,
 )
-from edm_auditor.classification.catalog import DEFAULT_DOCUMENT_TYPES
+from edm_auditor.model_providers import DocumentTypeOption
 
-EXAMPLES = Path(__file__).parents[2] / "examples"
-PROFILES = [item.profile for item in DEFAULT_DOCUMENT_TYPES]
+CATALOG = (
+    DocumentTypeOption("business_trip_order", "Приказ о командировке", "Командировка."),
+    DocumentTypeOption("payroll_order", "Приказ об оплате труда", "Заработная плата."),
+)
+
+
+class Provider:
+    model_name = "fake"
+
+    def __init__(self, answer: object) -> None:
+        self.answer = answer
+        self.calls: list[dict[str, object]] = []
+
+    def classify(self, text, *, title, filename, document_types):
+        self.calls.append({"text": text, "title": title, "filename": filename})
+        return self.answer
+
+
+def _classify(answer: object, **options):
+    return DocumentClassifier(Provider(answer), **options).classify(
+        "Текст документа.", document_types=CATALOG
+    )
+
+
+def _answer(*types: tuple[str, float], name: str = "", reason: str = "") -> dict:
+    return {
+        "document_types": [{"code": code, "confidence": value} for code, value in types],
+        "suggested_type_name": name,
+        "suggested_type_reason": reason,
+    }
+
+
+def test_confident_answer_confirms_the_type() -> None:
+    outcome = _classify(_answer(("business_trip_order", 0.9)))
+
+    assert outcome.result.status is ClassificationStatus.CLASSIFIED
+    assert outcome.result.confirmed_document_types == ("business_trip_order",)
+    assert outcome.result.confidence == 0.9
+
+
+def test_document_can_get_several_types() -> None:
+    outcome = _classify(_answer(("payroll_order", 0.8), ("business_trip_order", 0.9)))
+
+    assert outcome.result.confirmed_document_types == ("business_trip_order", "payroll_order")
+
+
+def test_doubtful_answer_needs_review_and_confirms_nothing() -> None:
+    outcome = _classify(_answer(("business_trip_order", 0.5)))
+
+    assert outcome.result.status is ClassificationStatus.NEEDS_REVIEW
+    assert outcome.result.confirmed_document_types == ()
+    assert outcome.result.candidate_types[0].code == "business_trip_order"
+
+
+def test_threshold_is_configurable() -> None:
+    outcome = _classify(_answer(("business_trip_order", 0.5)), min_confidence=0.4)
+
+    assert outcome.result.status is ClassificationStatus.CLASSIFIED
+
+
+def test_code_outside_the_catalog_is_ignored() -> None:
+    outcome = _classify(_answer(("invented_type", 1.0)))
+
+    assert outcome.result.status is ClassificationStatus.UNKNOWN
+    assert outcome.result.candidate_types == ()
+
+
+def test_no_matching_type_keeps_the_suggestion() -> None:
+    outcome = _classify(_answer(name=" Докладная записка ", reason="Нет в каталоге."))
+
+    assert outcome.result.status is ClassificationStatus.UNKNOWN
+    assert outcome.suggestion.name == "Докладная записка"
+    assert outcome.suggestion.reason == "Нет в каталоге."
+
+
+def test_suggestion_is_ignored_when_a_type_is_confirmed() -> None:
+    outcome = _classify(_answer(("payroll_order", 0.9), name="Другой тип"))
+
+    assert outcome.suggestion is None
 
 
 @pytest.mark.parametrize(
-    "filename, expected",
+    "answer",
     [
-        ("business_trip_order.txt", "business_trip_order"),
-        ("compliant_business_trip_order.txt", "business_trip_order"),
-        ("remote_work_agreement.txt", "remote_work_agreement"),
-        ("compliant_remote_work_agreement.txt", "remote_work_agreement"),
-        ("payroll_order.txt", "payroll_order"),
-        ("compliant_payroll_order.txt", "payroll_order"),
-        ("legal_act_business_trip.txt", "business_trip_order"),
-        ("legal_act_remote_work.txt", "remote_work_agreement"),
-        ("legal_act_payments.txt", "payroll_order"),
+        "не объект",
+        {},
+        {"document_types": "payroll_order"},
+        {"document_types": ["payroll_order"]},
+        {"document_types": [{"code": "payroll_order", "confidence": "высокая"}]},
+        {"document_types": [{"code": "payroll_order", "confidence": True}]},
+        {"document_types": [{"code": "payroll_order", "confidence": 1.5}]},
     ],
 )
-def test_examples_are_classified_from_content_alone(filename, expected) -> None:
-    text = (EXAMPLES / filename).read_text(encoding="utf-8")
-
-    result = classify_document(text, PROFILES)
-
-    assert result.status is ClassificationStatus.CLASSIFIED
-    assert result.confirmed_document_types == (expected,)
-    assert result.confidence >= 0.6
+def test_malformed_answer_is_an_error(answer: object) -> None:
+    with pytest.raises(ValueError):
+        _classify(answer)
 
 
-def test_employment_contract_fixture_is_classified() -> None:
-    text = (Path(__file__).parents[1] / "fixtures" / "employment_contract.txt").read_text(
-        encoding="utf-8"
+def test_empty_catalog_does_not_call_the_model() -> None:
+    provider = Provider(_answer())
+
+    outcome = DocumentClassifier(provider).classify("Текст.", document_types=())
+
+    assert outcome.result.status is ClassificationStatus.UNKNOWN
+    assert provider.calls == []
+
+
+def test_model_receives_only_the_start_and_end_of_a_long_document() -> None:
+    provider = Provider(_answer())
+    text = "Н" * 100 + "С" * 10_000 + "К" * 50
+
+    DocumentClassifier(provider, head_chars=100, tail_chars=50).classify(
+        text, title="Заголовок", filename="doc.txt", document_types=CATALOG
     )
 
-    result = classify_document(text, PROFILES)
-
-    assert result.confirmed_document_types == ("employment_contract",)
-
-
-def test_unrelated_text_is_unknown_and_has_no_types() -> None:
-    result = classify_document("Employee receives 14 days leave.", PROFILES)
-
-    assert result.status is ClassificationStatus.UNKNOWN
-    assert result.confirmed_document_types == ()
-    assert result.candidate_types == ()
+    sent = provider.calls[0]
+    assert sent["text"] == "Н" * 100 + "\n[...]\n" + "К" * 50
+    assert sent["title"] == "Заголовок"
+    assert sent["filename"] == "doc.txt"
 
 
-def test_weak_signal_needs_review_without_confirming_a_type() -> None:
-    text = "Служебная записка.\nСогласовать отчет о командировке и служебные расходы."
-
-    result = classify_document(text, PROFILES)
-
-    assert result.status is ClassificationStatus.NEEDS_REVIEW
-    assert result.confirmed_document_types == ()
-    assert [item.code for item in result.candidate_types] == ["business_trip_order"]
+def test_short_document_is_sent_whole() -> None:
+    assert classification_sample("Короткий", head_chars=5, tail_chars=5) == "Короткий"
 
 
-def test_file_name_alone_only_suggests_a_candidate() -> None:
-    result = classify_document("Текст без признаков.", PROFILES, filename="payroll_order.txt")
-
-    assert result.status is ClassificationStatus.NEEDS_REVIEW
-    assert result.confirmed_document_types == ()
-
-
-def test_document_can_have_several_confirmed_types() -> None:
-    profiles = [
-        DocumentTypeProfile("first", title_terms=("приказ",), body_terms=("командировк", "отчет")),
-        DocumentTypeProfile("second", title_terms=("расход",), body_terms=("командировк", "отчет")),
-    ]
-
-    result = classify_document("Приказ и отчет о расходах\nКомандировка, отчет.", profiles)
-
-    assert result.status is ClassificationStatus.CLASSIFIED
-    assert result.confirmed_document_types == ("first", "second")
-
-
-def test_close_competitor_without_heading_requires_review() -> None:
-    profiles = [
-        DocumentTypeProfile("headed", title_terms=("приказ",), body_terms=("аванс",)),
-        DocumentTypeProfile(
-            "competitor",
-            title_terms=("заработ",),
-            body_terms=("аванс", "оклад"),
-            structure_terms=("приказ",),
-        ),
-    ]
-
-    result = classify_document(
-        "Приказ\nАванс и оклад.", profiles, title="заработная плата"
-    )
-
-    assert result.status is ClassificationStatus.NEEDS_REVIEW
-
-
-def test_entity_signal_contributes_to_the_score() -> None:
-    profile = DocumentTypeProfile("typed", body_terms=("аванс",), entity_kinds=("money",))
-
-    with_entity = classify_document(
-        "Документ\nАванс.", [profile], entity_kinds={"money"}
-    )
-    without_entity = classify_document("Документ\nАванс.", [profile])
-
-    assert with_entity.confidence == 0.25
-    assert without_entity.candidate_types == ()
+def test_sample_without_a_tail_keeps_only_the_start() -> None:
+    assert classification_sample("Длинный", head_chars=3, tail_chars=0) == "Дли\n[...]\n"

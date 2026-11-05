@@ -2,7 +2,6 @@
 
 import json
 import hashlib
-import inspect
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -11,6 +10,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, Query, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import delete, func, inspect as inspect_schema, select, update
@@ -28,28 +28,34 @@ from edm_auditor.applicability import (
 )
 from edm_auditor.applicability.rule_scope import (
     SOURCE_LEGAL_ACT,
-    SOURCE_LEGAL_ACT_CLASSIFIER,
+    SOURCE_LLM,
     SOURCE_MANUAL,
     SOURCE_MIGRATION,
     RuleApplicability,
     apply_rule_applicability,
-    legal_act_applicability,
+    generated_rule_applicability,
+    split_generated_rule,
 )
 from edm_auditor.audit_engine.persistence import AuditPersistence, AuditSelectionRequired
-from edm_auditor.audit_engine import AuditEngine, LLMInterpreter, entities_from_provider
-from edm_auditor.audit_engine.neural_errors import AuditModelError
+from edm_auditor.audit_engine import AuditEngine, ChunkedEntityExtractor, LLMInterpreter
+from edm_auditor.audit_engine.neural_errors import AuditModelError, DocumentTooLargeForAudit
 from edm_auditor.database import (
     Base,
     DocumentRepository,
     create_engine_for,
     create_session_factory,
 )
-from edm_auditor.classification import ClassificationStatus, DocumentTypeProfile
+from edm_auditor.classification import (
+    ClassificationModelError,
+    ClassificationStatus,
+    DocumentClassifier,
+)
 from edm_auditor.classification.store import (
-    classify_and_store,
+    DocumentClassificationService,
+    document_type_options,
     ensure_default_document_types,
     override_classification,
-    profile_to_json,
+    record_type_suggestion,
     stored_classification,
 )
 from edm_auditor.database.enums import AuditSeverity, CheckType
@@ -59,6 +65,7 @@ from edm_auditor.database.models import (
     AuditRule,
     Document,
     DocumentType,
+    DocumentTypeSuggestion,
     LegalAct,
     RuleExtractionResult,
     document_confirmed_types,
@@ -69,6 +76,7 @@ from edm_auditor.document_parser import parse_document
 from edm_auditor.document_parser.exceptions import DocumentParserError
 from edm_auditor.model_config import ModelSettings, detect_source_language
 from edm_auditor.model_providers import (
+    create_document_classification_provider,
     create_entity_extraction_provider,
     create_llm_provider,
     create_rule_extraction_provider,
@@ -93,6 +101,8 @@ from .schemas import (
     ClassificationUpdate,
     DocumentTypeCreate,
     DocumentTypeResponse,
+    DocumentTypeSuggestionAccept,
+    DocumentTypeSuggestionResponse,
     RagRecommendationResponse,
     RuleApplicabilityUpdate,
     RuleDecisionResponse,
@@ -115,6 +125,8 @@ from .web import page
 logger = logging.getLogger("edm_auditor.api")
 trace_logger = logging.getLogger("edm_auditor.trace")
 
+# A document without a stored result: it is classified again before an audit.
+CLASSIFICATION_PENDING = "pending"
 RAG_RECOMMENDATION_THRESHOLD = 0.5
 RAG_RECOMMENDATION_LIMIT = 5
 RAG_QUERY_CHARS = 2000
@@ -204,8 +216,24 @@ def create_app(
     if model_settings.extractor is None:
         raise ValueError("configured model preset must declare an online extractor")
     provider = create_entity_extraction_provider(model_settings.extractor)
-    entity_extractor = lambda text: entities_from_provider(text, provider.extract(text))
+    document_processing = model_settings.document_processing
+    entity_extractor = ChunkedEntityExtractor(
+        provider,
+        max_chars=document_processing.entity_chunk_max_chars,
+        overlap_chars=document_processing.entity_chunk_overlap_chars,
+        max_chunks=document_processing.entity_max_chunks,
+        delay_seconds=model_settings.extractor.inter_chunk_delay_seconds,
+    )
     rule_extractor = create_rule_extraction_provider(model_settings.extractor)
+    classification = DocumentClassificationService(
+        session_factory,
+        DocumentClassifier(
+            create_document_classification_provider(model_settings.extractor),
+            min_confidence=document_processing.classification_min_confidence,
+            head_chars=document_processing.classification_head_chars,
+            tail_chars=document_processing.classification_tail_chars,
+        ),
+    )
 
     def rag_recommendations(text: str) -> list[RagCandidate]:
         """Find related legal context; the resolver only reports these results."""
@@ -239,11 +267,11 @@ def create_app(
         )
 
     def ensure_classified(document_id: int) -> None:
-        """Classify documents stored before classification existed."""
-        with session_factory.begin() as session:
-            document = session.get(Document, document_id)
-            if document is not None and document.classification_status is None:
-                classify_and_store(session, document)
+        """Rules depend on the document type, so a missing result stops the request."""
+        try:
+            classification.ensure_classified(document_id)
+        except ClassificationModelError as exc:
+            raise _classification_error(exc) from exc
 
     def process_legal_act(legal_act_id: int) -> None:
         """Extract, validate, and atomically publish generated rules."""
@@ -253,6 +281,9 @@ def create_app(
                 raise ApiError(404, "legal_act_not_found", "Legal act does not exist")
             source_text = legal_act.article_text
             source_code = legal_act.code
+            source_title = legal_act.title
+            catalog = document_type_options(session)
+        catalog_codes = {item.code for item in catalog}
 
         source_language = model_settings.processing.source_language
         if source_language == "auto":
@@ -279,9 +310,6 @@ def create_app(
             )
 
         validated_rules: list[dict[str, object]] = []
-        supports_metadata = "source_language" in inspect.signature(
-            rule_extractor.extract_rules
-        ).parameters
         failed_chunks = 0
         for chunk_index, chunk in enumerate(chunks):
             if chunk_index:
@@ -291,22 +319,24 @@ def create_app(
             chunk_rules: list[dict[str, object]] = []
             chunk_error: RuleValidationError | None = None
             try:
-                if supports_metadata:
-                    raw_extracted = rule_extractor.extract_rules(
-                        chunk.text,
-                        source_language=source_language,
-                        source_location=chunk.chunk_id,
-                    )
-                else:
-                    raw_extracted = rule_extractor.extract_rules(chunk.text)
+                raw_extracted = rule_extractor.extract_rules(
+                    chunk.text,
+                    source_language=source_language,
+                    source_location=chunk.chunk_id,
+                    document_types=catalog,
+                    legal_act_title=source_title,
+                )
                 for item in raw_extracted:
                     if not isinstance(item, dict):
                         chunk_error = RuleValidationError(
                             "invalid_schema", "provider returned a non-object rule"
                         )
                         break
+                    rule_fields, model_applicability, suggestion = split_generated_rule(
+                        item, catalog_codes
+                    )
                     normalized = validate_generated_rule(
-                        item,
+                        rule_fields,
                         source_text=chunk.text,
                         source_language=source_language,
                         source_location=chunk.chunk_id,
@@ -316,6 +346,8 @@ def create_app(
                     normalized["source_end"] = chunk.start_char + normalized["source_end"]
                     normalized["_chunk_id"] = chunk.chunk_id
                     normalized["_chunk_index"] = chunk_index
+                    normalized["_applicability"] = model_applicability.to_json()
+                    normalized["_suggestion"] = suggestion
                     chunk_rules.append(normalized)
             except (RuntimeError, ValueError, TypeError) as exc:
                 chunk_error = (
@@ -380,7 +412,6 @@ def create_app(
                 )
             published = 0
             duplicates = 0
-            applicability = legal_act_applicability(session, legal_act)
             for index, generated in enumerate(validated_rules, start=1):
                 parameters_json = generated["parameters_json"]
                 deduplication_key = hashlib.sha256(
@@ -415,8 +446,21 @@ def create_app(
                         check_type=generated["check_type"],
                         parameters_json=parameters_json,
                 )
-                apply_rule_applicability(generated_rule, applicability)
+                generated_rule.applicability_auto = generated["_applicability"]
+                apply_rule_applicability(
+                    generated_rule,
+                    generated_rule_applicability(
+                        session,
+                        legal_act,
+                        generated["_applicability"],
+                        min_confidence=document_processing.classification_min_confidence,
+                    ),
+                )
                 session.add(generated_rule)
+                if generated["_suggestion"] is not None:
+                    record_type_suggestion(
+                        session, generated["_suggestion"], legal_act_id=legal_act_id
+                    )
                 published += 1
             legal_act.processing_status = "completed" if duplicates == 0 else "partial"
             legal_act.chunks_processed = len(chunks)
@@ -521,34 +565,58 @@ def create_app(
 
     @app.post("/api/document-types", response_model=DocumentTypeResponse, status_code=201)
     def create_document_type(payload: DocumentTypeCreate) -> DocumentTypeResponse:
-        if payload.code == "unknown":
-            raise ApiError(
-                422,
-                "reserved_document_type",
-                "'unknown' is a classification state, not a document type",
-            )
         with session_factory.begin() as session:
-            document_type = session.get(DocumentType, payload.code)
-            if document_type is not None and document_type.is_active:
-                raise ApiError(
-                    409, "document_type_conflict", "Document type already exists"
-                )
-            if document_type is None:
-                document_type = DocumentType(code=payload.code)
-                session.add(document_type)
-            document_type.name = payload.name
-            document_type.description = payload.description
-            document_type.is_active = True
-            document_type.classifier_profile = profile_to_json(
-                DocumentTypeProfile(
-                    payload.code,
-                    title_terms=_normalized_terms(payload.title_terms),
-                    body_terms=_normalized_terms(payload.body_terms),
-                    structure_terms=_normalized_terms(payload.structure_terms),
-                )
+            document_type = _save_document_type(
+                session, payload.code, payload.name, payload.description
             )
             session.flush()
             return DocumentTypeResponse.model_validate(document_type)
+
+    @app.get(
+        "/api/document-type-suggestions",
+        response_model=list[DocumentTypeSuggestionResponse],
+    )
+    def list_document_type_suggestions(
+        status: str = "pending",
+    ) -> list[DocumentTypeSuggestionResponse]:
+        with session_factory() as session:
+            return [
+                DocumentTypeSuggestionResponse.model_validate(item)
+                for item in session.scalars(
+                    select(DocumentTypeSuggestion)
+                    .where(DocumentTypeSuggestion.status == status)
+                    .order_by(DocumentTypeSuggestion.id)
+                ).all()
+            ]
+
+    @app.post(
+        "/api/document-type-suggestions/{suggestion_id}/accept",
+        response_model=DocumentTypeResponse,
+        status_code=201,
+    )
+    def accept_document_type_suggestion(
+        suggestion_id: int, payload: DocumentTypeSuggestionAccept
+    ) -> DocumentTypeResponse:
+        """Add the suggested type; existing documents and rules are classified again on request."""
+        with session_factory.begin() as session:
+            suggestion = _pending_suggestion(session, suggestion_id)
+            document_type = _save_document_type(
+                session,
+                payload.code,
+                payload.name or suggestion.name,
+                payload.description or suggestion.reason or suggestion.name,
+            )
+            suggestion.status = "accepted"
+            suggestion.accepted_code = payload.code
+            session.flush()
+            return DocumentTypeResponse.model_validate(document_type)
+
+    @app.post(
+        "/api/document-type-suggestions/{suggestion_id}/dismiss", status_code=204
+    )
+    def dismiss_document_type_suggestion(suggestion_id: int) -> None:
+        with session_factory.begin() as session:
+            _pending_suggestion(session, suggestion_id).status = "dismissed"
 
     @app.delete("/api/document-types/{code}", status_code=204)
     def delete_document_type(code: str) -> None:
@@ -594,14 +662,17 @@ def create_app(
                 title=title or Path(file.filename or path.name).stem,
                 file_path=path,
             )
-            with session_factory.begin() as session:
-                stored = session.get(Document, document.id)
-                classify_and_store(session, stored)
-                session.flush()
-                return _document_response(stored)
+            document_id = document.id
         except DocumentParserError as exc:
             path.unlink(missing_ok=True)
             raise parser_error(exc) from exc
+        try:
+            await run_in_threadpool(classification.classify, document_id)
+        except ClassificationModelError:
+            # The upload itself succeeded; the type is requested again before an audit.
+            logger.warning("Document %s was saved without a type", document_id)
+        with session_factory() as session:
+            return _document_response(session.get(Document, document_id))
 
     @app.get("/api/documents/{document_id}", response_model=DocumentResponse)
     def get_document(document_id: int) -> DocumentResponse:
@@ -616,13 +687,14 @@ def create_app(
         response_model=DocumentResponse,
     )
     def classify_document_endpoint(document_id: int) -> DocumentResponse:
-        with session_factory.begin() as session:
-            document = session.get(Document, document_id)
-            if document is None:
-                raise ApiError(404, "document_not_found", "Document does not exist")
-            classify_and_store(session, document)
-            session.flush()
-            return _document_response(document)
+        try:
+            classification.classify(document_id)
+        except LookupError as exc:
+            raise ApiError(404, "document_not_found", "Document does not exist") from exc
+        except ClassificationModelError as exc:
+            raise _classification_error(exc) from exc
+        with session_factory() as session:
+            return _document_response(session.get(Document, document_id))
 
     @app.patch(
         "/api/documents/{document_id}/classification",
@@ -708,6 +780,8 @@ def create_app(
             raise ApiError(404, "document_not_found", str(exc)) from exc
         except AuditSelectionRequired as exc:
             raise _selection_error(exc.resolution) from exc
+        except DocumentTooLargeForAudit as exc:
+            raise ApiError(413, "document_too_large_for_audit", str(exc)) from exc
         except AuditModelError as exc:
             logger.exception("Audit of document %s failed", document_id)
             raise ApiError(
@@ -1070,7 +1144,11 @@ def create_app(
                 setattr(legal_act, field, value)
             session.flush()
             if payload.document_types is not None:
-                _refresh_generated_rule_applicability(session, legal_act)
+                _refresh_generated_rule_applicability(
+                    session,
+                    legal_act,
+                    min_confidence=document_processing.classification_min_confidence,
+                )
             response = LegalActResponse.model_validate(legal_act)
         _rebuild_after_mutation(rebuild_rag_index)
         return response
@@ -1112,7 +1190,7 @@ def _document_response(document: Document) -> DocumentResponse:
         file_type=document.file_type,
         status=document.status,
         classified_type=document.classified_type,
-        classification_status=classification.status.value,
+        classification_status=document.classification_status or CLASSIFICATION_PENDING,
         classification_confidence=document.classification_confidence,
         classification_source=document.classification_source,
         confirmed_document_types=list(classification.confirmed_document_types),
@@ -1131,8 +1209,43 @@ def _document_response(document: Document) -> DocumentResponse:
     )
 
 
-def _normalized_terms(terms: list[str]) -> tuple[str, ...]:
-    return tuple(dict.fromkeys(item.strip().casefold() for item in terms if item.strip()))
+def _save_document_type(
+    session: Session, code: str, name: str, description: str
+) -> DocumentType:
+    """Add a type or bring back a deactivated one under the same stable code."""
+    if code == "unknown":
+        raise ApiError(
+            422,
+            "reserved_document_type",
+            "'unknown' is a classification state, not a document type",
+        )
+    document_type = session.get(DocumentType, code)
+    if document_type is not None and document_type.is_active:
+        raise ApiError(409, "document_type_conflict", "Document type already exists")
+    if document_type is None:
+        document_type = DocumentType(code=code)
+        session.add(document_type)
+    document_type.name = name
+    document_type.description = description
+    document_type.is_active = True
+    return document_type
+
+
+def _pending_suggestion(session: Session, suggestion_id: int) -> DocumentTypeSuggestion:
+    suggestion = session.get(DocumentTypeSuggestion, suggestion_id)
+    if suggestion is None:
+        raise ApiError(
+            404, "document_type_suggestion_not_found", "Suggestion does not exist"
+        )
+    if suggestion.status != "pending":
+        raise ApiError(
+            409, "document_type_suggestion_closed", "Suggestion was already decided"
+        )
+    return suggestion
+
+
+def _classification_error(error: ClassificationModelError) -> ApiError:
+    return ApiError(503, "classification_model_error", f"Document type is not known: {error}")
 
 
 def _document_type_dependencies(session: Session, code: str) -> list[str]:
@@ -1162,22 +1275,31 @@ def _document_type_dependencies(session: Session, code: str) -> list[str]:
     return dependencies
 
 
-def _refresh_generated_rule_applicability(session: Session, legal_act: LegalAct) -> None:
+def _refresh_generated_rule_applicability(
+    session: Session, legal_act: LegalAct, *, min_confidence: float
+) -> None:
     """Update rules derived from the act; manual decisions stay as they are."""
-    applicability = legal_act_applicability(session, legal_act)
     for rule in legal_act.rules:
         if rule.is_generated and rule.applicability_source in (
             SOURCE_LEGAL_ACT,
-            SOURCE_LEGAL_ACT_CLASSIFIER,
+            SOURCE_LLM,
             SOURCE_MIGRATION,
         ):
-            apply_rule_applicability(rule, applicability)
+            apply_rule_applicability(
+                rule,
+                generated_rule_applicability(
+                    session,
+                    legal_act,
+                    rule.applicability_auto,
+                    min_confidence=min_confidence,
+                ),
+            )
 
 
 def _require_current_schema(engine) -> None:
     """``create_all`` cannot add columns, so report an outdated database at startup."""
     columns = {item["name"] for item in inspect_schema(engine).get_columns("audit_rules")}
-    if "applicability_scope" not in columns:
+    if "applicability_auto" not in columns:
         raise RuntimeError(
             "The database schema is outdated. Back it up and run "
             "'alembic upgrade head' (for a database that has no alembic_version table, "
@@ -1271,6 +1393,9 @@ def _rule_response(rule: AuditRule) -> RuleResponse:
         document_types=[item.code for item in rule.document_types],
         applicability_confidence=rule.applicability_confidence,
         applicability_source=rule.applicability_source,
+        automatic_applicability=(
+            json.loads(rule.applicability_auto) if rule.applicability_auto else None
+        ),
         severity=rule.severity,
         description=rule.description,
         check_type=rule.check_type,
