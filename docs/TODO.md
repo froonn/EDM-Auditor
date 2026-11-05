@@ -61,7 +61,7 @@
 
 Требования и задачи описаны в [`feature-frontend.md`](feature-frontend.md).
 
-- [ ] `feature/frontend-foundation`: проект, клиент API, макет, подготовка к авторизации и ролям.
+- [x] `feature/frontend-foundation`: проект, клиент API, макет, подготовка к авторизации и ролям.
 - [ ] `feature/frontend-audit-view`: загрузка документа, настройка аудита, экран с подсветкой нарушений.
 - [ ] `feature/frontend-management`: НПА, правила, типы документов, диагностика.
 - [ ] `feature/report-export`: экспорт отчёта (FR-4.4).
