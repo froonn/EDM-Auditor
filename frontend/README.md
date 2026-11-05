@@ -17,13 +17,13 @@ Open <http://localhost:5173>. Vite forwards `/api` and `/health` to `http://127.
 `EDM_API_URL` to use another address. The API has no CORS, so the browser must reach it through this
 proxy. If the backend is not running, the interface reports that the server is unavailable.
 
-| Command             | Purpose                                                    |
-|---------------------|------------------------------------------------------------|
-| `npm run dev`       | Development server with the API proxy                      |
-| `npm run build`     | Type check and production build into `dist/`               |
-| `npm test`          | Tests; they need no backend, network or model              |
-| `npm run typecheck` | Type check only                                            |
-| `npm run api:types` | Regenerate `src/api/schema.d.ts` from a running backend    |
+| Command             | Purpose                                                 |
+|---------------------|---------------------------------------------------------|
+| `npm run dev`       | Development server with the API proxy                   |
+| `npm run build`     | Type check and production build into `dist/`            |
+| `npm test`          | Tests; they need no backend, network or model           |
+| `npm run typecheck` | Type check only                                         |
+| `npm run api:types` | Regenerate `src/api/schema.d.ts` from a running backend |
 
 Run `npm run api:types` after changing the API and commit the result. It reads
 `${EDM_API_URL:-http://127.0.0.1:8000}/openapi.json`.
@@ -32,6 +32,8 @@ Run `npm run api:types` after changing the API and commit the result. It reads
 
 - **API calls** go only through `src/api/client.ts`. Errors become `ApiError` with the API error code.
   Paginated lists use `apiRequestPage`, which reads `X-Total-Count`.
+  Files, such as the exported report, use `apiDownload` and `saveFile` from `src/lib/download.ts`, so
+  a future sign-in header reaches downloads too and errors are shown as usual.
 - **Requests that call the model** (legal act upload, audit, reprocessing) are never repeated
   automatically: a repeat spends the model's request limit. They are mutations, and the user repeats
   them with the retry button.
@@ -48,15 +50,15 @@ Run `npm run api:types` after changing the API and commit the result. It reads
 
 ## Source layout
 
-| Path               | Contents                                                     |
-|--------------------|--------------------------------------------------------------|
-| `src/api/`         | API client, endpoints, generated schema and shared types     |
-| `src/app/`         | Routes, router, layout, providers, query client              |
-| `src/auth/`        | Permissions, session, `AuthProvider`, `<Can>`, route guard    |
-| `src/components/`  | Shared components; `ui/` holds shadcn/ui primitives          |
-| `src/features/`    | Screens with their logic: `documents/`, `audit/`, `legalActs/`, `rules/`, `documentTypes/`, shared queries |
-| `src/i18n/`        | Dictionary and formatting                                    |
-| `src/pages/`       | Generic pages: not found, forbidden, crash                   |
-| `src/styles/`      | Tailwind entry point and theme variables                     |
+| Path              | Contents                                                                                                   |
+|-------------------|------------------------------------------------------------------------------------------------------------|
+| `src/api/`        | API client, endpoints, generated schema and shared types                                                   |
+| `src/app/`        | Routes, router, layout, providers, query client                                                            |
+| `src/auth/`       | Permissions, session, `AuthProvider`, `<Can>`, route guard                                                 |
+| `src/components/` | Shared components; `ui/` holds shadcn/ui primitives                                                        |
+| `src/features/`   | Screens with their logic: `documents/`, `audit/`, `legalActs/`, `rules/`, `documentTypes/`, shared queries |
+| `src/i18n/`       | Dictionary and formatting                                                                                  |
+| `src/pages/`      | Generic pages: not found, forbidden, crash                                                                 |
+| `src/styles/`     | Tailwind entry point and theme variables                                                                   |
 
 shadcn/ui is configured in `components.json`; add a component with `npx shadcn@latest add <name>`.

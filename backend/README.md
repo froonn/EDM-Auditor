@@ -88,20 +88,21 @@ header.
 
 ### Documents and audit
 
-| Method and path                            | Purpose                                         |
-|--------------------------------------------|-------------------------------------------------|
-| `GET /health`                              | Service check                                   |
-| `POST /api/documents/upload`               | Upload a file (`file`, optional `title`)        |
-| `GET /api/documents`                       | List documents with `latest_report`, paginated  |
-| `GET /api/documents/{id}`                  | Document with its `text`                        |
-| `DELETE /api/documents/{id}`               | Delete a document, its reports and its file     |
-| `POST /api/documents/{id}/classify`        | Determine the document type again               |
-| `PATCH /api/documents/{id}/classification` | Confirm the document types manually             |
-| `POST /api/documents/{id}/audit/preview`   | Show the rules an audit would use               |
-| `POST /api/documents/{id}/audit`           | Run an audit                                    |
-| `GET /api/documents/{id}/report`           | Latest report, or the one set by `report_id`    |
-| `GET /api/reports`                         | List reports, paginated. Filter: `document_id`  |
-| `GET /api/reports/{id}`                    | One report                                      |
+| Method and path                            | Purpose                                        |
+|--------------------------------------------|------------------------------------------------|
+| `GET /health`                              | Service check                                  |
+| `POST /api/documents/upload`               | Upload a file (`file`, optional `title`)       |
+| `GET /api/documents`                       | List documents with `latest_report`, paginated |
+| `GET /api/documents/{id}`                  | Document with its `text`                       |
+| `DELETE /api/documents/{id}`               | Delete a document, its reports and its file    |
+| `POST /api/documents/{id}/classify`        | Determine the document type again              |
+| `PATCH /api/documents/{id}/classification` | Confirm the document types manually            |
+| `POST /api/documents/{id}/audit/preview`   | Show the rules an audit would use              |
+| `POST /api/documents/{id}/audit`           | Run an audit                                   |
+| `GET /api/documents/{id}/report`           | Latest report, or the one set by `report_id`   |
+| `GET /api/reports`                         | List reports, paginated. Filter: `document_id` |
+| `GET /api/reports/{id}`                    | One report                                     |
+| `GET /api/reports/{id}/export`             | Download the report as a file, see below       |
 
 ### Rules
 
@@ -190,22 +191,34 @@ Each item of `findings` contains:
 `summary.rejected_candidates` lists the findings the model rejected, with its reason.
 `summary.diagnostics` lists rules that could not be evaluated. `selection` stores the rule selection.
 
+### Report export
+
+`GET /api/reports/{id}/export?format=html&timezone=Europe/Minsk` returns the report as one HTML file
+with its styles: the document text with numbered highlights, the findings with norms and
+recommendations, and the applied rules without findings. It opens offline and can be printed or saved
+as PDF from the browser. `timezone` is an IANA zone for the dates, `UTC` by default; the interface sends
+the zone of the browser. The file name comes in `Content-Disposition` (`filename*` in UTF-8).
+
+Only `html` is supported now. PDF and an annotated DOCX are planned for the diploma project and are
+added as renderers in `src/edm_auditor/report_export/`. The texts of the file are in
+`report_export/labels.py`.
+
 ### Errors
 
 Every error has the same form: `{"error": {"code": "...", "message": "..."}}`.
 
-| Status | Codes                                                                                                                                                                                                                                                                                           |
-|--------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 400    | `empty_document`, `invalid_document`, `document_access_error`, `document_parse_error`                                                                                                                                                                                                           |
-| 404    | `document_not_found`, `report_not_found`, `rule_not_found`, `legal_act_not_found`, `document_type_not_found`, `document_type_suggestion_not_found`, `not_found`                                                                                                                                 |
-| 409    | `audit_configuration_required`, `no_applicable_rules`, `rule_conflict`, `rule_document_types_inactive`, `legal_act_conflict`, `document_type_conflict`, `document_type_in_use`, `document_type_suggestion_closed`                                                                               |
-| 413    | `document_too_large`, `document_too_large_for_audit`                                                                                                                                                                                                                                            |
-| 415    | `unsupported_document_format`, `unsupported_legal_act_format`                                                                                                                                                                                                                                   |
-| 422    | `validation_error`, `invalid_severity`, `invalid_check_type`, `unsupported_check_type`, `invalid_rule_parameters`, `invalid_applicability_scope`, `unknown_document_type`, `reserved_document_type`, `unknown_rule`, `unknown_legal_act`, `all_mode_not_confirmed`, `audit_configuration_error` |
-| 429    | `model_rate_limited`: repeat the request in a minute                                                                                                                                                                                                                                            |
-| 503    | `model_provider_error`, `classification_model_error`, `rule_extraction_error`, `rag_index_error`                                                                                                                                                                                                |
-| 504    | `model_timeout`: repeat the request                                                                                                                                                                                                                                                             |
-| 500    | `internal_error`, `rule_persistence_error`, `invalid_report_summary`, `invalid_rule_parameters` for damaged stored data                                                                                                                                                                         |
+| Status | Codes                                                                                                                                                                                                                                                                                                                                            |
+|--------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 400    | `empty_document`, `invalid_document`, `document_access_error`, `document_parse_error`                                                                                                                                                                                                                                                            |
+| 404    | `document_not_found`, `report_not_found`, `rule_not_found`, `legal_act_not_found`, `document_type_not_found`, `document_type_suggestion_not_found`, `not_found`                                                                                                                                                                                  |
+| 409    | `audit_configuration_required`, `no_applicable_rules`, `rule_conflict`, `rule_document_types_inactive`, `legal_act_conflict`, `document_type_conflict`, `document_type_in_use`, `document_type_suggestion_closed`                                                                                                                                |
+| 413    | `document_too_large`, `document_too_large_for_audit`                                                                                                                                                                                                                                                                                             |
+| 415    | `unsupported_document_format`, `unsupported_legal_act_format`                                                                                                                                                                                                                                                                                    |
+| 422    | `validation_error`, `invalid_severity`, `invalid_check_type`, `unsupported_check_type`, `invalid_rule_parameters`, `invalid_applicability_scope`, `unknown_document_type`, `reserved_document_type`, `unknown_rule`, `unknown_legal_act`, `all_mode_not_confirmed`, `audit_configuration_error`, `unsupported_export_format`, `invalid_timezone` |
+| 429    | `model_rate_limited`: repeat the request in a minute                                                                                                                                                                                                                                                                                             |
+| 503    | `model_provider_error`, `classification_model_error`, `rule_extraction_error`, `rag_index_error`                                                                                                                                                                                                                                                 |
+| 504    | `model_timeout`: repeat the request                                                                                                                                                                                                                                                                                                              |
+| 500    | `internal_error`, `rule_persistence_error`, `invalid_report_summary`, `invalid_rule_parameters` for damaged stored data                                                                                                                                                                                                                          |
 
 `rag_index_error` means the change was saved, but the search index was not rebuilt.
 
@@ -229,6 +242,7 @@ the regression test.
 | `src/edm_auditor/applicability/`     | Rule scope and rule selection                            |
 | `src/edm_auditor/audit_engine/`      | Rule checks, model interpretation, report storage        |
 | `src/edm_auditor/rag/`               | Chunking, vector index, search and its command line tool |
+| `src/edm_auditor/report_export/`     | Report export to a file (HTML)                           |
 | `src/edm_auditor/database/`          | SQLAlchemy models and the document repository            |
 | `src/edm_auditor/model_providers.py` | Model clients, prompts and response schemas              |
 | `src/edm_auditor/rule_validation.py` | Validation of generated and manual rules                 |

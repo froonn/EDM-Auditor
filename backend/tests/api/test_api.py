@@ -2104,3 +2104,49 @@ def test_rule_cannot_be_enabled_when_all_its_types_are_deactivated(tmp_path: Pat
         f"/api/rules/{rule['id']}/applicability", json={"applicability_scope": "universal"}
     )
     assert client.patch(f"/api/rules/{rule['id']}", json={"is_active": True}).status_code == 200
+
+
+def test_report_export_downloads_html_and_validates_parameters(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    upload = client.post(
+        "/api/documents/upload",
+        files={"file": ("договор.txt", b"Employee receives 14 days leave.", "text/plain")},
+    )
+    rule = client.post(
+        "/api/rules",
+        json={
+            "rule_code": "export-leave-check",
+            "name": "Leave check",
+            "severity": "high",
+            "check_type": "keyword",
+            "parameters": {"keywords": ["14 days"]},
+        },
+    )
+    audit = client.post(
+        f"/api/documents/{upload.json()['id']}/audit",
+        json={"selection_mode": "manual", "included_rule_ids": [rule.json()["id"]]},
+    )
+    report_id = audit.json()["report_id"]
+
+    exported = client.get(
+        f"/api/reports/{report_id}/export", params={"timezone": "Europe/Minsk"}
+    )
+
+    assert exported.status_code == 200
+    assert exported.headers["content-type"] == "text/html; charset=utf-8"
+    assert exported.headers["content-disposition"].startswith("attachment;")
+    assert "filename*=UTF-8''" in exported.headers["content-disposition"]
+    assert "<mark" in exported.text and "Leave check" in exported.text
+    assert "Europe/Minsk" in exported.text
+
+    for params, status, code in (
+        ({"format": "pdf"}, 422, "unsupported_export_format"),
+        ({"timezone": "Mars/Base"}, 422, "invalid_timezone"),
+        ({"timezone": "../etc/passwd"}, 422, "invalid_timezone"),
+    ):
+        response = client.get(f"/api/reports/{report_id}/export", params=params)
+        assert response.status_code == status
+        assert response.json()["error"]["code"] == code
+    missing = client.get("/api/reports/999/export")
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "report_not_found"

@@ -141,12 +141,12 @@ curl -s -X POST http://127.0.0.1:8000/api/rules \
 
 - `severity`: `low`, `medium`, `high`, `critical`;
 - `check_type`:
-  - `keyword`: `{"keywords": ["слово"], "mode": "required", "match": "stem"}`;
-  - `regex`: `{"pattern": "..."}`;
-  - `numeric`: `{"entity": "money", "min": 100, "max": 500}`, где `entity` равен `number`, `duration`,
-    `money` или `percent`;
-  - `duration`: `{"min_days": 1, "max_days": 30}`;
-  - `date`: `{"before": "2026-12-31"}` или `{"after": "2026-01-01"}`.
+    - `keyword`: `{"keywords": ["слово"], "mode": "required", "match": "stem"}`;
+    - `regex`: `{"pattern": "..."}`;
+    - `numeric`: `{"entity": "money", "min": 100, "max": 500}`, где `entity` равен `number`, `duration`,
+      `money` или `percent`;
+    - `duration`: `{"min_days": 1, "max_days": 30}`;
+    - `date`: `{"before": "2026-12-31"}` или `{"after": "2026-01-01"}`.
 
 Тип `semantic` отклоняется кодом `422 unsupported_check_type`: семантический аудит перенесён в
 дипломный проект.
@@ -220,12 +220,12 @@ curl -s -X PATCH http://127.0.0.1:8000/api/legal-acts/1 \
 Модель определяет тип при загрузке, выбирая его из каталога по названию и описанию. Значения
 `classification_status`:
 
-| Статус         | Значение                                                  |
-|----------------|-----------------------------------------------------------|
-| `classified`   | тип подтверждён                                           |
-| `needs_review` | уверенность ниже порога, нужно подтверждение              |
-| `unknown`      | подходящего типа нет                                      |
-| `pending`      | модель была недоступна, запрос повторится перед аудитом   |
+| Статус         | Значение                                                |
+|----------------|---------------------------------------------------------|
+| `classified`   | тип подтверждён                                         |
+| `needs_review` | уверенность ниже порога, нужно подтверждение            |
+| `unknown`      | подходящего типа нет                                    |
+| `pending`      | модель была недоступна, запрос повторится перед аудитом |
 
 Если тип не подтверждён, автоматический аудит отвечает `409 audit_configuration_required` и не создаёт
 отчёт.
@@ -269,27 +269,27 @@ curl -s -X POST http://127.0.0.1:8000/api/documents/1/audit \
 Режимы выбора описаны в [`backend/README.md`](../backend/README.md#rule-selection). В `warnings` и
 `reason` предпросмотра и в поле `selection` отчёта встречаются:
 
-| Код                                | Значение                                           |
-|------------------------------------|----------------------------------------------------|
-| `document_type_unknown`            | тип определить не удалось                          |
-| `classification_low_confidence`    | есть кандидаты, но тип не подтверждён              |
-| `manual_selection_required`        | нужно подтвердить тип или выбрать правила          |
-| `no_applicable_rules`              | подходящих правил нет (`409`)                      |
-| `rules_with_unknown_applicability` | есть правила с неизвестной применимостью           |
-| `all_mode_false_positive_risk`     | режим `all` может дать ложные нарушения            |
-| `rule_included_by_user`            | правило выбрано вручную                            |
-| `rule_selected_by_legal_act`       | правило выбрано через его НПА                      |
-| `rule_selected_by_all_mode`        | правило выбрано режимом `all`                      |
-| `rule_universal`                   | правило универсальное                              |
-| `rule_matched_document_type`       | правило совпало по типу документа                  |
-| `rule_excluded_by_user`            | правило исключено вручную                          |
-| `rule_excluded_by_document_type`   | правило относится к другому типу                   |
-| `rule_excluded_by_legal_act_scope` | НПА правила не входит в выбранные                  |
-| `rule_manual_only`                 | правило применяется только при ручном выборе       |
-| `rule_applicability_unknown`       | применимость правила неизвестна                    |
-| `rule_inactive`                    | правило отключено                                  |
-| `rag_candidate_below_threshold`    | RAG-кандидат ниже порога; на выбор не влияет       |
-| `rag_unavailable`                  | RAG недоступен; проверки правил продолжаются       |
+| Код                                | Значение                                     |
+|------------------------------------|----------------------------------------------|
+| `document_type_unknown`            | тип определить не удалось                    |
+| `classification_low_confidence`    | есть кандидаты, но тип не подтверждён        |
+| `manual_selection_required`        | нужно подтвердить тип или выбрать правила    |
+| `no_applicable_rules`              | подходящих правил нет (`409`)                |
+| `rules_with_unknown_applicability` | есть правила с неизвестной применимостью     |
+| `all_mode_false_positive_risk`     | режим `all` может дать ложные нарушения      |
+| `rule_included_by_user`            | правило выбрано вручную                      |
+| `rule_selected_by_legal_act`       | правило выбрано через его НПА                |
+| `rule_selected_by_all_mode`        | правило выбрано режимом `all`                |
+| `rule_universal`                   | правило универсальное                        |
+| `rule_matched_document_type`       | правило совпало по типу документа            |
+| `rule_excluded_by_user`            | правило исключено вручную                    |
+| `rule_excluded_by_document_type`   | правило относится к другому типу             |
+| `rule_excluded_by_legal_act_scope` | НПА правила не входит в выбранные            |
+| `rule_manual_only`                 | правило применяется только при ручном выборе |
+| `rule_applicability_unknown`       | применимость правила неизвестна              |
+| `rule_inactive`                    | правило отключено                            |
+| `rag_candidate_below_threshold`    | RAG-кандидат ниже порога; на выбор не влияет |
+| `rag_unavailable`                  | RAG недоступен; проверки правил продолжаются |
 
 RAG только показывает связанные НПА со `score` и `threshold` и никогда не включает правило.
 
@@ -312,14 +312,14 @@ curl -s http://127.0.0.1:8000/api/reports/1 | jq .
 
 ## 7. Ошибки моделей
 
-| Ответ                          | Что делать                                                     |
-|--------------------------------|----------------------------------------------------------------|
-| `429 model_rate_limited`       | Лимит запросов: повторите через минуту                         |
-| `504 model_timeout`            | Модель не ответила вовремя: повторите запрос                   |
-| `503 model_provider_error`     | Аудит не выполнен: проверьте ключ, пресет и журнал             |
+| Ответ                            | Что делать                                                     |
+|----------------------------------|----------------------------------------------------------------|
+| `429 model_rate_limited`         | Лимит запросов: повторите через минуту                         |
+| `504 model_timeout`              | Модель не ответила вовремя: повторите запрос                   |
+| `503 model_provider_error`       | Аудит не выполнен: проверьте ключ, пресет и журнал             |
 | `503 classification_model_error` | Тип не определён: повторите запрос или подтвердите тип вручную |
-| `503 rule_extraction_error`    | Смотрите `/api/legal-acts/{id}/diagnostics`, затем `reprocess` |
-| `503 rag_index_error`          | Изменение сохранено, но индекс не пересобран                   |
+| `503 rule_extraction_error`      | Смотрите `/api/legal-acts/{id}/diagnostics`, затем `reprocess` |
+| `503 rag_index_error`            | Изменение сохранено, но индекс не пересобран                   |
 
 ## 8. Прямая проверка базы
 

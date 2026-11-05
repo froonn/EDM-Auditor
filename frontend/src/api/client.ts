@@ -40,6 +40,8 @@ export interface RequestOptions {
   /** Sent as multipart/form-data; the browser sets the boundary. */
   form?: FormData;
   signal?: AbortSignal;
+  /** The `Accept` header; JSON unless a file is downloaded. */
+  accept?: string;
 }
 
 export interface Page<T> {
@@ -60,7 +62,7 @@ export function buildUrl(path: string, query?: RequestOptions["query"]): string 
 }
 
 async function send(path: string, options: RequestOptions): Promise<Response> {
-  const headers = new Headers({ Accept: "application/json" });
+  const headers = new Headers({ Accept: options.accept ?? "application/json" });
   let body: BodyInit | undefined;
   if (options.form) {
     body = options.form;
@@ -132,6 +134,36 @@ export async function apiRequestPage<T>(path: string, options: RequestOptions = 
     throw new ApiError(response.status, CLIENT_ERROR_CODES.unexpected, "Missing X-Total-Count");
   }
   return { items, total };
+}
+
+export interface DownloadedFile {
+  blob: Blob;
+  fileName: string;
+}
+
+/** A file answer: the name comes from `Content-Disposition`, errors are handled as everywhere. */
+export async function apiDownload(
+  path: string,
+  fallbackName: string,
+  options: RequestOptions = {},
+): Promise<DownloadedFile> {
+  const response = await send(path, { accept: "*/*", ...options });
+  const fileName = fileNameFromDisposition(response.headers.get("Content-Disposition")) ?? fallbackName;
+  return { blob: await response.blob(), fileName };
+}
+
+/** Prefers the UTF-8 name of RFC 5987 (`filename*`) over the plain ASCII one. */
+export function fileNameFromDisposition(header: string | null): string | undefined {
+  if (!header) return undefined;
+  const encoded = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(header)?.[1];
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded.trim());
+    } catch {
+      // A malformed name falls back to the plain one.
+    }
+  }
+  return /filename\s*=\s*"([^"]+)"/i.exec(header)?.[1] ?? /filename\s*=\s*([^;\s]+)/i.exec(header)?.[1];
 }
 
 /** Any thrown value as an ApiError, so the screens handle every failure the same way. */

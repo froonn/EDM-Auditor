@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from collections.abc import Callable
 from pathlib import Path
 from uuid import uuid4
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import FastAPI, File, Form, Query, Response, UploadFile
 from fastapi.concurrency import run_in_threadpool
@@ -85,6 +86,11 @@ from edm_auditor.model_providers import (
     create_rule_extraction_provider,
 )
 from edm_auditor.model_providers import create_embedding_provider
+from edm_auditor.report_export import (
+    EXPORT_FORMATS,
+    ExportedDocument,
+    export_report,
+)
 from edm_auditor.rule_validation import (
     RuleValidationError,
     validate_generated_rule,
@@ -889,6 +895,43 @@ def create_app(
             if report is None:
                 raise ApiError(404, "report_not_found", "Audit report does not exist")
             return _report_response(report)
+
+    @app.get(
+        "/api/reports/{report_id}/export",
+        response_class=Response,
+        responses={200: {"content": {"text/html": {}}, "description": "The report file"}},
+    )
+    def export_report_file(
+        report_id: int,
+        export_format: str = Query(default="html", alias="format"),
+        timezone: str = Query(default="UTC", max_length=100),
+    ) -> Response:
+        """Download the report as a file; dates are shown in the given IANA time zone."""
+        if export_format not in EXPORT_FORMATS:
+            raise ApiError(
+                422,
+                "unsupported_export_format",
+                f"Supported formats: {', '.join(EXPORT_FORMATS)}",
+            )
+        try:
+            zone = ZoneInfo(timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ApiError(422, "invalid_timezone", f"Unknown time zone: {timezone}") from exc
+        with session_factory() as session:
+            report = session.get(AuditReport, report_id)
+            if report is None:
+                raise ApiError(404, "report_not_found", "Audit report does not exist")
+            document = ExportedDocument(
+                title=report.document.title,
+                file_type=report.document.file_type,
+                text=report.document.raw_text,
+            )
+            exported = export_report(_report_response(report), document, export_format, zone)
+        return Response(
+            content=exported.content,
+            media_type=exported.media_type,
+            headers={"Content-Disposition": exported.content_disposition},
+        )
 
     @app.get("/api/reports", response_model=list[ReportListResponse])
     def list_reports(

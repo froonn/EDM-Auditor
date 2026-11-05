@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, apiRequest, apiRequestPage, asApiError, buildUrl } from "./client";
+import { ApiError, apiDownload, apiRequest, apiRequestPage, asApiError, buildUrl, fileNameFromDisposition } from "./client";
 
 function mockFetch(response: Response | Error | DOMException) {
   const fetchMock = vi.fn(async () => {
@@ -116,5 +116,29 @@ describe("asApiError", () => {
     expect(asApiError(new Error("boom"))).toMatchObject({ code: "unknown", serverMessage: "boom" });
     const original = new ApiError(404, "rule_not_found");
     expect(asApiError(original)).toBe(original);
+  });
+});
+
+describe("file downloads", () => {
+  it("prefers the UTF-8 file name and falls back to the plain one", () => {
+    expect(fileNameFromDisposition(`attachment; filename="a.html"; filename*=UTF-8''%D0%BE%D1%82%D1%87%D1%91%D1%82.html`)).toBe(
+      "отчёт.html",
+    );
+    expect(fileNameFromDisposition('attachment; filename="a.html"')).toBe("a.html");
+    expect(fileNameFromDisposition("attachment; filename=b.html")).toBe("b.html");
+    expect(fileNameFromDisposition(`attachment; filename="c.html"; filename*=UTF-8''%E0%A4%A`)).toBe("c.html");
+    expect(fileNameFromDisposition(null)).toBeUndefined();
+  });
+
+  it("returns the body as a file and reads errors like other requests", async () => {
+    const fetchMock = mockFetch(new Response("<html>", { headers: { "Content-Type": "text/html" } }));
+    const file = await apiDownload("/api/reports/1/export", "fallback.html");
+    expect(file.fileName).toBe("fallback.html");
+    expect(await file.blob.text()).toBe("<html>");
+    const headers = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].headers as Headers;
+    expect(headers.get("Accept")).toBe("*/*");
+
+    mockFetch(json({ error: { code: "report_not_found", message: "missing" } }, { status: 404 }));
+    await expect(apiDownload("/api/reports/1/export", "f.html")).rejects.toMatchObject({ code: "report_not_found" });
   });
 });

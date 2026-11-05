@@ -40,6 +40,10 @@ export interface AuditSelection {
   confirm_all: boolean;
 }
 
+/** Report file formats of `GET /api/reports/{id}/export`; PDF and DOCX are planned for the diploma. */
+export type ExportFormat = "html";
+export const EXPORT_FORMATS: readonly ExportFormat[] = ["html"];
+
 export type Severity = "critical" | "high" | "medium" | "low";
 /** From the most to the least severe. */
 export const SEVERITIES: readonly Severity[] = ["critical", "high", "medium", "low"];

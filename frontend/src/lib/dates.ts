@@ -9,3 +9,8 @@ export function parseApiDate(value: string | Date): Date {
   const hasTime = value.includes("T");
   return new Date(hasTime && !OFFSET_SUFFIX.test(value) ? `${value}Z` : value);
 }
+
+/** The IANA zone of the browser, so files made on the server show the same times as the screen. */
+export function browserTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+}
