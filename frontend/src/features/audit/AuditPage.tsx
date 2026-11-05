@@ -142,12 +142,6 @@ function ReportView({
   const view = useMemo(() => toReportView(report), [report]);
   const [visible, setVisible] = useState<ReadonlySet<Severity>>(() => new Set(SEVERITIES));
   const [showPassed, setShowPassed] = useState(false);
-  // Rule details for the passed rules are read only when the user opens that list.
-  const currentRules = useQuery({
-    queryKey: queryKeys.allRules,
-    queryFn: ({ signal }) => api.rules.all(signal),
-    enabled: showPassed,
-  });
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<number>>(() => new Set());
   const marks = useRef(new Map<number, HTMLElement>());
   const cards = useRef(new Map<number, HTMLElement>());
@@ -266,7 +260,7 @@ function ReportView({
               registerCard={registerCard}
             />
           )}
-          {showPassed && <PassedRules rules={view.passedRules} current={currentRules} />}
+          {showPassed && <PassedRules rules={view.passedRules} />}
         </section>
       </div>
 

@@ -106,13 +106,14 @@ header.
 
 ### Rules
 
-| Method and path                       | Purpose                                                                                           |
-|---------------------------------------|---------------------------------------------------------------------------------------------------|
-| `GET /api/rules`                      | List rules, paginated. Filters: `is_active`, `document_type`, `check_type`, `applicability_scope` |
-| `POST /api/rules`                     | Create a rule                                                                                     |
-| `PATCH /api/rules/{id}`               | Change `name`, `description`, `severity`, `check_type`, `parameters` or `is_active`               |
-| `PATCH /api/rules/{id}/applicability` | Set the scope and document types manually                                                         |
-| `DELETE /api/rules/{id}`              | Delete a rule; its findings stay in reports                                                       |
+| Method and path                       | Purpose                                                                                                           |
+|---------------------------------------|-------------------------------------------------------------------------------------------------------------------|
+| `GET /api/rules`                      | List rules, paginated. Filters: `is_active`, `document_type`, `check_type`, `applicability_scope`, `legal_act_id` |
+| `GET /api/rules/{id}`                 | One rule                                                                                                          |
+| `POST /api/rules`                     | Create a rule                                                                                                     |
+| `PATCH /api/rules/{id}`               | Change `name`, `description`, `severity`, `check_type`, `parameters` or `is_active`                               |
+| `PATCH /api/rules/{id}/applicability` | Set the scope and document types manually                                                                         |
+| `DELETE /api/rules/{id}`              | Delete a rule; its findings stay in reports                                                                       |
 
 Check types and their parameters:
 

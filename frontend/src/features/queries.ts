@@ -20,7 +20,9 @@ export const queryKeys = {
   anyLegalAct: ["legalAct"] as const,
   diagnostics: (id: number) => ["legalAct", id, "diagnostics"] as const,
   activeRules: ["rules", "active"] as const,
-  allRules: ["rules", "all"] as const,
+  legalActRules: (legalActId: number) => ["rules", "legalAct", legalActId] as const,
+  /** Under "rules", so every catalog change refreshes it too. */
+  rule: (id: number) => ["rules", "one", id] as const,
   anyRules: ["rules"] as const,
   rulePage: (request: object) => ["rules", "page", request] as const,
   catalog: ["documentTypes", "catalog"] as const,

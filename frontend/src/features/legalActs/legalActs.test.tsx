@@ -123,6 +123,20 @@ describe("legal act page", () => {
     expect(screen.getByText("Ошибка")).toBeInTheDocument();
   });
 
+  it("asks the server for the rules of this act only", async () => {
+    const api = routes({
+      "GET /api/rules": () =>
+        page([
+          { id: 5, rule_code: "ACT-5", name: "Срок уведомления", severity: "high", check_type: "duration", parameters: {}, is_active: true, legal_act_id: 1, is_generated: true },
+        ]),
+    });
+    renderApp("/legal-acts/1");
+    expect(await screen.findByText("Срок уведомления")).toBeInTheDocument();
+    const requests = api.calls.filter((call) => call.path === "/api/rules");
+    expect(requests.length).toBeGreaterThan(0);
+    expect(requests.every((call) => call.url.searchParams.get("legal_act_id") === "1")).toBe(true);
+  });
+
   it("sends only the changed fields", async () => {
     const api = routes({ "PATCH /api/legal-acts/1": () => json(act()) });
     renderApp("/legal-acts/1");

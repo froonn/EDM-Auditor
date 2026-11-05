@@ -2150,3 +2150,37 @@ def test_report_export_downloads_html_and_validates_parameters(tmp_path: Path) -
     missing = client.get("/api/reports/999/export")
     assert missing.status_code == 404
     assert missing.json()["error"]["code"] == "report_not_found"
+
+
+def test_one_rule_is_read_by_id(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    rule = client.post(
+        "/api/rules", json=_rule_payload("single", "запрет", applicability_scope="universal")
+    ).json()
+    client.post("/api/rules", json=_rule_payload("other", "другое"))
+
+    response = client.get(f"/api/rules/{rule['id']}")
+
+    assert response.status_code == 200
+    assert response.json() == rule
+    assert client.delete(f"/api/rules/{rule['id']}").status_code == 204
+    missing = client.get(f"/api/rules/{rule['id']}")
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "rule_not_found"
+
+
+def test_rules_filter_by_legal_act(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    act = client.post(
+        "/api/legal-acts", json={"code": "ACT-F", "title": "Act", "article_text": "Text"}
+    ).json()
+    own = client.post(
+        "/api/rules", json={**_rule_payload("own", "слово"), "legal_act_id": act["id"]}
+    ).json()
+    client.post("/api/rules", json=_rule_payload("free", "слово"))
+
+    response = client.get(f"/api/rules?legal_act_id={act['id']}")
+
+    assert [item["id"] for item in response.json()] == [own["id"]]
+    assert response.headers["X-Total-Count"] == "1"
+    assert client.get("/api/rules?legal_act_id=999").json() == []

@@ -166,6 +166,11 @@ export function fileNameFromDisposition(header: string | null): string | undefin
   return /filename\s*=\s*"([^"]+)"/i.exec(header)?.[1] ?? /filename\s*=\s*([^;\s]+)/i.exec(header)?.[1];
 }
 
+/** True for an API error with the given code, for example `rule_not_found`. */
+export function hasErrorCode(error: unknown, code: string): boolean {
+  return error instanceof ApiError && error.code === code;
+}
+
 /** Any thrown value as an ApiError, so the screens handle every failure the same way. */
 export function asApiError(error: unknown): ApiError {
   if (error instanceof ApiError) return error;

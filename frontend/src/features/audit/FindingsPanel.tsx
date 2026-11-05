@@ -1,11 +1,14 @@
-import type { UseQueryResult } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, CircleCheck } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
-import { isSeverity, type Rule } from "@/api/types";
+import { hasErrorCode } from "@/api/client";
+import { api } from "@/api/endpoints";
+import { isSeverity } from "@/api/types";
 import { SeverityBadge } from "@/components/badges";
 import { ErrorAlert } from "@/components/ErrorAlert";
 import { Badge } from "@/components/ui/badge";
+import { queryKeys } from "@/features/queries";
 import { useI18n } from "@/i18n";
 import { cn } from "@/lib/utils";
 
@@ -143,12 +146,12 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 /**
  * Applied rules that gave no finding. The report keeps only their name and code, so the details come
- * from the current rules. Which text satisfied each rule is not stored by the audit.
+ * from the current rule, read when its card is opened. Which text satisfied each rule is not stored by
+ * the audit.
  */
-export function PassedRules({ rules, current }: { rules: PassedRule[] | null; current: UseQueryResult<Rule[]> }) {
+export function PassedRules({ rules }: { rules: PassedRule[] | null }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
-  const byId = new Map((current.data ?? []).map((rule) => [rule.id, rule]));
   const toggle = (key: string) =>
     setExpanded((keys) => {
       const next = new Set(keys);
@@ -185,11 +188,7 @@ export function PassedRules({ rules, current }: { rules: PassedRule[] | null; cu
                     </div>
                   }
                 >
-                  <PassedRuleCard
-                    rule={rule}
-                    current={rule.ruleId === undefined ? undefined : byId.get(rule.ruleId)}
-                    query={current}
-                  />
+                  <PassedRuleCard rule={rule} />
                 </Expandable>
               </li>
             );
@@ -200,21 +199,23 @@ export function PassedRules({ rules, current }: { rules: PassedRule[] | null; cu
   );
 }
 
-function PassedRuleCard({
-  rule,
-  current,
-  query,
-}: {
-  rule: PassedRule;
-  current: Rule | undefined;
-  query: UseQueryResult<Rule[]>;
-}) {
+/** Rendered only while the card is open, so each opened rule is one request. */
+function PassedRuleCard({ rule }: { rule: PassedRule }) {
   const { t } = useI18n();
+  const { ruleId } = rule;
+  const query = useQuery({
+    queryKey: queryKeys.rule(ruleId ?? 0),
+    queryFn: ({ signal }) => api.rules.get(ruleId!, signal),
+    enabled: ruleId !== undefined,
+  });
+  // The rule may have been deleted since the audit; its id is then empty or unknown.
+  const deleted = ruleId === undefined || hasErrorCode(query.error, "rule_not_found");
+  const current = query.data;
   return (
     <dl className="space-y-3 pt-3 text-sm">
-      {query.isPending && <p role="status">{t("table.loading")}</p>}
-      {query.isError && <ErrorAlert error={query.error} onRetry={() => void query.refetch()} />}
-      {query.isSuccess && !current && <p className="text-muted-foreground">{t("audit.passedDeleted")}</p>}
+      {!deleted && query.isPending && <p role="status">{t("table.loading")}</p>}
+      {!deleted && query.isError && <ErrorAlert error={query.error} onRetry={() => void query.refetch()} />}
+      {deleted && <p className="text-muted-foreground">{t("audit.passedDeleted")}</p>}
       {current && (
         <>
           <Field label={t("finding.description")}>{current.description || current.name}</Field>

@@ -147,7 +147,7 @@ describe("deactivated document types", () => {
   it("lists a deactivated type in the applicability form so it can be unchecked", async () => {
     const api = mockApi({
       ...withInactive,
-      "GET /api/rules": () => page([rule({ document_types: ["expense_report", "payroll_order"] })]),
+      "GET /api/rules/1": () => json(rule({ document_types: ["expense_report", "payroll_order"] })),
       "PATCH /api/rules/1/applicability": () => json(rule({ document_types: ["payroll_order"] })),
     });
     renderApp("/rules/1");
@@ -167,7 +167,7 @@ describe("deactivated document types", () => {
 
 describe("rule form", () => {
   it("edits a generated rule and warns that reprocessing replaces it", async () => {
-    const api = mockApi({ ...base, "GET /api/rules": () => page([rule()]), "PATCH /api/rules/1": () => json(rule()) });
+    const api = mockApi({ ...base, "GET /api/rules/1": () => json(rule()), "PATCH /api/rules/1": () => json(rule()) });
     renderApp("/rules/1");
     expect(await screen.findByText(/ваши изменения пропадут/)).toBeInTheDocument();
     expect(screen.getByText("Работодатель обязан уведомить не позднее 10 дней.")).toBeInTheDocument();
@@ -188,7 +188,7 @@ describe("rule form", () => {
   it("creates a keyword rule with a recommendation and its applicability", async () => {
     const api = mockApi({
       ...base,
-      "GET /api/rules": () => page([rule({ id: 7, rule_code: "MY-1", name: "Подпись", is_generated: false })]),
+      "GET /api/rules/7": () => json(rule({ id: 7, rule_code: "MY-1", name: "Подпись", is_generated: false })),
       "POST /api/rules": () => json(rule({ id: 7 }), 201),
     });
     renderApp("/rules/new");
@@ -221,7 +221,7 @@ describe("rule form", () => {
   it("shows which parameter the server rejected", async () => {
     mockApi({
       ...base,
-      "GET /api/rules": () => page([rule({ check_type: "regex", parameters: { pattern: "(" } })]),
+      "GET /api/rules/1": () => json(rule({ check_type: "regex", parameters: { pattern: "(" } })),
       "PATCH /api/rules/1": () => apiError(422, "invalid_rule_parameters", "invalid regex: missing )"),
     });
     renderApp("/rules/1");
@@ -232,7 +232,7 @@ describe("rule form", () => {
   });
 
   it("rejects a value that is not a number without sending it", async () => {
-    const api = mockApi({ ...base, "GET /api/rules": () => page([rule()]) });
+    const api = mockApi({ ...base, "GET /api/rules/1": () => json(rule()) });
     renderApp("/rules/1");
     const min = await screen.findByLabelText("Не меньше, дней");
     await userEvent.clear(min);
@@ -242,10 +242,20 @@ describe("rule form", () => {
     expect(api.calls.some((call) => call.method === "PATCH")).toBe(false);
   });
 
+  it("reads only the opened rule and shows a missing one as not found", async () => {
+    const api = mockApi({ ...base, "GET /api/rules/1": () => json(rule()), "GET /api/rules/2": () => apiError(404, "rule_not_found") });
+    renderApp("/rules/1");
+    expect(await screen.findByLabelText("Не меньше, дней")).toBeInTheDocument();
+    expect(api.calls.some((call) => call.path === "/api/rules")).toBe(false);
+
+    renderApp("/rules/2");
+    expect(await screen.findByText(/Страница не найдена/)).toBeInTheDocument();
+  });
+
   it("changes the applicability separately", async () => {
     const api = mockApi({
       ...base,
-      "GET /api/rules": () => page([rule()]),
+      "GET /api/rules/1": () => json(rule()),
       "PATCH /api/rules/1/applicability": () => json(rule({ applicability_scope: "universal", document_types: [] })),
     });
     renderApp("/rules/1");

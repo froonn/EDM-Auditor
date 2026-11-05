@@ -227,15 +227,17 @@ function Diagnostics({ id }: { id: number }) {
 
 function ActRules({ id }: { id: number }) {
   const { t } = useI18n();
-  const rules = useQuery({ queryKey: queryKeys.allRules, queryFn: ({ signal }) => api.rules.all(signal) });
-  const own = rules.data?.filter((rule) => rule.legal_act_id === id);
+  const rules = useQuery({
+    queryKey: queryKeys.legalActRules(id),
+    queryFn: ({ signal }) => api.rules.forLegalAct(id, signal),
+  });
   return (
     <Panel title={t("legalActs.rules")}>
       {rules.isError ? (
         <ErrorAlert error={rules.error} onRetry={() => void rules.refetch()} />
       ) : (
         <DataTable
-          rows={own}
+          rows={rules.data}
           rowKey={(rule) => rule.id}
           isLoading={rules.isPending}
           emptyText={t("legalActs.rulesEmpty")}

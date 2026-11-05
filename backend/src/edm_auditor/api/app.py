@@ -980,6 +980,7 @@ def create_app(
         document_type: str | None = None,
         check_type: str | None = None,
         applicability_scope: ApplicabilityScope | None = None,
+        legal_act_id: int | None = None,
         limit: int = Query(default=50, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
     ) -> list[RuleResponse]:
@@ -997,12 +998,22 @@ def create_app(
                 statement = statement.where(
                     AuditRule.applicability_scope == applicability_scope.value
                 )
+            if legal_act_id is not None:
+                statement = statement.where(AuditRule.legal_act_id == legal_act_id)
             _set_total_count(session, response, statement)
             statement = statement.order_by(AuditRule.id).offset(offset).limit(limit)
             return [
                 _rule_response(rule)
                 for rule in session.scalars(statement).all()
             ]
+
+    @app.get("/api/rules/{rule_id}", response_model=RuleResponse)
+    def get_rule(rule_id: int) -> RuleResponse:
+        with session_factory() as session:
+            rule = session.get(AuditRule, rule_id)
+            if rule is None:
+                raise ApiError(404, "rule_not_found", "Audit rule does not exist")
+            return _rule_response(rule)
 
     @app.post("/api/rules", response_model=RuleResponse, status_code=201)
     def create_rule(payload: RuleCreate) -> RuleResponse:

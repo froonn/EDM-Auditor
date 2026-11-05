@@ -3,6 +3,7 @@ import { ArrowLeft } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
+import { hasErrorCode } from "@/api/client";
 import { api } from "@/api/endpoints";
 import {
   CHECK_TYPES,
@@ -31,14 +32,14 @@ export function RuleEditPage() {
   return Number.isInteger(ruleId) && ruleId > 0 ? <ExistingRule id={ruleId} /> : <NotFoundPage />;
 }
 
-/** The API has no endpoint for one rule, so the rule is taken from the full list. */
 function ExistingRule({ id }: { id: number }) {
   const { t } = useI18n();
-  const rules = useQuery({ queryKey: queryKeys.allRules, queryFn: ({ signal }) => api.rules.all(signal) });
-  if (rules.isError) return <ErrorAlert error={rules.error} onRetry={() => void rules.refetch()} />;
-  if (!rules.data) return <p role="status">{t("table.loading")}</p>;
-  const rule = rules.data.find((item) => item.id === id);
-  return rule ? <RuleScreen key={rule.id} rule={rule} /> : <NotFoundPage />;
+  const rule = useQuery({ queryKey: queryKeys.rule(id), queryFn: ({ signal }) => api.rules.get(id, signal) });
+  // A deleted rule, or an address typed by hand.
+  if (hasErrorCode(rule.error, "rule_not_found")) return <NotFoundPage />;
+  if (rule.isError) return <ErrorAlert error={rule.error} onRetry={() => void rule.refetch()} />;
+  if (!rule.data) return <p role="status">{t("table.loading")}</p>;
+  return <RuleScreen key={rule.data.id} rule={rule.data} />;
 }
 
 function RuleScreen({ rule }: { rule: Rule | null }) {
