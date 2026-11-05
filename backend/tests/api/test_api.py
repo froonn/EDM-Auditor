@@ -15,6 +15,7 @@ from edm_auditor.database.models import (
     AuditReport,
     AuditRule,
     Document,
+    DocumentParagraph,
     LegalAct,
     RuleExtractionResult,
 )
@@ -1812,3 +1813,238 @@ def test_every_error_uses_the_same_format(tmp_path: Path) -> None:
     assert message.startswith("query.limit:")
     assert "File" not in message
     assert "ZeroDivisionError" not in responses["internal_error"].text
+
+
+def _audited_act(client: TestClient, monkeypatch, text: str) -> tuple[dict, dict]:
+    """Publish one rule from an act, audit a document against it, and return both."""
+    monkeypatch.setattr(
+        "edm_auditor.api.app.create_rule_extraction_provider",
+        lambda config: _legal_act_extractor({"applicability_scope": "universal",
+                                             "document_types": [],
+                                             "applicability_confidence": 0.9,
+                                             "suggested_type_name": "",
+                                             "suggested_type_reason": ""}),
+    )
+    client = TestClient(create_app(
+        settings=client.app.state.settings, session_factory=client.app.state.session_factory
+    ))
+    _upload_act(client, 1)
+    document = _upload(client, text)
+    audit = client.post(f"/api/documents/{document['id']}/audit")
+    assert audit.status_code == 200
+    report = client.get(f"/api/reports/{audit.json()['report_id']}")
+    assert report.status_code == 200
+    return document, report.json()
+
+
+def test_report_links_findings_to_text_explanation_and_norm(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client = make_client(tmp_path)
+    document, report = _audited_act(client, monkeypatch, "Приказ о предоставлении отпуска.\n\nОтпуск составляет 10 дней.")
+
+    text = client.get(f"/api/documents/{document['id']}").json()["text"]
+    finding = report["findings"][0]
+    assert text[finding["start_char"] : finding["end_char"]] == finding["quote"]
+    assert [item["finding_key"] for item in report["neural_analyses"]] == [
+        finding["finding_key"]
+    ]
+    assert finding["rule_name"] == "Срок"
+    assert finding["rule_code"].startswith("ACT-")
+    assert (finding["legal_act_code"], finding["legal_act_title"]) == ("ACT", "Акт")
+    assert finding["norm_quote"] == "Пункт 0: срок не менее 24 дней."
+    # The list stays short: only the detail response carries the document text.
+    assert "text" not in client.get("/api/documents").json()[0]
+
+
+def test_report_keeps_the_norm_after_its_legal_act_is_deleted(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client = make_client(tmp_path)
+    _, report = _audited_act(client, monkeypatch, "Приказ о предоставлении отпуска.\n\nОтпуск составляет 10 дней.")
+    legal_act_id = report["findings"][0]["legal_act_id"]
+
+    assert client.delete(f"/api/legal-acts/{legal_act_id}").status_code == 204
+
+    kept = client.get(f"/api/reports/{report['id']}").json()["findings"][0]
+    assert kept["rule_id"] is None and kept["legal_act_id"] is None
+    for field in ("finding_key", "rule_code", "rule_name", "legal_act_code", "norm_quote"):
+        assert kept[field] == report["findings"][0][field]
+
+
+def test_report_by_id_reports_a_missing_report(tmp_path: Path) -> None:
+    response = make_client(tmp_path).get("/api/reports/404")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "report_not_found"
+
+
+def test_rule_can_be_edited_and_switched_off(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    rule = client.post(
+        "/api/rules", json=_rule_payload("edit", "запрет", applicability_scope="universal")
+    ).json()
+    document = _upload(client, "Приказ о предоставлении отпуска.\n\nЗдесь есть запрет.")
+    url = f"/api/rules/{rule['id']}"
+
+    updated = client.patch(
+        url,
+        json={"name": "Новое", "severity": "low", "description": "Текст",
+              "parameters": {"keywords": ["другое"]}},
+    )
+
+    assert updated.status_code == 200
+    assert {key: updated.json()[key] for key in ("name", "severity", "description")} == {
+        "name": "Новое", "severity": "low", "description": "Текст",
+    }
+    assert updated.json()["parameters"] == {"keywords": ["другое"]}
+    assert updated.json()["is_active"] is True
+
+    preview = f"/api/documents/{document['id']}/audit/preview"
+    assert client.post(preview).json()["selected_rule_ids"] == [rule["id"]]
+    assert client.patch(url, json={"is_active": False}).json()["is_active"] is False
+    assert client.post(preview).json()["selected_rule_ids"] == []
+    assert [item["id"] for item in client.get("/api/rules?is_active=false").json()] == [rule["id"]]
+
+
+@pytest.mark.parametrize(
+    ("payload", "status", "code"),
+    [
+        ({"severity": "urgent"}, 422, "invalid_severity"),
+        ({"check_type": "unknown"}, 422, "invalid_check_type"),
+        ({"check_type": "semantic", "parameters": {"query": "x"}}, 422, "unsupported_check_type"),
+        ({"parameters": {"keywords": []}}, 422, "invalid_rule_parameters"),
+        # The new type does not fit the parameters the rule already has.
+        ({"check_type": "duration"}, 422, "invalid_rule_parameters"),
+        ({"name": None}, 422, "validation_error"),
+        ({"is_active": None}, 422, "validation_error"),
+        ({"parameters": None}, 422, "validation_error"),
+    ],
+)
+def test_rule_update_rejects_invalid_values(
+    tmp_path: Path, payload: dict, status: int, code: str
+) -> None:
+    client = make_client(tmp_path)
+    rule = client.post("/api/rules", json=_rule_payload("bad", "слово")).json()
+
+    response = client.patch(f"/api/rules/{rule['id']}", json=payload)
+
+    assert response.status_code == status
+    assert response.json()["error"]["code"] == code
+    assert client.get("/api/rules").json()[0] == rule
+
+
+def test_rule_update_of_a_missing_rule_and_semantic_creation_are_refused(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+
+    assert client.patch("/api/rules/404", json={"name": "x"}).status_code == 404
+    created = client.post(
+        "/api/rules",
+        json={**_rule_payload("semantic", "x"), "check_type": "semantic",
+              "parameters": {"query": "срок"}},
+    )
+    assert created.status_code == 422
+    assert created.json()["error"]["code"] == "unsupported_check_type"
+
+
+def test_only_indexed_fields_of_an_act_rule_rebuild_the_index(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client = make_client(tmp_path)
+    _, report = _audited_act(client, monkeypatch, "Приказ о предоставлении отпуска.\n\nОтпуск составляет 10 дней.")
+    rule_id = report["findings"][0]["rule_id"]
+    rebuilds = []
+    monkeypatch.setattr(
+        "edm_auditor.api.app.create_embedding_provider",
+        lambda config: rebuilds.append(1) or DeterministicEmbeddingProvider(),
+    )
+
+    assert client.patch(f"/api/rules/{rule_id}", json={"severity": "low"}).status_code == 200
+    assert rebuilds == []
+    assert client.patch(f"/api/rules/{rule_id}", json={"name": "Другое"}).status_code == 200
+    assert rebuilds == [1]
+
+
+def test_document_is_deleted_with_its_file_and_reports(tmp_path: Path) -> None:
+    settings = ApiSettings(
+        database_url=f"sqlite:///{tmp_path / 'api.sqlite3'}",
+        upload_dir=tmp_path / "uploads",
+        rag_index_path=tmp_path / "rag-index.sqlite3",
+    )
+    with TestClient(create_app(settings=settings)) as client:
+        client.post(
+            "/api/rules", json=_rule_payload("del", "запрет", applicability_scope="universal")
+        )
+        kept = _upload(client, "Другой документ.")
+        document = _upload(client, "Приказ о предоставлении отпуска.\n\nЗдесь есть запрет.")
+        report_id = client.post(f"/api/documents/{document['id']}/audit").json()["report_id"]
+        assert len(list((tmp_path / "uploads").iterdir())) == 2
+
+        assert client.delete(f"/api/documents/{document['id']}").status_code == 204
+
+        assert client.get(f"/api/documents/{document['id']}").status_code == 404
+        assert client.delete(f"/api/documents/{document['id']}").status_code == 404
+        assert client.get(f"/api/reports/{report_id}").status_code == 404
+        assert [item["id"] for item in client.get("/api/documents").json()] == [kept["id"]]
+        assert len(list((tmp_path / "uploads").iterdir())) == 1
+        with client.app.state.session_factory() as session:
+            assert session.scalars(select(AuditFinding)).all() == []
+            paragraphs = session.scalars(select(DocumentParagraph)).all()
+            assert {item.document_id for item in paragraphs} == {kept["id"]}
+
+
+def test_deleting_a_document_keeps_a_file_outside_the_upload_directory(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    document = _upload(client, "Текст.")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("чужой файл", encoding="utf-8")
+    with client.app.state.session_factory.begin() as session:
+        session.get(Document, document["id"]).file_path = str(outside)
+
+    assert client.delete(f"/api/documents/{document['id']}").status_code == 204
+
+    assert outside.exists()
+
+
+def test_document_type_can_be_renamed(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+
+    updated = client.patch("/api/document-types/vacation_order", json={"name": "Отпуск"})
+
+    assert updated.status_code == 200
+    assert updated.json()["name"] == "Отпуск"
+    assert updated.json()["description"]
+    assert client.patch("/api/document-types/missing", json={"name": "x"}).status_code == 404
+    invalid = client.patch("/api/document-types/vacation_order", json={"description": None})
+    assert invalid.status_code == 422
+
+
+def test_lists_report_the_total_count_and_rules_filter_by_scope(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    for code in ("one", "two"):
+        client.post("/api/rules", json=_rule_payload(code, "запрет", applicability_scope="universal"))
+        client.post(
+            "/api/legal-acts", json={"code": code, "title": code, "article_text": "Текст."}
+        )
+        document = _upload(client, "Приказ о предоставлении отпуска.\n\nЗдесь есть запрет.")
+        client.post(f"/api/documents/{document['id']}/audit")
+    client.post(
+        "/api/rules",
+        json=_rule_payload("typed", "x", document_types=["vacation_order"]),
+    )
+
+    for url, total in (
+        ("/api/documents", 2),
+        ("/api/reports", 2),
+        ("/api/rules", 3),
+        ("/api/legal-acts", 2),
+        ("/api/rules?limit=1&applicability_scope=universal", 2),
+        ("/api/legal-acts?limit=1&search=one", 1),
+    ):
+        response = client.get(url if "limit" in url else f"{url}?limit=1")
+        assert len(response.json()) == 1, url
+        assert response.headers["X-Total-Count"] == str(total), url
+
+    typed = client.get("/api/rules", params={"applicability_scope": "typed"}).json()
+    assert [item["rule_code"] for item in typed] == ["typed"]
+    assert client.get("/api/rules?applicability_scope=wrong").status_code == 422

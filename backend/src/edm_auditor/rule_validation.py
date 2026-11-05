@@ -25,10 +25,10 @@ _FIELDS = {
 }
 _PARAMETER_FIELDS = {
     "min_days", "max_days", "entity", "min", "max", "before", "after",
-    "keywords", "mode", "match", "pattern", "query", "k", "threshold",
-    "recommendation",
+    "keywords", "mode", "match", "pattern", "recommendation",
 }
-_CHECK_TYPES = {"keyword", "regex", "numeric", "date", "duration", "semantic"}
+# Semantic rules are not executed yet, so a model must not create them.
+_GENERATED_CHECK_TYPES = {"keyword", "regex", "numeric", "date", "duration"}
 _SEVERITIES = {"low", "medium", "high", "critical"}
 _LANGUAGE_FIELDS = ("name", "description", "source_quote")
 
@@ -78,7 +78,7 @@ def validate_generated_rule(
         raise RuleValidationError("invalid_schema", "required rule fields cannot be empty")
     if payload["severity"] not in _SEVERITIES:
         raise RuleValidationError("invalid_schema", "unsupported severity")
-    if check_type not in _CHECK_TYPES:
+    if check_type not in _GENERATED_CHECK_TYPES:
         raise RuleValidationError("unsupported_check_type", f"unsupported check type: {check_type}")
     if location != source_location:
         raise RuleValidationError("invalid_schema", "source_location does not match the chunk")
@@ -214,9 +214,6 @@ def _validate_language(
     values: list[tuple[str, object]] = [(field, payload[field]) for field in _LANGUAGE_FIELDS]
     if isinstance(parameters.get("keywords"), list):
         values.extend(("keywords", value) for value in parameters["keywords"])
-    for field in ("query",):
-        if field in parameters:
-            values.append((field, parameters[field]))
     for field, value in values:
         if not isinstance(value, str):
             continue

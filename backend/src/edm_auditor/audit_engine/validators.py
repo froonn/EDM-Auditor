@@ -243,4 +243,5 @@ def _draft(
         deduplication_key=f"{rule.rule_code}:{start}:{end}:{description}",
         check_type=rule.check_type,
         norm_quote=rule.source_quote,
+        rule_name=rule.name,
     )

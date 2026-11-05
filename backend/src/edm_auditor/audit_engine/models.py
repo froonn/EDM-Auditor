@@ -57,6 +57,7 @@ class FindingDraft:
     source_context: dict[str, Any] | None = None
     check_type: str = ""
     norm_quote: str | None = None
+    rule_name: str = ""
 
 
 @dataclass(frozen=True, slots=True)

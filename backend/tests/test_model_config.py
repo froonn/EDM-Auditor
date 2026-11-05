@@ -82,7 +82,7 @@ def test_processing_config_is_loaded_from_model_config() -> None:
     assert settings.processing.max_response_tokens == 2000
     assert settings.processing.chunking.max_rules_per_chunk == 20
     assert settings.processing.source_language == "auto"
-    assert settings.processing.processing_version == "1"
+    assert settings.processing.processing_version == "2"
     assert settings.extractor is not None
     assert settings.extractor.request_timeout_seconds == 30
     assert settings.extractor.retry_attempts == 3

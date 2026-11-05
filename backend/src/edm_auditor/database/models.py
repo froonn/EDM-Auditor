@@ -361,6 +361,13 @@ class AuditFinding(Base):
     end_char: Mapped[int | None] = mapped_column(Integer, nullable=True)
     quote: Mapped[str | None] = mapped_column(Text, nullable=True)
     recommendation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Copies: the report must stay readable after its rule or legal act is deleted.
+    finding_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    rule_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    rule_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    legal_act_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    legal_act_title: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    norm_quote: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     report: Mapped[AuditReport] = relationship(back_populates="findings")
     rule: Mapped[AuditRule | None] = relationship(back_populates="findings")

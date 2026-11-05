@@ -9,9 +9,9 @@ max_rules_per_chunk = 20
 max_prompt_chars = 12000
 max_response_tokens = 2000
 source_language = "auto"
-extraction_schema_version = "1"
-prompt_version = "1"
-processing_version = "1"
+extraction_schema_version = "2"
+prompt_version = "2"
+processing_version = "2"
 
 [document_processing]
 # The classifier reads only the start and the end of a document.
@@ -102,7 +102,8 @@ structured_output = "json_schema"
 provider = "google-ai-studio"
 model = "gemini-3.1-flash-lite"
 api_key_env = "GEMINI_API_KEY"
-temperature = 0.2
+# Repeated extraction of one act should give the same rules and severities.
+temperature = 0
 # A document part with many numbers yields a long entity list.
 max_tokens = 8192
 structured_output = "json_schema"

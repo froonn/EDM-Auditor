@@ -6,6 +6,13 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
+def _kept_value(value: str | None) -> str:
+    """Leave a field out to keep it; a required field cannot be cleared."""
+    if value is None or not value.strip():
+        raise ValueError("value must not be null or blank")
+    return value
+
+
 class ErrorBody(BaseModel):
     code: str
     message: str
@@ -33,6 +40,16 @@ class DocumentTypeCreate(BaseModel):
     code: str = Field(pattern=r"^[a-z][a-z0-9_]*$", max_length=100)
     name: str = Field(min_length=1, max_length=255)
     description: str = Field(min_length=1)
+
+
+class DocumentTypeUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, min_length=1)
+
+    @field_validator("name", "description")
+    @classmethod
+    def _required_value_is_kept(cls, value: str | None) -> str:
+        return _kept_value(value)
 
 
 class DocumentTypeSuggestionResponse(BaseModel):
@@ -74,6 +91,12 @@ class DocumentResponse(BaseModel):
     automatic_classification: dict[str, Any] | None = None
     needs_configuration: bool = True
     created_at: datetime
+
+
+class DocumentDetailResponse(DocumentResponse):
+    """Finding offsets in a report refer to this text."""
+
+    text: str
 
 
 class AuditSelectionRequest(BaseModel):
@@ -149,6 +172,12 @@ class FindingResponse(BaseModel):
     quote: str | None
     recommendation: str | None
     source_context: dict[str, Any] | None = None
+    finding_key: str | None = None
+    rule_code: str | None = None
+    rule_name: str | None = None
+    legal_act_code: str | None = None
+    legal_act_title: str | None = None
+    norm_quote: str | None = None
 
 
 class NeuralAnalysisResponse(BaseModel):
@@ -185,6 +214,27 @@ class RuleCreate(BaseModel):
     document_types: list[str] = Field(default_factory=list)
     parameters: dict[str, Any] = Field(default_factory=dict)
     legal_act_id: int | None = None
+
+
+class RuleUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    severity: str | None = None
+    check_type: str | None = None
+    description: str | None = None
+    parameters: dict[str, Any] | None = None
+    is_active: bool | None = None
+
+    @field_validator("name", "severity", "check_type")
+    @classmethod
+    def _required_value_is_kept(cls, value: str | None) -> str:
+        return _kept_value(value)
+
+    @field_validator("description", "parameters", "is_active")
+    @classmethod
+    def _value_is_not_null(cls, value: Any) -> Any:
+        if value is None:
+            raise ValueError("value must not be null")
+        return value
 
 
 class RuleApplicabilityUpdate(BaseModel):
@@ -294,7 +344,4 @@ class LegalActUpdate(BaseModel):
     @field_validator("code", "title", "article_text")
     @classmethod
     def _required_value_is_kept(cls, value: str | None) -> str:
-        """Leave a field out to keep it; these fields cannot be cleared."""
-        if value is None or not value.strip():
-            raise ValueError("value must not be null or blank")
-        return value
+        return _kept_value(value)

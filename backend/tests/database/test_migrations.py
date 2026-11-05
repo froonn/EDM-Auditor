@@ -36,24 +36,28 @@ CREATE TABLE documents (
     raw_text TEXT NOT NULL, classified_type VARCHAR(100), status VARCHAR(20) NOT NULL,
     created_at DATETIME NOT NULL
 );
-CREATE TABLE legal_acts (id INTEGER PRIMARY KEY, code VARCHAR(100) NOT NULL);
+CREATE TABLE legal_acts (
+    id INTEGER PRIMARY KEY, code VARCHAR(100) NOT NULL, title VARCHAR(500)
+);
 CREATE TABLE audit_rules (
-    id INTEGER PRIMARY KEY, rule_code VARCHAR(100) NOT NULL UNIQUE,
-    document_type VARCHAR(100), is_generated BOOLEAN NOT NULL,
+    id INTEGER PRIMARY KEY, rule_code VARCHAR(100) NOT NULL UNIQUE, name VARCHAR(255),
+    source_quote TEXT, document_type VARCHAR(100), is_generated BOOLEAN NOT NULL,
     legal_act_id INTEGER REFERENCES legal_acts (id) ON DELETE CASCADE
 );
 CREATE TABLE audit_findings (
     id INTEGER PRIMARY KEY,
-    rule_id INTEGER REFERENCES audit_rules (id) ON DELETE SET NULL
+    rule_id INTEGER REFERENCES audit_rules (id) ON DELETE SET NULL,
+    legal_act_id INTEGER, start_char INTEGER, end_char INTEGER
 );
 INSERT INTO documents VALUES
     (1, NULL, 'Typed', 'txt', 'a.txt', '', 'contract', 'audited', '2026-01-01'),
     (2, NULL, 'Plain', 'txt', 'b.txt', '', NULL, 'uploaded', '2026-01-01');
 INSERT INTO audit_rules VALUES
-    (1, 'typed', 'contract', 0, NULL),
-    (2, 'manual', NULL, 0, NULL),
-    (3, 'generated', NULL, 1, NULL);
-INSERT INTO audit_findings VALUES (1, 3);
+    (1, 'typed', 'Typed', NULL, 'contract', 0, NULL),
+    (2, 'manual', 'Manual', NULL, NULL, 0, NULL),
+    (3, 'generated', 'Generated', 'Norm', NULL, 1, NULL);
+INSERT INTO legal_acts VALUES (1, 'ACT', 'Act');
+INSERT INTO audit_findings VALUES (1, 3, 1, 5, 9), (2, 3, NULL, NULL, NULL), (3, NULL, NULL, 1, 2);
 """
 
 
@@ -82,6 +86,13 @@ def test_upgrade_preserves_legacy_rule_scope_and_finding_links(tmp_path: Path) -
         assert connection.execute(
             "SELECT classification_status, classification_source FROM documents ORDER BY id"
         ).fetchall() == [("classified", "legacy"), (None, None)]
-        assert connection.execute("SELECT rule_id FROM audit_findings").fetchall() == [(3,)]
+        assert connection.execute(
+            "SELECT rule_id, finding_key, rule_name, norm_quote, legal_act_code, legal_act_title "
+            "FROM audit_findings ORDER BY id"
+        ).fetchall() == [
+            (3, "generated:5:9", "Generated", "Norm", "ACT", "Act"),
+            (3, "generated::", "Generated", "Norm", None, None),
+            (None, None, None, None, None, None),
+        ]
         columns = [row[1] for row in connection.execute("PRAGMA table_info(audit_rules)")]
         assert "document_type" not in columns

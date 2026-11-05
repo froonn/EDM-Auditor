@@ -9,7 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import FastAPI, File, Form, Query, UploadFile
+from fastapi import FastAPI, File, Form, Query, Response, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -106,10 +106,12 @@ from .schemas import (
     AuditRequestResponse,
     AuditSelectionRequest,
     ClassificationUpdate,
+    DocumentDetailResponse,
     DocumentTypeCreate,
     DocumentTypeResponse,
     DocumentTypeSuggestionAccept,
     DocumentTypeSuggestionResponse,
+    DocumentTypeUpdate,
     RagRecommendationResponse,
     RuleApplicabilityUpdate,
     RuleDecisionResponse,
@@ -123,6 +125,7 @@ from .schemas import (
     ReportListResponse,
     RuleCreate,
     RuleResponse,
+    RuleUpdate,
     LegalActDiagnosticsResponse,
     RuleExtractionDiagnosticResponse,
 )
@@ -137,6 +140,7 @@ NEEDS_REPROCESSING = "needs_reprocessing"
 RAG_RECOMMENDATION_THRESHOLD = 0.5
 RAG_RECOMMENDATION_LIMIT = 5
 RAG_QUERY_CHARS = 2000
+RAG_INDEXED_RULE_FIELDS = ("name", "description", "is_active")
 
 
 def _setup_file_logging(log_file: Path) -> None:
@@ -597,6 +601,18 @@ def create_app(
             session.flush()
             return DocumentTypeResponse.model_validate(document_type)
 
+    @app.patch("/api/document-types/{code}", response_model=DocumentTypeResponse)
+    def update_document_type(code: str, payload: DocumentTypeUpdate) -> DocumentTypeResponse:
+        """Models read the name and the description when they choose a type."""
+        with session_factory.begin() as session:
+            document_type = session.get(DocumentType, code)
+            if document_type is None:
+                raise ApiError(404, "document_type_not_found", "Document type does not exist")
+            for field, value in payload.model_dump(exclude_unset=True).items():
+                setattr(document_type, field, value)
+            session.flush()
+            return DocumentTypeResponse.model_validate(document_type)
+
     @app.get(
         "/api/document-type-suggestions",
         response_model=list[DocumentTypeSuggestionResponse],
@@ -661,11 +677,14 @@ def create_app(
 
     @app.get("/api/documents", response_model=list[DocumentResponse])
     def list_documents(
+        response: Response,
         limit: int = Query(default=50, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
     ) -> list[DocumentResponse]:
         with session_factory() as session:
-            statement = select(Document).order_by(Document.id.desc()).offset(offset).limit(limit)
+            statement = select(Document)
+            _set_total_count(session, response, statement)
+            statement = statement.order_by(Document.id.desc()).offset(offset).limit(limit)
             return [_document_response(item) for item in session.scalars(statement).all()]
 
     @app.post("/api/documents/upload", response_model=DocumentResponse, status_code=201)
@@ -702,13 +721,26 @@ def create_app(
         with session_factory() as session:
             return _document_response(session.get(Document, document_id))
 
-    @app.get("/api/documents/{document_id}", response_model=DocumentResponse)
-    def get_document(document_id: int) -> DocumentResponse:
+    @app.get("/api/documents/{document_id}", response_model=DocumentDetailResponse)
+    def get_document(document_id: int) -> DocumentDetailResponse:
         with session_factory() as session:
             document = session.get(Document, document_id)
             if document is None:
                 raise ApiError(404, "document_not_found", "Document does not exist")
-            return _document_response(document)
+            return DocumentDetailResponse(
+                **_document_response(document).model_dump(), text=document.raw_text
+            )
+
+    @app.delete("/api/documents/{document_id}", status_code=204)
+    def delete_document(document_id: int) -> None:
+        """Delete the document with its reports; the file goes once the data is gone."""
+        with session_factory.begin() as session:
+            document = session.get(Document, document_id)
+            if document is None:
+                raise ApiError(404, "document_not_found", "Document does not exist")
+            file_path = Path(document.file_path)
+            session.delete(document)
+        _remove_upload(file_path, config.upload_dir)
 
     @app.post(
         "/api/documents/{document_id}/classify",
@@ -841,56 +873,35 @@ def create_app(
             if report_id is not None:
                 statement = statement.where(AuditReport.id == report_id)
             else:
-                statement = statement.order_by(AuditReport.created_at.desc())
+                statement = statement.order_by(
+                    AuditReport.created_at.desc(), AuditReport.id.desc()
+                )
             report = session.scalar(statement)
             if report is None:
                 raise ApiError(404, "report_not_found", "Audit report does not exist")
-            summary = _parse_summary(report.summary)
-            contexts = summary.get("rag_contexts", [])
-            neural = summary.get("neural", {})
-            findings = [
-                FindingResponse(
-                    id=finding.id,
-                    rule_id=finding.rule_id,
-                    legal_act_id=finding.legal_act_id,
-                    severity=finding.severity,
-                    description=finding.description,
-                    start_char=finding.start_char,
-                    end_char=finding.end_char,
-                    quote=finding.quote,
-                    recommendation=finding.recommendation,
-                    source_context=(
-                        contexts[index] if index < len(contexts) else None
-                    ),
-                )
-                for index, finding in enumerate(report.findings)
-            ]
-            return ReportResponse(
-                id=report.id,
-                document_id=report.document_id,
-                total_findings=report.total_findings,
-                critical_count=report.critical_count,
-                high_count=report.high_count,
-                medium_count=report.medium_count,
-                low_count=report.low_count,
-                summary=summary,
-                created_at=report.created_at,
-                findings=findings,
-                neural_status=neural.get("status", "not_requested"),
-                neural_analyses=neural.get("analyses", []),
-                selection=summary.get("selection"),
-            )
+            return _report_response(report)
+
+    @app.get("/api/reports/{report_id}", response_model=ReportResponse)
+    def get_report_by_id(report_id: int) -> ReportResponse:
+        with session_factory() as session:
+            report = session.get(AuditReport, report_id)
+            if report is None:
+                raise ApiError(404, "report_not_found", "Audit report does not exist")
+            return _report_response(report)
 
     @app.get("/api/reports", response_model=list[ReportListResponse])
     def list_reports(
+        response: Response,
         limit: int = Query(default=50, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
     ) -> list[ReportListResponse]:
         with session_factory() as session:
+            statement = select(AuditReport, Document.title).join(
+                Document, Document.id == AuditReport.document_id
+            )
+            _set_total_count(session, response, statement)
             statement = (
-                select(AuditReport, Document.title)
-                .join(Document, Document.id == AuditReport.document_id)
-                .order_by(AuditReport.created_at.desc())
+                statement.order_by(AuditReport.created_at.desc(), AuditReport.id.desc())
                 .offset(offset)
                 .limit(limit)
             )
@@ -917,14 +928,16 @@ def create_app(
 
     @app.get("/api/rules", response_model=list[RuleResponse])
     def list_rules(
+        response: Response,
         is_active: bool | None = None,
         document_type: str | None = None,
         check_type: str | None = None,
+        applicability_scope: ApplicabilityScope | None = None,
         limit: int = Query(default=50, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
     ) -> list[RuleResponse]:
         with session_factory() as session:
-            statement = select(AuditRule).order_by(AuditRule.id).offset(offset).limit(limit)
+            statement = select(AuditRule)
             if is_active is not None:
                 statement = statement.where(AuditRule.is_active.is_(is_active))
             if document_type is not None:
@@ -933,6 +946,12 @@ def create_app(
                 )
             if check_type is not None:
                 statement = statement.where(AuditRule.check_type == check_type)
+            if applicability_scope is not None:
+                statement = statement.where(
+                    AuditRule.applicability_scope == applicability_scope.value
+                )
+            _set_total_count(session, response, statement)
+            statement = statement.order_by(AuditRule.id).offset(offset).limit(limit)
             return [
                 _rule_response(rule)
                 for rule in session.scalars(statement).all()
@@ -940,14 +959,8 @@ def create_app(
 
     @app.post("/api/rules", response_model=RuleResponse, status_code=201)
     def create_rule(payload: RuleCreate) -> RuleResponse:
-        if payload.severity not in {item.value for item in AuditSeverity}:
-            raise ApiError(422, "invalid_severity", "Unsupported severity")
-        if payload.check_type not in {item.value for item in CheckType}:
-            raise ApiError(422, "invalid_check_type", "Unsupported check type")
-        try:
-            validate_manual_rule_parameters(payload.check_type, payload.parameters)
-        except RuleValidationError as exc:
-            raise ApiError(422, "invalid_rule_parameters", str(exc)) from exc
+        _require_valid_severity(payload.severity)
+        _require_valid_check(payload.check_type, payload.parameters)
         with session_factory.begin() as session:
             if payload.legal_act_id is not None and session.get(
                 LegalAct, payload.legal_act_id
@@ -992,6 +1005,43 @@ def create_app(
             ) from exc
         return response
 
+    @app.patch("/api/rules/{rule_id}", response_model=RuleResponse)
+    def update_rule(rule_id: int, payload: RuleUpdate) -> RuleResponse:
+        changes = payload.model_dump(exclude_unset=True)
+        if "severity" in changes:
+            _require_valid_severity(changes["severity"])
+        with session_factory.begin() as session:
+            rule = session.get(AuditRule, rule_id)
+            if rule is None:
+                raise ApiError(404, "rule_not_found", "Audit rule does not exist")
+            if "check_type" in changes or "parameters" in changes:
+                _require_valid_check(
+                    changes.get("check_type", rule.check_type),
+                    changes.get("parameters", _parse_parameters(rule.parameters_json)),
+                )
+            indexed_change = any(
+                field in changes and changes[field] != getattr(rule, field)
+                for field in RAG_INDEXED_RULE_FIELDS
+            )
+            if "parameters" in changes:
+                rule.parameters_json = json.dumps(
+                    changes.pop("parameters"), ensure_ascii=False, sort_keys=True
+                )
+            for field, value in changes.items():
+                setattr(rule, field, value)
+            session.flush()
+            response = _rule_response(rule)
+            rebuild_index = indexed_change and rule.legal_act_id is not None
+        if rebuild_index:
+            try:
+                rebuild_rag_index()
+            except Exception as exc:
+                logger.exception("Could not rebuild RAG index after rule update")
+                raise ApiError(
+                    503, "rag_index_error", "Rule saved, but RAG index rebuild failed"
+                ) from exc
+        return response
+
     @app.patch("/api/rules/{rule_id}/applicability", response_model=RuleResponse)
     def update_rule_applicability(
         rule_id: int, payload: RuleApplicabilityUpdate
@@ -1026,17 +1076,20 @@ def create_app(
 
     @app.get("/api/legal-acts", response_model=list[LegalActResponse])
     def list_legal_acts(
+        response: Response,
         search: str | None = None,
         limit: int = Query(default=50, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
     ) -> list[LegalActResponse]:
         with session_factory() as session:
-            statement = select(LegalAct).order_by(LegalAct.id).offset(offset).limit(limit)
+            statement = select(LegalAct)
             if search:
                 pattern = f"%{search}%"
                 statement = statement.where(
                     (LegalAct.code.ilike(pattern)) | (LegalAct.title.ilike(pattern))
                 )
+            _set_total_count(session, response, statement)
+            statement = statement.order_by(LegalAct.id).offset(offset).limit(limit)
             return [
                 LegalActResponse.model_validate(item)
                 for item in session.scalars(statement).all()
@@ -1234,6 +1287,82 @@ def _validation_message(errors) -> str:
     )
 
 
+def _set_total_count(session: Session, response: Response, statement) -> None:
+    """The body stays a plain list; a paginated client reads the total from a header."""
+    total = session.scalar(select(func.count()).select_from(statement.subquery()))
+    response.headers["X-Total-Count"] = str(total)
+
+
+def _remove_upload(file_path: Path, upload_dir: Path) -> None:
+    """Delete only inside the upload directory; a leftover file does not fail the request."""
+    if not file_path.resolve().is_relative_to(upload_dir.resolve()):
+        logger.warning("Document file outside the upload directory was kept")
+        return
+    try:
+        file_path.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning("Could not delete a document file: %s", type(exc).__name__)
+
+
+def _require_valid_severity(severity: str) -> None:
+    if severity not in {item.value for item in AuditSeverity}:
+        raise ApiError(422, "invalid_severity", "Unsupported severity")
+
+
+def _require_valid_check(check_type: str, parameters: dict) -> None:
+    if check_type not in {item.value for item in CheckType}:
+        raise ApiError(422, "invalid_check_type", "Unsupported check type")
+    if check_type == CheckType.SEMANTIC.value:
+        raise ApiError(
+            422, "unsupported_check_type", "Semantic rules are not executed by the audit"
+        )
+    try:
+        validate_manual_rule_parameters(check_type, parameters)
+    except RuleValidationError as exc:
+        raise ApiError(422, "invalid_rule_parameters", str(exc)) from exc
+
+
+def _report_response(report: AuditReport) -> ReportResponse:
+    summary = _parse_summary(report.summary)
+    contexts = summary.get("rag_contexts", [])
+    neural = summary.get("neural", {})
+    return ReportResponse(
+        id=report.id,
+        document_id=report.document_id,
+        total_findings=report.total_findings,
+        critical_count=report.critical_count,
+        high_count=report.high_count,
+        medium_count=report.medium_count,
+        low_count=report.low_count,
+        summary=summary,
+        created_at=report.created_at,
+        findings=[
+            FindingResponse(
+                id=finding.id,
+                rule_id=finding.rule_id,
+                legal_act_id=finding.legal_act_id,
+                severity=finding.severity,
+                description=finding.description,
+                start_char=finding.start_char,
+                end_char=finding.end_char,
+                quote=finding.quote,
+                recommendation=finding.recommendation,
+                source_context=contexts[index] if index < len(contexts) else None,
+                finding_key=finding.finding_key,
+                rule_code=finding.rule_code,
+                rule_name=finding.rule_name,
+                legal_act_code=finding.legal_act_code,
+                legal_act_title=finding.legal_act_title,
+                norm_quote=finding.norm_quote,
+            )
+            for index, finding in enumerate(report.findings)
+        ],
+        neural_status=neural.get("status", "not_requested"),
+        neural_analyses=neural.get("analyses", []),
+        selection=summary.get("selection"),
+    )
+
+
 def _document_response(document: Document) -> DocumentResponse:
     classification = stored_classification(document)
     return DocumentResponse(
@@ -1376,7 +1505,10 @@ def _refresh_generated_rule_applicability(
 def _require_current_schema(engine) -> None:
     """``create_all`` cannot add columns, so report an outdated database at startup."""
     columns = {item["name"] for item in inspect_schema(engine).get_columns("audit_rules")}
-    if "applicability_auto" not in columns:
+    finding_columns = {
+        item["name"] for item in inspect_schema(engine).get_columns("audit_findings")
+    }
+    if "applicability_auto" not in columns or "finding_key" not in finding_columns:
         raise RuntimeError(
             "The database schema is outdated. Back it up and run "
             "'alembic upgrade head' (for a database that has no alembic_version table, "

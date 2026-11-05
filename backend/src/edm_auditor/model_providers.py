@@ -100,7 +100,7 @@ RULE_EXTRACTION_SCHEMA = {
                     },
                     "check_type": {
                         "type": "string",
-                        "enum": ["keyword", "regex", "numeric", "date", "duration", "semantic"],
+                        "enum": ["keyword", "regex", "numeric", "date", "duration"],
                     },
                     "parameters": {
                         "type": "object",
@@ -128,9 +128,6 @@ RULE_EXTRACTION_SCHEMA = {
                                 "enum": ["literal", "stem", "regex"],
                             },
                             "pattern": {"type": "string"},
-                            "query": {"type": "string"},
-                            "k": {"type": "integer"},
-                            "threshold": {"type": "number"},
                         },
                         "additionalProperties": False,
                     },
@@ -251,6 +248,16 @@ def build_classification_prompt(
         f"<title>{title}</title>\n<filename>{filename}</filename>\n"
         f"<document>\n{text}\n</document>"
     )
+
+
+# The same norm must get the same severity on every run, so the choice follows fixed criteria.
+RULE_SEVERITY_PROMPT = (
+    "\n\nseverity выбери по первому подходящему пункту, не по тону формулировки:\n"
+    "- critical: норма прямо запрещает условие или называет его недействительным;\n"
+    "- high: норма задаёт срок, размер, сумму или другое числовое значение;\n"
+    "- medium: норма требует включить в документ условие или сведения;\n"
+    "- low: норма касается только оформления документа.\n"
+)
 
 
 def _rule_applicability_prompt(
@@ -518,7 +525,7 @@ class OpenAICompatibleRuleExtractionProvider:
             "массив rules.\n\n"
             f"source_language={source_language}; output_language={source_language}; "
             f"source_location={source_location}.\n"
-            "Для русского источника не переводи name, description, keywords, query "
+            "Для русского источника не переводи name, description, keywords "
             "и source_quote: сохраняй язык источника.\n\n"
             "The check_type and parameters must match these exact validator contracts:\n"
             '- duration: parameters must contain "min_days" and/or "max_days" as '
@@ -533,14 +540,14 @@ class OpenAICompatibleRuleExtractionProvider:
             "\"stem\" for inflected word forms.\n"
             '- regex: parameters must contain a non-empty "pattern" string. Use '
             "this only when an exact regular-expression requirement is stated.\n"
-            '- semantic: parameters must contain the semantic rule configuration '
-            "supported by the audit engine.\n\n"
+            "Do not create a rule for a requirement that these types cannot check.\n\n"
             "Never use generic parameters such as field, operator, unit, or value. "
             "For example, convert 'vacation must be at least 24 calendar days' to "
             'check_type "duration" with {"min_days": 24}, not to a numeric rule '
             'with {"field": "...", "operator": ">=", "unit": "...", "value": 24}. '
             "Для каждого правила обязательно верни точный source_quote из chunk и "
             "source_location."
+            f"{RULE_SEVERITY_PROMPT}"
             f"{_rule_applicability_prompt(document_types, legal_act_title)}"
             "Верни только JSON.\nChunk:\n"
             f"{text}"
@@ -765,15 +772,16 @@ class GoogleAIStudioRuleExtractionProvider:
             'contracts: duration uses min_days/max_days; numeric uses entity '
             "plus min/max; date uses before/after ISO dates; keyword uses "
             "keywords plus optional mode (forbidden/required) and match "
-            "(literal/stem/regex); regex uses pattern; semantic uses supported "
-            "RAG settings. "
+            "(literal/stem/regex); regex uses pattern. "
+            "Do not create a rule for a requirement that these types cannot check. "
             "Never use generic field/operator/unit/value parameters. "
             f"source_language={source_language}; output_language={source_language}; "
             f"source_location={source_location}. "
             "For Russian sources, do not translate names, descriptions, keywords, "
-            "queries, or source quotes. Return exactly "
+            "or source quotes. Return exactly "
             'one JSON object with a "rules" array; do not return a bare array. '
             "Every rule must contain source_quote and source_location."
+            f"{RULE_SEVERITY_PROMPT}"
             f"{_rule_applicability_prompt(document_types, legal_act_title)}"
             f"JSON.\nChunk:\n{text}"
         )

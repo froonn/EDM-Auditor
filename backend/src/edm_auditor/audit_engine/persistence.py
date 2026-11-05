@@ -121,6 +121,7 @@ class AuditPersistence:
                 document = self._load(session, document_id)
                 # A rule or an act could be deleted while the models were running.
                 rule_ids = set(session.scalars(select(AuditRule.id)).all())
+                acts = {act["id"]: act for act in applied_acts}
                 legal_act_ids = set(session.scalars(select(LegalAct.id)).all())
                 report = AuditReport(
                     document_id=document.id,
@@ -145,6 +146,12 @@ class AuditPersistence:
                         end_char=finding.end_char,
                         quote=finding.quote,
                         recommendation=finding.recommendation,
+                        finding_key=_finding_key(finding),
+                        rule_code=finding.rule_code,
+                        rule_name=finding.rule_name or None,
+                        legal_act_code=acts.get(finding.legal_act_id, {}).get("code"),
+                        legal_act_title=acts.get(finding.legal_act_id, {}).get("title"),
+                        norm_quote=finding.norm_quote,
                     )
                     for finding in result.findings
                 ]
