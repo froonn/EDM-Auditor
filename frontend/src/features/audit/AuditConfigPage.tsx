@@ -1,6 +1,6 @@
 import { useMutation, useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { ArrowLeft, ListChecks } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router";
 
 import { api } from "@/api/endpoints";
@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 
 import { useDocumentId } from "./AuditPage";
-import { AuditRunner } from "./AuditRunner";
+import { AuditRunButton, AuditRunStatus, useAuditRunner } from "./AuditRunner";
 import { ClassificationPanel } from "./ClassificationPanel";
 
 type RuleChoice = "auto" | "include" | "exclude";
@@ -43,7 +43,7 @@ function ConfigScreen({ documentId }: { documentId: number }) {
   if (!document.data) return <p role="status">{t("table.loading")}</p>;
 
   return (
-    <div className="max-w-5xl space-y-4">
+    <div className="space-y-4">
       <Link
         to={`/documents/${documentId}/audit`}
         className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:underline"
@@ -60,14 +60,21 @@ function ConfigScreen({ documentId }: { documentId: number }) {
           {t("config.requiredNotice")}
         </p>
       )}
-      {/* The key re-reads the confirmed types after another tab or a reclassification changed them. */}
-      <ClassificationPanel key={(document.data.confirmed_document_types ?? []).join(",")} document={document.data} />
-      <SelectionForm document={document.data} />
+      <SelectionForm
+        document={document.data}
+        classification={
+          // The key re-reads the confirmed types after another tab or a reclassification changed them.
+          <ClassificationPanel
+            key={(document.data.confirmed_document_types ?? []).join(",")}
+            document={document.data}
+          />
+        }
+      />
     </div>
   );
 }
 
-function SelectionForm({ document }: { document: DocumentDetail }) {
+function SelectionForm({ document, classification }: { document: DocumentDetail; classification: ReactNode }) {
   const { t } = useI18n();
   const legalActs = useQuery({ queryKey: queryKeys.legalActs, queryFn: ({ signal }) => api.legalActs.all(signal) });
   const rules = useQuery({ queryKey: queryKeys.activeRules, queryFn: ({ signal }) => api.rules.allActive(signal) });
@@ -79,7 +86,10 @@ function SelectionForm({ document }: { document: DocumentDetail }) {
 
   const selection = useMemo<AuditSelection>(() => {
     const pick = (wanted: RuleChoice) =>
-      [...choices].filter(([, choice]) => choice === wanted).map(([id]) => id).sort((a, b) => a - b);
+      [...choices]
+        .filter(([, choice]) => choice === wanted)
+        .map(([id]) => id)
+        .sort((a, b) => a - b);
     return {
       selection_mode: mode,
       legal_act_ids: [...actIds].sort((a, b) => a - b),
@@ -99,6 +109,7 @@ function SelectionForm({ document }: { document: DocumentDetail }) {
     preview.mutate(selection);
   };
   const stale = preview.data !== undefined && previewKey !== selectionKey;
+  const runner = useAuditRunner(document, selection);
   const blocked = mode === "all" && !confirmAll;
 
   const toggleAct = (id: number) =>
@@ -117,58 +128,62 @@ function SelectionForm({ document }: { document: DocumentDetail }) {
     });
 
   return (
-    <div className="space-y-4">
-      <fieldset className="space-y-2 rounded-lg border bg-card p-4 text-sm">
-        <legend className="px-1 text-base font-semibold">{t("config.mode")}</legend>
-        {SELECTION_MODES.map((value) => (
-          <label key={value} className="flex items-start gap-2">
-            <input
-              type="radio"
-              name="selection_mode"
-              value={value}
-              checked={mode === value}
-              onChange={() => setMode(value)}
-              className="mt-1"
-            />
-            <span>
-              <span className="font-medium">{t(`config.mode.${value}`)}</span>
-              <span className="block text-muted-foreground">{t(`config.mode.${value}.hint`)}</span>
-            </span>
-          </label>
-        ))}
-        {mode === "all" && (
-          <label className="flex items-start gap-2 rounded-md border border-warning bg-warning-muted p-3">
-            <input
-              type="checkbox"
-              checked={confirmAll}
-              onChange={(event) => setConfirmAll(event.target.checked)}
-              className="mt-1"
-            />
-            {t("config.allRisk")}
-          </label>
-        )}
-      </fieldset>
+    <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)] items-start gap-4">
+      <div className="space-y-4">
+        {classification}
+        <fieldset className="space-y-2 rounded-lg border bg-card p-4 text-sm">
+          <legend className="px-1 text-base font-semibold">{t("config.mode")}</legend>
+          {SELECTION_MODES.map((value) => (
+            <label key={value} className="flex items-start gap-2">
+              <input
+                type="radio"
+                name="selection_mode"
+                value={value}
+                checked={mode === value}
+                onChange={() => setMode(value)}
+                className="mt-1"
+              />
+              <span>
+                <span className="font-medium">{t(`config.mode.${value}`)}</span>
+                <span className="block text-muted-foreground">{t(`config.mode.${value}.hint`)}</span>
+              </span>
+            </label>
+          ))}
+          {mode === "all" && (
+            <label className="flex items-start gap-2 rounded-md border border-warning bg-warning-muted p-3">
+              <input
+                type="checkbox"
+                checked={confirmAll}
+                onChange={(event) => setConfirmAll(event.target.checked)}
+                className="mt-1"
+              />
+              {t("config.allRisk")}
+            </label>
+          )}
+        </fieldset>
 
-      <LegalActsChoice query={legalActs} selected={actIds} onToggle={toggleAct} />
-      <RulesChoice query={rules} acts={legalActs.data ?? []} choices={choices} onChoose={choose} />
+        <LegalActsChoice query={legalActs} selected={actIds} onToggle={toggleAct} />
+      </div>
+      <div className="space-y-4">
+        <RulesChoice query={rules} acts={legalActs.data ?? []} choices={choices} onChoose={choose} />
 
-      <section className="space-y-3 rounded-lg border bg-card p-4 text-sm">
-        <div className="flex flex-wrap items-start gap-3">
-          <div className="space-y-1">
-            <Button variant="outline" onClick={runPreview} disabled={preview.isPending || blocked}>
-              <ListChecks aria-hidden />
-              {t("config.preview")}
-            </Button>
-            <p className="max-w-sm text-xs text-muted-foreground">{t("config.previewHint")}</p>
+        <section className="space-y-3 rounded-lg border bg-card p-4 text-sm">
+          <div className="flex flex-wrap items-start gap-3">
+            <div className="space-y-1">
+              <Button variant="outline" onClick={runPreview} disabled={preview.isPending || blocked}>
+                <ListChecks aria-hidden />
+                {t("config.preview")}
+              </Button>
+              <p className="max-w-sm text-xs text-muted-foreground">{t("config.previewHint")}</p>
+            </div>
+            <AuditRunButton runner={runner} label={t("config.run")} disabled={blocked} />
           </div>
-          <AuditRunner document={document} selection={selection} label={t("config.run")} disabled={blocked} />
-        </div>
-        {preview.isPending && <LongOperation label={t("config.previewRunning")} />}
-        {preview.isError && <ErrorAlert error={preview.error} onRetry={runPreview} />}
-        {preview.data && (
-          <PreviewResult preview={preview.data} acts={legalActs.data ?? []} stale={stale} />
-        )}
-      </section>
+          <AuditRunStatus runner={runner} />
+          {preview.isPending && <LongOperation label={t("config.previewRunning")} />}
+          {preview.isError && <ErrorAlert error={preview.error} onRetry={runPreview} />}
+          {preview.data && <PreviewResult preview={preview.data} acts={legalActs.data ?? []} stale={stale} />}
+        </section>
+      </div>
     </div>
   );
 }
@@ -304,7 +319,10 @@ function PreviewResult({ preview, acts, stale }: { preview: AuditPreview; acts: 
             </span>
             <span>
               {decision.name} <span className="font-mono text-xs text-muted-foreground">{decision.rule_code}</span>
-              <span className="text-muted-foreground"> — {tOptional(`reason.${decision.reason}`) ?? decision.reason}</span>
+              <span className="text-muted-foreground">
+                {" "}
+                — {tOptional(`reason.${decision.reason}`) ?? decision.reason}
+              </span>
             </span>
           </li>
         ))}

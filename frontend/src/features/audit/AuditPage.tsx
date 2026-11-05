@@ -14,7 +14,7 @@ import { useI18n } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 
-import { AuditRunner } from "./AuditRunner";
+import { AuditRunButton, AuditRunStatus, useAuditRunner, type AuditRunner } from "./AuditRunner";
 import { DocumentText } from "./DocumentText";
 import { FindingsPanel, PassedRules } from "./FindingsPanel";
 import { buildSegments } from "./highlight";
@@ -43,6 +43,7 @@ function AuditScreen({ documentId }: { documentId: number }) {
     queryKey: queryKeys.report(documentId, reportId),
     queryFn: ({ signal }) => api.documents.report(documentId, reportId, signal),
   });
+  const runner = useAuditRunner({ id: documentId, status: document.data?.status ?? "uploaded" });
 
   if (document.isError) {
     return <ErrorAlert error={document.error} onRetry={() => void document.refetch()} />;
@@ -51,8 +52,11 @@ function AuditScreen({ documentId }: { documentId: number }) {
 
   return (
     <div className="space-y-4">
-      <AuditHeader document={document.data} hasReport={Boolean(report.data)} />
-      {document.data.status === "processing" && (
+      <AuditHeader document={document.data} hasReport={Boolean(report.data)} runner={runner} />
+      <Can permission="audit.run">
+        <AuditRunStatus runner={runner} />
+      </Can>
+      {document.data.status === "processing" && !runner.audit.isPending && (
         <p role="status" className="rounded-lg border border-primary/30 bg-accent p-3 text-sm">
           {t("audit.processing")}
         </p>
@@ -72,7 +76,15 @@ function AuditScreen({ documentId }: { documentId: number }) {
   );
 }
 
-function AuditHeader({ document, hasReport }: { document: DocumentDetail; hasReport: boolean }) {
+function AuditHeader({
+  document,
+  hasReport,
+  runner,
+}: {
+  document: DocumentDetail;
+  hasReport: boolean;
+  runner: AuditRunner;
+}) {
   const { t } = useI18n();
   const { typeName } = useDocumentTypes();
   return (
@@ -93,17 +105,17 @@ function AuditHeader({ document, hasReport }: { document: DocumentDetail; hasRep
             )}
           </div>
         </div>
-        <div className="flex items-start gap-2">
-          <Can permission="audit.run">
+        <Can permission="audit.run">
+          <div className="flex shrink-0 items-start gap-2">
             <Button asChild variant="outline">
               <Link to={`/documents/${document.id}/configure`}>
                 <Settings2 aria-hidden />
                 {t("documents.configure")}
               </Link>
             </Button>
-          </Can>
-          <AuditRunner document={document} label={hasReport ? t("audit.rerun") : t("audit.run")} />
-        </div>
+            <AuditRunButton runner={runner} label={hasReport ? t("audit.rerun") : t("audit.run")} />
+          </div>
+        </Can>
       </div>
     </header>
   );

@@ -89,6 +89,15 @@
   --radius-lg: calc(var(--radius) + 4px);
 }
 
+@keyframes indeterminate {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+
 @layer base {
   * {
     border-color: var(--color-border);

@@ -81,7 +81,7 @@ export function ClassificationPanel({ document }: { document: DocumentDetail }) 
       <Can permission="documents.upload">
         <fieldset className="space-y-2" disabled={busy}>
           <legend className="sr-only">{t("classification.confirmed")}</legend>
-          <div className="grid grid-cols-3 gap-x-4 gap-y-1">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
             {(types.data ?? [])
               .filter((type) => type.is_active)
               .map((type) => (

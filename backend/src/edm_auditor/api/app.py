@@ -1023,6 +1023,8 @@ def create_app(
                     changes.get("check_type", rule.check_type),
                     changes.get("parameters", _parse_parameters(rule.parameters_json)),
                 )
+            if changes.get("is_active") and not rule.is_active:
+                _require_active_rule_types(rule)
             indexed_change = any(
                 field in changes and changes[field] != getattr(rule, field)
                 for field in RAG_INDEXED_RULE_FIELDS
@@ -1311,6 +1313,20 @@ def _remove_upload(file_path: Path, upload_dir: Path) -> None:
 def _require_valid_severity(severity: str) -> None:
     if severity not in {item.value for item in AuditSeverity}:
         raise ApiError(422, "invalid_severity", "Unsupported severity")
+
+
+def _require_active_rule_types(rule: AuditRule) -> None:
+    """A deactivated type keeps its links, so enabling such a rule would bypass the deactivation."""
+    if rule.applicability_scope != ApplicabilityScope.TYPED.value or not rule.document_types:
+        return
+    if not any(item.is_active for item in rule.document_types):
+        codes = ", ".join(item.code for item in rule.document_types)
+        raise ApiError(
+            409,
+            "rule_document_types_inactive",
+            f"All document types of the rule are deactivated: {codes}. "
+            "Change its applicability or reactivate a type first",
+        )
 
 
 def _require_valid_check(check_type: str, parameters: dict) -> None:

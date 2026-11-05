@@ -2074,3 +2074,33 @@ def test_lists_report_the_total_count_and_rules_filter_by_scope(tmp_path: Path) 
     typed = client.get("/api/rules", params={"applicability_scope": "typed"}).json()
     assert [item["rule_code"] for item in typed] == ["typed"]
     assert client.get("/api/rules?applicability_scope=wrong").status_code == 422
+
+
+def test_rule_cannot_be_enabled_when_all_its_types_are_deactivated(tmp_path: Path) -> None:
+    client = make_client(tmp_path)
+    client.post(
+        "/api/document-types",
+        json={"code": "expense_report", "name": "Авансовый отчёт", "description": "Отчёт о расходах."},
+    )
+    rule = client.post(
+        "/api/rules", json=_rule_payload("typed", "x", document_types=["expense_report"])
+    ).json()
+    mixed = client.post(
+        "/api/rules",
+        json=_rule_payload("mixed", "y", document_types=["expense_report", "vacation_order"]),
+    ).json()
+    for item in (rule, mixed):
+        assert client.patch(f"/api/rules/{item['id']}", json={"is_active": False}).status_code == 200
+    assert client.delete("/api/document-types/expense_report").status_code == 204
+
+    refused = client.patch(f"/api/rules/{rule['id']}", json={"is_active": True})
+    assert refused.status_code == 409
+    assert refused.json()["error"]["code"] == "rule_document_types_inactive"
+    assert client.patch(f"/api/rules/{rule['id']}", json={"name": "renamed"}).status_code == 200
+    # A rule that still has an active type can be enabled.
+    assert client.patch(f"/api/rules/{mixed['id']}", json={"is_active": True}).status_code == 200
+
+    client.patch(
+        f"/api/rules/{rule['id']}/applicability", json={"applicability_scope": "universal"}
+    )
+    assert client.patch(f"/api/rules/{rule['id']}", json={"is_active": True}).status_code == 200

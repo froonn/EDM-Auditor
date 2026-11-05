@@ -14,6 +14,19 @@ export type Finding = Schemas["FindingResponse"];
 export type NeuralAnalysis = Schemas["NeuralAnalysisResponse"];
 export type AuditPreview = Schemas["AuditPreviewResponse"];
 export type AuditResult = Schemas["AuditRequestResponse"];
+export type LegalActDetail = Schemas["LegalActDetailResponse"];
+export type LegalActDiagnostics = Schemas["LegalActDiagnosticsResponse"];
+export type DocumentTypeSuggestion = Schemas["DocumentTypeSuggestionResponse"];
+export type RuleCreate = Schemas["RuleCreate"];
+export type RuleUpdate = Schemas["RuleUpdate"];
+
+export type ApplicabilityScope = "universal" | "typed" | "manual_only" | "unknown";
+/** Scopes a person may set; `unknown` only describes an uncertain model answer. */
+export const MANUAL_SCOPES: readonly ApplicabilityScope[] = ["universal", "typed", "manual_only"];
+
+/** Check types the audit runs. `semantic` is refused by the API and is never offered. */
+export type CheckType = "keyword" | "regex" | "numeric" | "date" | "duration";
+export const CHECK_TYPES: readonly CheckType[] = ["keyword", "regex", "numeric", "date", "duration"];
 
 export type SelectionMode = "automatic" | "manual" | "combined" | "all";
 export const SELECTION_MODES: readonly SelectionMode[] = ["automatic", "manual", "combined", "all"];

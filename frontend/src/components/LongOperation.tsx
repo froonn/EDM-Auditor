@@ -23,12 +23,16 @@ export function LongOperation({ label }: LongOperationProps) {
   }, [startedAt]);
 
   return (
-    <div role="status" aria-live="polite" className="flex items-start gap-3 rounded-lg border bg-card p-4">
-      <LoaderCircle aria-hidden className="mt-0.5 size-5 shrink-0 animate-spin text-primary" />
-      <div className="space-y-1 text-sm">
+    <div role="status" aria-live="polite" className="overflow-hidden rounded-lg border border-primary/30 bg-accent">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-sm">
+        <LoaderCircle aria-hidden className="size-5 shrink-0 animate-spin text-primary" />
         <p className="font-medium">{label ?? t("operation.running")}</p>
-        <p className="text-muted-foreground">{t("operation.elapsed", { seconds })}</p>
-        <p className="text-muted-foreground">{t("operation.keepOpen")}</p>
+        <p className="text-muted-foreground tabular-nums">{t("operation.elapsed", { seconds })}</p>
+        <p className="ml-auto text-xs text-muted-foreground">{t("operation.keepOpen")}</p>
+      </div>
+      {/* The API reports no progress, so the bar only shows that the request is still running. */}
+      <div aria-hidden className="h-1 bg-primary/15">
+        <div className="h-full w-1/3 animate-[indeterminate_1.4s_ease-in-out_infinite] bg-primary motion-reduce:animate-none" />
       </div>
     </div>
   );

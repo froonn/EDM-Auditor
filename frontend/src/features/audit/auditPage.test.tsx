@@ -209,6 +209,15 @@ describe("audit screen", () => {
     expect(screen.getByText(/Аудит не запущен: тип документа не подтверждён/)).toBeInTheDocument();
   });
 
+  it("shows the audit progress below the header, not next to the buttons", async () => {
+    routes({ "POST /api/documents/1/audit": () => new Promise<Response>(() => {}) });
+    renderApp("/documents/1/audit");
+    await userEvent.click(await screen.findByRole("button", { name: "Повторить аудит" }));
+    const progress = await screen.findByText("Идёт аудит документа");
+    expect(progress.closest("header")).toBeNull();
+    expect(screen.getByRole("button", { name: "Повторить аудит" })).toBeDisabled();
+  });
+
   it("explains a model failure and lets the user retry", async () => {
     let attempts = 0;
     routes({
