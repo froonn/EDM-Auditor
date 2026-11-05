@@ -30,12 +30,18 @@ def test_schema_contains_all_tables(session_factory) -> None:
     engine = session_factory.kw["bind"]
     assert set(inspect(engine).get_table_names()) == {
         "users",
+        "document_types",
+        "document_type_suggestions",
+        "document_confirmed_types",
+        "rule_document_types",
+        "legal_act_document_types",
         "documents",
         "document_paragraphs",
         "legal_acts",
         "audit_rules",
         "audit_reports",
         "audit_findings",
+        "rule_extraction_results",
     }
 
 

@@ -45,6 +45,8 @@ def test_database_loader_returns_act_and_active_rule_sources(session_factory) ->
         title="Labour code",
         article_text="Article text",
     )
+    with session_factory.begin() as session:
+        session.get(LegalAct, act.id).processing_status = "completed"
     repository.create_rule(
         rule_code="RULE-1",
         name="Active rule",
@@ -72,3 +74,36 @@ def test_database_loader_returns_act_and_active_rule_sources(session_factory) ->
     assert sources[0].rule_id is None
     assert sources[1].rule_id == 1
     assert "Active rule" in sources[1].text
+
+
+def test_database_loader_excludes_unprocessed_acts(session_factory) -> None:
+    repository = DocumentRepository(session_factory)
+    included = repository.create_legal_act(
+        code="ACT-INCLUDED",
+        title="Included",
+        article_text="Included text",
+    )
+    uploaded = repository.create_legal_act(
+        code="ACT-UPLOADED",
+        title="Uploaded",
+        article_text="Uploaded text",
+    )
+    processing = repository.create_legal_act(
+        code="ACT-PROCESSING",
+        title="Processing",
+        article_text="Processing text",
+    )
+    failed = repository.create_legal_act(
+        code="ACT-FAILED",
+        title="Failed",
+        article_text="Failed text",
+    )
+    with session_factory.begin() as session:
+        session.get(LegalAct, included.id).processing_status = "partial"
+        session.get(LegalAct, uploaded.id).processing_status = "uploaded"
+        session.get(LegalAct, processing.id).processing_status = "processing"
+        session.get(LegalAct, failed.id).processing_status = "failed"
+
+    sources = DatabaseIndexSourceLoader(session_factory).load()
+
+    assert [source.legal_act_id for source in sources] == [included.id]

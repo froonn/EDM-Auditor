@@ -12,3 +12,4 @@ backend/data/uploads/
 *.log
 logs/
 report
+docs/remove-copilot-from-history.md

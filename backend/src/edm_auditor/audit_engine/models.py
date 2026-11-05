@@ -14,10 +14,12 @@ class RuleSpec:
     severity: str
     check_type: str
     description: str = ""
-    document_type: str | None = None
+    applicability_scope: str = "unknown"
+    document_types: tuple[str, ...] = ()
     parameters: dict[str, Any] = field(default_factory=dict)
     legal_act_id: int | None = None
     is_active: bool = True
+    source_quote: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +55,9 @@ class FindingDraft:
     legal_act_id: int | None = None
     deduplication_key: str = ""
     source_context: dict[str, Any] | None = None
+    check_type: str = ""
+    norm_quote: str | None = None
+    rule_name: str = ""
 
 
 @dataclass(frozen=True, slots=True)

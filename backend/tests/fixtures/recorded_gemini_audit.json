@@ -1,0 +1,320 @@
+{
+ "rules": {
+  "Положение о дистанционной работе": [
+   {
+    "rule_code": "REMOTE_WORK_NOTICE_PERIOD",
+    "name": "Срок уведомления об изменении условий дистанционной работы",
+    "description": "Работодатель обязан предоставить письменное уведомление об изменении условий дистанционной работы не позднее 10 календарных дней до даты изменения.",
+    "severity": "critical",
+    "check_type": "duration",
+    "parameters": {
+     "min_days": 10
+    },
+    "source_quote": "Работодатель обязан предоставить работнику письменное уведомление об изменении условий дистанционной работы не позднее 10 календарных дней до даты изменения.",
+    "source_location": "legal-act-1:base:d3c44a09f173d469:paragraph-v1:0",
+    "applicability_scope": "typed",
+    "document_types": [
+     "remote_work_agreement"
+    ],
+    "applicability_confidence": 1,
+    "suggested_type_name": "",
+    "suggested_type_reason": ""
+   },
+   {
+    "rule_code": "INTERNET_COMPENSATION_MIN",
+    "name": "Минимальный размер компенсации за интернет",
+    "description": "Ежемесячная компенсация расходов на интернет не может быть меньше 50 рублей.",
+    "severity": "high",
+    "check_type": "numeric",
+    "parameters": {
+     "entity": "money",
+     "min": 50
+    },
+    "source_quote": "Ежемесячная компенсация расходов на интернет не может быть меньше 50 рублей.",
+    "source_location": "legal-act-1:base:d3c44a09f173d469:paragraph-v1:0",
+    "applicability_scope": "typed",
+    "document_types": [
+     "remote_work_agreement"
+    ],
+    "applicability_confidence": 0.9,
+    "suggested_type_name": "",
+    "suggested_type_reason": ""
+   },
+   {
+    "rule_code": "REMOTE_WORK_KEYWORD_REQUIRED",
+    "name": "Обязательное наличие слова дистанционная",
+    "description": "Документ о дистанционной работе должен содержать слово «дистанционная».",
+    "severity": "medium",
+    "check_type": "keyword",
+    "parameters": {
+     "keywords": [
+      "дистанционная"
+     ],
+     "mode": "required",
+     "match": "literal"
+    },
+    "source_quote": "Документ о дистанционной работе должен содержать слово «дистанционная».",
+    "source_location": "legal-act-1:base:d3c44a09f173d469:paragraph-v1:0",
+    "applicability_scope": "typed",
+    "document_types": [
+     "remote_work_agreement"
+    ],
+    "applicability_confidence": 1,
+    "suggested_type_name": "",
+    "suggested_type_reason": ""
+   }
+  ],
+  "Положение о служебных командировках": [
+   {
+    "rule_code": "TRIP_DURATION_LIMIT",
+    "name": "Максимальный срок командировки",
+    "description": "Срок служебной командировки не может превышать 30 календарных дней.",
+    "severity": "high",
+    "check_type": "duration",
+    "parameters": {
+     "max_days": 30
+    },
+    "source_quote": "Срок служебной командировки не может превышать 30 календарных дней.",
+    "source_location": "legal-act-2:base:6bf58b2cd93f52a1:paragraph-v1:0",
+    "applicability_scope": "typed",
+    "document_types": [
+     "business_trip_order"
+    ],
+    "applicability_confidence": 1.0,
+    "suggested_type_name": "",
+    "suggested_type_reason": ""
+   },
+   {
+    "rule_code": "REPORT_SUBMISSION_DEADLINE",
+    "name": "Срок предоставления отчета",
+    "description": "Отчет о командировке предоставляется в течение 3 календарных дней после возвращения работника.",
+    "severity": "medium",
+    "check_type": "duration",
+    "parameters": {
+     "max_days": 3
+    },
+    "source_quote": "Отчет о командировке предоставляется в течение 3 календарных дней после возвращения работника.",
+    "source_location": "legal-act-2:base:6bf58b2cd93f52a1:paragraph-v1:0",
+    "applicability_scope": "typed",
+    "document_types": [
+     "business_trip_order"
+    ],
+    "applicability_confidence": 1.0,
+    "suggested_type_name": "",
+    "suggested_type_reason": ""
+   },
+   {
+    "rule_code": "CERTIFICATE_KEYWORD_REQUIREMENT",
+    "name": "Обязательное слово в удостоверении",
+    "description": "Командировочное удостоверение должно содержать слово «командировка».",
+    "severity": "medium",
+    "check_type": "keyword",
+    "parameters": {
+     "keywords": [
+      "командировка"
+     ],
+     "mode": "required",
+     "match": "literal"
+    },
+    "source_quote": "Командировочное удостоверение должно содержать слово «командировка».",
+    "source_location": "legal-act-2:base:6bf58b2cd93f52a1:paragraph-v1:0",
+    "applicability_scope": "unknown",
+    "document_types": [],
+    "applicability_confidence": 0.8,
+    "suggested_type_name": "Командировочное удостоверение",
+    "suggested_type_reason": "Документ не входит в предоставленный каталог типов, но является специфическим документом для командировок."
+   }
+  ],
+  "Положение о выплате заработной платы": [
+   {
+    "rule_code": "PAYROLL_FREQ_001",
+    "name": "Периодичность выплаты заработной платы",
+    "description": "Заработная плата должна выплачиваться не реже двух раз в месяц.",
+    "severity": "critical",
+    "check_type": "duration",
+    "parameters": {
+     "max_days": 15
+    },
+    "source_quote": "Заработная плата выплачивается не реже двух раз в месяц.",
+    "source_location": "legal-act-3:base:9354ad6247cb111c:paragraph-v1:0",
+    "applicability_scope": "typed",
+    "document_types": [
+     "payroll_order"
+    ],
+    "applicability_confidence": 1,
+    "suggested_type_name": "",
+    "suggested_type_reason": ""
+   },
+   {
+    "rule_code": "PAYROLL_ADVANCE_001",
+    "name": "Минимальный размер авансовой выплаты",
+    "description": "Авансовая выплата должна составлять не менее 40 процентов начисленной заработной платы.",
+    "severity": "critical",
+    "check_type": "numeric",
+    "parameters": {
+     "entity": "percent",
+     "min": 40
+    },
+    "source_quote": "Авансовая выплата должна составлять не менее 40 процентов начисленной заработной платы.",
+    "source_location": "legal-act-3:base:9354ad6247cb111c:paragraph-v1:0",
+    "applicability_scope": "typed",
+    "document_types": [
+     "payroll_order"
+    ],
+    "applicability_confidence": 1,
+    "suggested_type_name": "",
+    "suggested_type_reason": ""
+   },
+   {
+    "rule_code": "PAYROLL_DEADLINE_001",
+    "name": "Срок окончательного расчета",
+    "description": "Окончательный расчет за месяц производится не позднее 5 числа следующего месяца.",
+    "severity": "critical",
+    "check_type": "numeric",
+    "parameters": {
+     "entity": "number",
+     "max": 5
+    },
+    "source_quote": "Окончательный расчет за месяц производится не позднее 5 числа следующего месяца.",
+    "source_location": "legal-act-3:base:9354ad6247cb111c:paragraph-v1:0",
+    "applicability_scope": "typed",
+    "document_types": [
+     "payroll_order"
+    ],
+    "applicability_confidence": 1,
+    "suggested_type_name": "",
+    "suggested_type_reason": ""
+   }
+  ]
+ },
+ "entities": {
+  "Приказ о направлении в командировку.\n\nРаботник направляется в командировку сроком на 45 календарных дней.\n\nОтчет о командировке предоставляется через 7 календарных дней после возвращения.\n\nВ приказе указано: служебная поездка.": [
+   {
+    "kind": "duration",
+    "value": "45 календарных дней"
+   },
+   {
+    "kind": "duration",
+    "value": "7 календарных дней"
+   }
+  ],
+  "Приказ о направлении в командировку.\n\nРаботник направляется в командировку сроком на 20 календарных дней.\n\nОтчет о командировке предоставляется через 2 календарных дня после возвращения.\n\nВ приказе указано: командировка.": [
+   {
+    "kind": "duration",
+    "value": "20 календарных дней"
+   },
+   {
+    "kind": "duration",
+    "value": "2 календарных дня"
+   }
+  ],
+  "Соглашение о дистанционной работе.\n\nСтороны согласовали изменение условий дистанционной работы с 01.03.2027.\n\nУведомление направлено работнику 25.02.2027.\n\nЕжемесячная компенсация расходов на интернет установлена в размере 35 рублей.\n\nНастоящее соглашение предусматривает дистанционную работу.": [
+   {
+    "kind": "date",
+    "value": "01.03.2027"
+   },
+   {
+    "kind": "date",
+    "value": "25.02.2027"
+   },
+   {
+    "kind": "money",
+    "value": "35 рублей"
+   }
+  ],
+  "Соглашение о дистанционной работе.\n\nСтороны согласовали изменение условий дистанционной работы с 20.04.2027.\n\nУведомление направлено работнику 05.04.2027.\n\nЕжемесячная компенсация расходов на интернет установлена в размере 75 рублей.\n\nНастоящее соглашение предусматривает дистанционную работу.": [
+   {
+    "kind": "date",
+    "value": "20.04.2027"
+   },
+   {
+    "kind": "date",
+    "value": "05.04.2027"
+   },
+   {
+    "kind": "money",
+    "value": "75 рублей"
+   }
+  ],
+  "Приказ о выплате заработной платы.\n\nЗаработная плата выплачивается один раз в месяц.\n\nАвансовая выплата составляет 25 процентов начисленной заработной платы.\n\nОкончательный расчет за месяц производится 8 числа следующего месяца.": [
+   {
+    "kind": "duration",
+    "value": "один раз в месяц"
+   },
+   {
+    "kind": "percent",
+    "value": "25 процентов"
+   },
+   {
+    "kind": "number",
+    "value": "8"
+   }
+  ],
+  "Приказ о выплате заработной платы.\n\nЗаработная плата выплачивается два раза в месяц.\n\nАвансовая выплата составляет 50 процентов начисленной заработной платы.\n\nОкончательный расчет за месяц производится 5 числа следующего месяца.": [
+   {
+    "kind": "number",
+    "value": "два"
+   },
+   {
+    "kind": "percent",
+    "value": "50 процентов"
+   },
+   {
+    "kind": "date",
+    "value": "5 числа"
+   }
+  ]
+ },
+ "verdicts": [
+  {
+   "description": "Срок служебной командировки не может превышать 30 календарных дней.",
+   "quote": "45 календарных дней",
+   "is_violation": true
+  },
+  {
+   "description": "Отчет о командировке предоставляется в течение 3 календарных дней после возвращения работника.",
+   "quote": "45 календарных дней",
+   "is_violation": false
+  },
+  {
+   "description": "Отчет о командировке предоставляется в течение 3 календарных дней после возвращения работника.",
+   "quote": "7 календарных дней",
+   "is_violation": true
+  },
+  {
+   "description": "Отчет о командировке предоставляется в течение 3 календарных дней после возвращения работника.",
+   "quote": "20 календарных дней",
+   "is_violation": false
+  },
+  {
+   "description": "Работодатель обязан предоставить письменное уведомление об изменении условий дистанционной работы не позднее 10 календарных дней до даты изменения.",
+   "quote": "01.03.2027.\n\nУведомление направлено работнику 25.02.2027",
+   "is_violation": true
+  },
+  {
+   "description": "Ежемесячная компенсация расходов на интернет не может быть меньше 50 рублей.",
+   "quote": "35 рублей",
+   "is_violation": true
+  },
+  {
+   "description": "Авансовая выплата должна составлять не менее 40 процентов начисленной заработной платы.",
+   "quote": "25 процентов",
+   "is_violation": true
+  },
+  {
+   "description": "Окончательный расчет за месяц производится не позднее 5 числа следующего месяца.",
+   "quote": "25",
+   "is_violation": false
+  },
+  {
+   "description": "Окончательный расчет за месяц производится не позднее 5 числа следующего месяца.",
+   "quote": "8",
+   "is_violation": true
+  },
+  {
+   "description": "Окончательный расчет за месяц производится не позднее 5 числа следующего месяца.",
+   "quote": "50",
+   "is_violation": false
+  }
+ ]
+}

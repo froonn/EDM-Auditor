@@ -1,4 +1,4 @@
-"""Contracts for the optional neural interpretation layer."""
+"""Contracts for the neural interpretation layer."""
 
 from dataclasses import dataclass
 from typing import Any
@@ -14,6 +14,9 @@ class NeuralFinding:
     description: str
     quote: str | None
     context: tuple[dict[str, Any], ...] = ()
+    norm_quote: str | None = None
+    surrounding_text: str | None = None
+    requires_confirmation: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +28,7 @@ class NeuralAnalysis:
     recommendation: str
     confidence: float
     legal_basis: tuple[dict[str, Any], ...] = ()
+    is_violation: bool = True
 
 
 @dataclass(frozen=True, slots=True)

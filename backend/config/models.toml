@@ -1,20 +1,34 @@
-# Safe defaults for local development. Secrets are read from environment variables.
+# Model profiles and presets. Secrets are read from environment variables.
 
-[profiles.embedding.deterministic]
-provider = "deterministic"
-model = "deterministic-v1"
-dimension = 32
+[legal_act_processing.chunking]
+max_chars = 4000
+overlap_chars = 0
+max_rules_per_chunk = 20
+
+[legal_act_processing]
+max_prompt_chars = 12000
+max_response_tokens = 2000
+source_language = "auto"
+extraction_schema_version = "2"
+prompt_version = "2"
+processing_version = "2"
+
+[document_processing]
+# The classifier reads only the start and the end of a document.
+classification_head_chars = 4000
+classification_tail_chars = 1000
+# A type or a rule scope below this model confidence needs a person's decision.
+classification_min_confidence = 0.7
+# Entity extraction reads the whole document in parts; a longer document is refused.
+entity_chunk_max_chars = 4000
+entity_chunk_overlap_chars = 200
+entity_max_chunks = 100
 
 [profiles.embedding.local-multilingual]
 provider = "openai-compatible"
 model = "text-embedding-nomic-embed-text-v1.5"
 base_url = "http://localhost:1234/v1"
 dimension = 768
-
-[profiles.llm.stub]
-provider = "stub"
-model = "stub-v1"
-structured_output = false
 
 [profiles.llm.lm-studio]
 provider = "openai-compatible"
@@ -40,16 +54,10 @@ base_url = "http://localhost:1234/v1"
 temperature = 0.2
 max_tokens = 2000
 structured_output = "json_schema"
-
-[presets.offline]
-embedding = "deterministic"
-llm = "stub"
-extractor = "stub"
-
-[profiles.extractor.stub]
-provider = "stub"
-model = "stub-v1"
-structured_output = false
+request_timeout_seconds = 30
+retry_attempts = 3
+retry_backoff_factor = 1.0
+inter_chunk_delay_seconds = 0
 
 [presets.lm-studio]
 embedding = "local-multilingual"
@@ -59,6 +67,20 @@ extractor = "gemma"
 [presets.openrouter]
 embedding = "local-multilingual"
 llm = "openrouter"
+extractor = "openrouter"
+
+[profiles.extractor.openrouter]
+provider = "openai-compatible"
+model = "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+temperature = 0.2
+max_tokens = 2000
+structured_output = false
+request_timeout_seconds = 30
+retry_attempts = 3
+retry_backoff_factor = 1.0
+inter_chunk_delay_seconds = 0
 
 
 [profiles.embedding.google-ai-studio]
@@ -72,16 +94,23 @@ provider = "google-ai-studio"
 model = "gemini-3.1-flash-lite"
 api_key_env = "GEMINI_API_KEY"
 temperature = 0.1
-max_tokens = 2000
+# Ten findings are explained in Russian in one response.
+max_tokens = 8192
 structured_output = "json_schema"
 
 [profiles.extractor.google-ai-studio]
 provider = "google-ai-studio"
 model = "gemini-3.1-flash-lite"
 api_key_env = "GEMINI_API_KEY"
-temperature = 0.2
-max_tokens = 2000
+# Repeated extraction of one act should give the same rules and severities.
+temperature = 0
+# A document part with many numbers yields a long entity list.
+max_tokens = 8192
 structured_output = "json_schema"
+request_timeout_seconds = 30
+retry_attempts = 3
+retry_backoff_factor = 1.0
+inter_chunk_delay_seconds = 0
 
 [presets.google-ai-studio]
 embedding = "google-ai-studio"

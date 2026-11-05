@@ -18,15 +18,7 @@ from .vector_store import SQLiteVectorStore
 
 def _components():
     settings = RAGSettings.from_env()
-    if "RAG_EMBEDDING_MODEL" in os.environ:
-        from .embeddings import DeterministicEmbeddingProvider
-
-        provider = DeterministicEmbeddingProvider(
-            dimension=settings.embedding_dimension,
-            model_name=settings.embedding_model,
-        )
-    else:
-        provider = create_embedding_provider(ModelSettings.from_env().embedding)
+    provider = create_embedding_provider(ModelSettings.from_env().embedding)
     store = SQLiteVectorStore(
         settings.index_path,
         embedding_model=provider.model_name,
@@ -52,8 +44,9 @@ def main(argv: list[str] | None = None) -> int:
 
     store, provider, session_factory = _components()
     if args.command == "build":
-        count = RAGIndexer(store, provider).build(
-            DatabaseIndexSourceLoader(session_factory).load()
+        count = RAGIndexer(store, provider).build_atomic(
+            DatabaseIndexSourceLoader(session_factory).load(),
+            store.path,
         )
         print(f"indexed chunks: {count}")
     elif args.command == "count":

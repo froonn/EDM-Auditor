@@ -3,16 +3,16 @@ from pathlib import Path
 from edm_auditor.audit_engine import AuditEngine, RuleSpec
 from edm_auditor.audit_engine import entities_from_provider
 from edm_auditor.rag import (
-    DeterministicEmbeddingProvider,
     IndexSource,
     RAGIndexer,
     RAGSearch,
     SQLiteVectorStore,
 )
+from fakes import DeterministicEmbeddingProvider, no_entities
 
 
 def test_date_and_duration_rules_compare_normalized_values() -> None:
-    result = AuditEngine().audit(
+    result = AuditEngine(entity_extractor=no_entities).audit(
         "Договор заключен 01.02.2026. Испытательный срок 4 месяца.",
         [
             RuleSpec(
@@ -68,7 +68,7 @@ def test_provider_entities_support_qualifying_words_in_durations() -> None:
 
 
 def test_duration_rule_checks_date_interval_when_duration_is_not_written() -> None:
-    result = AuditEngine().audit(
+    result = AuditEngine(entity_extractor=no_entities).audit(
         "Изменение действует с 01.03.2027. Уведомление направлено 25.02.2027.",
         [
             RuleSpec(
@@ -87,7 +87,7 @@ def test_duration_rule_checks_date_interval_when_duration_is_not_written() -> No
 
 
 def test_required_keyword_accepts_inflected_word_forms() -> None:
-    result = AuditEngine().audit(
+    result = AuditEngine(entity_extractor=no_entities).audit(
         "Соглашение о дистанционной работе предусматривает дистанционную работу.",
         [
             RuleSpec(
@@ -105,7 +105,7 @@ def test_required_keyword_accepts_inflected_word_forms() -> None:
 
 
 def test_required_keyword_reports_missing_wording() -> None:
-    result = AuditEngine().audit(
+    result = AuditEngine(entity_extractor=no_entities).audit(
         "Соглашение о работе.",
         [
             RuleSpec(
@@ -134,7 +134,9 @@ def test_semantic_rule_returns_ranked_offline_normative_context(tmp_path: Path) 
     )
     RAGIndexer(store, provider).build([IndexSource(legal_act_id=7, text=fixture)])
 
-    result = AuditEngine(RAGSearch(store, provider)).audit(
+    result = AuditEngine(
+        entity_extractor=no_entities, rag_searcher=RAGSearch(store, provider)
+    ).audit(
         "Отпуск работника составляет 14 календарных дней.",
         [
             RuleSpec(

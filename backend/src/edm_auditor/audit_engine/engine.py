@@ -3,8 +3,12 @@
 from collections.abc import Callable, Iterable
 from typing import Any
 
+from edm_auditor.rag.exceptions import RAGError
+
+from .exceptions import InvalidRuleConfiguration
 from .extractors import entities_from_provider, extract_entities
 from .models import AuditResult, ExtractedEntity, FindingDraft, RuleDiagnostic, RuleSpec
+from .neural_errors import AuditModelError
 from .validators import validate_rule
 from .rag_validator import ContextSearcher, validate_semantic_rule
 
@@ -14,8 +18,8 @@ class AuditEngine:
 
     def __init__(
         self,
+        entity_extractor: Callable[[str], tuple[ExtractedEntity, ...]],
         rag_searcher: ContextSearcher | None = None,
-        entity_extractor: Callable[[str], tuple[ExtractedEntity, ...]] | None = None,
     ) -> None:
         self._rag_searcher = rag_searcher
         self._entity_extractor = entity_extractor
@@ -24,32 +28,32 @@ class AuditEngine:
         self,
         text: str,
         rules: Iterable[RuleSpec],
-        *,
-        document_type: str | None = None,
     ) -> AuditResult:
         findings: list[FindingDraft] = []
         diagnostics: list[RuleDiagnostic] = []
         entities = extract_entities(text)
-        if self._entity_extractor is not None:
-            try:
-                provider_entities = self._entity_extractor(text)
-                if provider_entities and isinstance(provider_entities[0], dict):
-                    provider_entities = entities_from_provider(text, provider_entities)
-                entities = _merge_entities(entities, provider_entities)
-            except (RuntimeError, ValueError, TypeError) as exc:
-                diagnostics.append(
-                    RuleDiagnostic("entity-extraction", f"provider failed: {exc}")
-                )
+        try:
+            provider_entities = self._entity_extractor(text)
+            if provider_entities and isinstance(provider_entities[0], dict):
+                provider_entities = entities_from_provider(text, provider_entities)
+            entities = _merge_entities(entities, provider_entities)
+        except (RuntimeError, ValueError, TypeError) as exc:
+            raise AuditModelError("entity extraction model failed") from exc
         for rule in rules:
-            if not rule.is_active or (
-                rule.document_type is not None and rule.document_type != document_type
-            ):
+            if not rule.is_active:
                 continue
             try:
                 if rule.check_type == "semantic":
                     if self._rag_searcher is None:
                         raise ValueError("semantic rule requires a configured RAG searcher")
-                    findings.extend(validate_semantic_rule(rule, text, self._rag_searcher))
+                    try:
+                        findings.extend(
+                            validate_semantic_rule(rule, text, self._rag_searcher)
+                        )
+                    except InvalidRuleConfiguration:
+                        raise
+                    except (RuntimeError, ValueError, TypeError, RAGError) as exc:
+                        raise AuditModelError("semantic search failed") from exc
                 else:
                     findings.extend(validate_rule(rule, text, entities))
             except (ValueError, TypeError) as exc:
