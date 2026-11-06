@@ -1,0 +1,27 @@
+# The whole system with one command: docker compose up --build
+# The interface opens at http://localhost:8080 (EDM_PORT changes the port). The model preset and the
+# API key are read from backend/.env, as in development.
+name: edm-auditor
+
+services:
+  backend:
+    build: ./backend
+    env_file:
+      - path: backend/.env
+        required: true
+    volumes:
+      # Database, search index, uploaded files and the request log; kept between restarts.
+      - edm-data:/app/data
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "${EDM_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  edm-data:
