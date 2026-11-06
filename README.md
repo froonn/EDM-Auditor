@@ -79,13 +79,27 @@ flowchart LR
 
 ## Запуск
 
-Нужны Docker с Docker Compose v2 и ключ Google AI Studio.
+Нужны Docker с Docker Compose v2 и доступ к языковой модели. Провайдер выбирается пресетом в `backend/.env`:
+
+| Пресет             | Провайдер                                 | Что нужно                                       |
+|--------------------|-------------------------------------------|-------------------------------------------------|
+| `google-ai-studio` | Google Gemini, подходит бесплатный ключ   | `GEMINI_API_KEY`                                |
+| `openrouter`       | OpenRouter и локальная модель эмбеддингов | `OPENROUTER_API_KEY` и локальный сервер моделей |
+| `lm-studio`        | Локальные модели в LM Studio              | Запущенный сервер LM Studio                     |
+
+Можно подключить и другой сервер с OpenAI-совместимым API, описав свой пресет. Настройка провайдеров, моделей
+и лимитов описана в [`docs/model-configuration.md`](docs/model-configuration.md).
 
 ```bash
 cp backend/.env.example backend/.env
-# В backend/.env укажите EDM_MODEL_PRESET=google-ai-studio и GEMINI_API_KEY
+# В backend/.env укажите EDM_MODEL_PRESET и ключ выбранного провайдера,
+# например EDM_MODEL_PRESET=google-ai-studio и GEMINI_API_KEY
 docker compose up --build -d
 ```
+
+В Docker без доработок работает только `google-ai-studio`: остальные пресеты обращаются к серверу моделей на
+`localhost`, а внутри контейнера это сам контейнер. Как это обойти, описано в
+[`docs/docker.md`](docs/docker.md#ограничения). Без Docker подходят все пресеты.
 
 Интерфейс откроется на <http://localhost:8080>, документация API на <http://localhost:8080/docs>. Данные
 хранятся в томе Docker и сохраняются между перезапусками. Остановка: `docker compose down`. Подробности,
