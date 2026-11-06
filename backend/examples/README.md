@@ -19,7 +19,8 @@ asks for configuration.
 Each upload and audit calls the model. On a free plan, leave a pause between requests so that you do
 not exceed the request limit.
 
-With the server running from `backend/`:
+In the interface, upload a legal act on the "НПА" page, check its rules, then upload a document on the
+"Документы" page and run the audit. The same steps with `curl`, with the server running from `backend/`:
 
 ```bash
 curl -sS -X POST http://127.0.0.1:8000/api/legal-acts/upload \
@@ -43,5 +44,5 @@ curl -sS http://127.0.0.1:8000/api/documents/<DOCUMENT_ID>/report | python -m js
 ```
 
 `remote_work_agreement.txt` should give findings, and `compliant_remote_work_agreement.txt` should
-give none. `payroll_order.txt` also contains a requirement the audit cannot detect yet: see the
-limitations in [`../README.md`](../README.md).
+give none. `payroll_order.txt` also breaks two requirements the audit cannot detect yet: the payment
+frequency and the final payment by the 5th. See the limitations in [`../README.md`](../README.md).

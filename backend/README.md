@@ -27,6 +27,8 @@ range of a finding, and the server builds the legal references from the rule its
 
 ## Setup
 
+To run the whole system in Docker, see [`docs/docker.md`](../docs/docker.md).
+
 Python 3.11 or newer is required. Run all commands from `backend/`:
 
 ```bash
@@ -288,11 +290,15 @@ rejected.
 
 - Only small legal acts work reliably. One failed chunk stops the publication of the whole act, and a
   large act quickly exceeds the request limit of a free model plan.
-- Requirements without a comparable value are not checked: "once a month" is not detected against a
-  norm of "at least twice a month". This needs the semantic audit planned for the diploma project.
+- Payment frequency is not checked: "at least twice a month" becomes a `duration` rule, and "once a
+  month" in a document has no duration to compare, so the violation is missed.
+- "No later than the 5th of the next month" produces no rule: no check type compares a day of the month,
+  and the model skips such a requirement without a diagnostic.
 - The model's verdicts and severity stability were checked only on the examples in `examples/`.
 - Legal act codes are unique only at the API level, with no database constraint.
-- Report export is not implemented yet.
+- Reports are exported only as HTML; PDF and an annotated DOCX are planned for the diploma project.
+- The database created by the server itself has no `alembic_version` table; see
+  [`docs/DEBUG.md`](../docs/DEBUG.md) before running migrations on it.
 
 See [`docs/TODO.md`](../docs/TODO.md) for the plan and [`docs/DEVLOG.md`](../docs/DEVLOG.md) for the
 current state.

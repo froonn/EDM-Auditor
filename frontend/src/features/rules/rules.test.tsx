@@ -45,7 +45,7 @@ describe("rules list", () => {
     });
     renderApp("/rules");
     const row = (await screen.findByRole("link", { name: "Срок уведомления" })).closest("tr")!;
-    expect(within(row).getByText("Высокое")).toBeInTheDocument();
+    expect(within(row).getByText("Высокая")).toBeInTheDocument();
     expect(within(row).getByText("Срок")).toBeInTheDocument();
 
     await userEvent.selectOptions(screen.getByLabelText("Тип проверки"), "keyword");

@@ -12,7 +12,7 @@ backend/data/uploads/
 *.log
 logs/
 report
-docs/remove-copilot-from-history.md
+docs/archive/remove-copilot-from-history.md
 node_modules/
 frontend/dist/
 *.tsbuildinfo

@@ -1,0 +1,13 @@
+# Keys and local data never go into the image.
+.env
+.env.*
+!.env.example
+data/
+.venv/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+tests/
+examples/
+build/

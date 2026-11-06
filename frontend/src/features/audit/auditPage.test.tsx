@@ -94,8 +94,8 @@ describe("audit screen", () => {
     renderApp("/documents/1/audit");
     const text = await screen.findByRole("region", { name: "Текст документа" });
     await waitFor(() => expect(marks(text)).toHaveLength(2));
-    const filter = screen.getByRole("group", { name: "Фильтр по важности" });
-    await userEvent.click(within(filter).getByRole("button", { name: /Среднее/ }));
+    const filter = screen.getByRole("group", { name: "Фильтр по критичности" });
+    await userEvent.click(within(filter).getByRole("button", { name: /Средняя/ }));
     expect(marks(text).map((mark) => mark.textContent)).toEqual(["4 дня"]);
     expect(screen.queryByRole("button", { name: /Размер компенсации/ })).not.toBeInTheDocument();
   });
@@ -145,7 +145,7 @@ describe("audit screen", () => {
     expect(api.calls.filter((call) => call.path.startsWith("/api/rules")).map((call) => call.path)).toEqual(["/api/rules/4"]);
     expect(within(passed).getByText("Документ должен содержать подписи сторон.")).toBeInTheDocument();
     expect(within(passed).getByText("Соглашение подписывается обеими сторонами.")).toBeInTheDocument();
-    expect(within(passed).getByText("Среднее")).toBeInTheDocument();
+    expect(within(passed).getByText("Средняя")).toBeInTheDocument();
   });
 
   it("does not load rules until a passed rule is opened, and explains a deleted rule", async () => {
