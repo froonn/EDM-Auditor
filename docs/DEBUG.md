@@ -1,9 +1,12 @@
 # Руководство по отладке и работе с API
 
-Типовые сценарии работы с запущенным бэкендом: запуск и журнал, правила, НПА, аудит и прямая проверка
-базы. Полный список эндпоинтов и кодов ошибок описан в [`backend/README.md`](../backend/README.md).
+Типовые сценарии работы с запущенным бэкендом через `curl`: запуск и журнал, правила, НПА, аудит и прямая
+проверка базы. Обычная работа идёт через интерфейс, а эти команды нужны для отладки. Полный список эндпоинтов и
+кодов ошибок описан в [`backend/README.md`](../backend/README.md), отладка в Docker в
+[разделе 10](#10-отладка-в-docker).
 
-Все команды выполняются из каталога `backend/`.
+Все команды выполняются из каталога `backend/` и обращаются к серверу разработки на порту 8000. В Docker
+API доступен через nginx: замените `http://127.0.0.1:8000` на `http://localhost:8080`.
 
 ## 1. Запуск сервера
 
@@ -33,10 +36,15 @@ Swagger UI доступен на <http://127.0.0.1:8000/docs>.
 
 ```bash
 cp data/edm_auditor.sqlite3 data/edm_auditor.backup.sqlite3
-# Только если в базе нет таблицы alembic_version:
-alembic stamp 0005_rule_publication_metadata
 alembic upgrade head
 ```
+
+Сервер сам создаёт таблицы в новой базе, поэтому в базе разработки может не быть таблицы `alembic_version`.
+Тогда сначала пометьте версию базы:
+
+- сервер на текущем коде с этой базой запускается: схема уже последняя, выполните `alembic stamp head`;
+- сервер сообщает об устаревшей схеме: выполните `alembic stamp 0005_rule_publication_metadata`, затем
+  `alembic upgrade head`.
 
 `alembic` не читает `EDM_DATABASE_URL`: команды всегда меняют `data/edm_auditor.sqlite3`. Чтобы
 проверить миграцию на копии, создайте `alembic.config.Config` и задайте в нём `sqlalchemy.url`, как в
@@ -115,6 +123,8 @@ curl -s "http://127.0.0.1:8000/api/rules?is_active=true" | jq .
 curl -s "http://127.0.0.1:8000/api/rules?check_type=duration" | jq .
 curl -s "http://127.0.0.1:8000/api/rules?applicability_scope=universal" | jq .
 curl -s "http://127.0.0.1:8000/api/rules?document_type=payroll_order" | jq .
+curl -s "http://127.0.0.1:8000/api/rules?legal_act_id=1" | jq .
+curl -s http://127.0.0.1:8000/api/rules/1 | jq .
 
 # Постраничный вывод: общее число записей находится в заголовке X-Total-Count
 curl -si "http://127.0.0.1:8000/api/rules?limit=10&offset=0"
@@ -298,6 +308,9 @@ RAG только показывает связанные НПА со `score` и 
 ```bash
 curl -s http://127.0.0.1:8000/api/documents/1/report | jq .   # последний отчёт
 curl -s http://127.0.0.1:8000/api/reports/1 | jq .
+
+# Выгрузка в HTML, как кнопка «Скачать HTML»; файл открывается в браузере
+curl -s -o report.html "http://127.0.0.1:8000/api/reports/1/export?format=html&timezone=Europe/Minsk"
 ```
 
 Что проверить, если результат неожиданный:
@@ -329,6 +342,7 @@ sqlite3 data/edm_auditor.sqlite3 \
 
 sqlite3 data/edm_auditor.sqlite3 "SELECT id, code, title, processing_status FROM legal_acts;"
 
+# Ошибка «no such table» значит, что база создана сервером без Alembic, см. раздел 1
 sqlite3 data/edm_auditor.sqlite3 "SELECT version_num FROM alembic_version;"
 ```
 
@@ -341,3 +355,19 @@ python -m edm_auditor.rag build
 ```
 
 Команды `build` и `search` обращаются к модели эмбеддингов выбранного пресета.
+
+## 10. Отладка в Docker
+
+Команды выполняются из корня репозитория. Запуск и перенос базы описаны в [`docker.md`](docker.md).
+
+```bash
+docker compose ps                                  # бэкенд должен быть healthy
+docker compose logs -f backend                     # краткий журнал сервера и миграций
+docker compose exec backend tail -f data/debug.log # подробный журнал запросов
+docker compose exec backend alembic current        # версия схемы базы в томе
+docker compose exec backend python -m edm_auditor.rag count
+```
+
+Если интерфейс открывается, а запросы отвечают `502`, бэкенд не запустился или перезапускается: причина видна
+в `docker compose logs backend`. Чаще всего это отсутствие `EDM_MODEL_PRESET` в `backend/.env` или база без
+`alembic_version`, перенесённая из разработки.

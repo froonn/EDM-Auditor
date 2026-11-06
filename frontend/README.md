@@ -1,9 +1,13 @@
 # EDM-Auditor frontend
 
-A React interface for the EDM-Auditor API. The plan, screens and decisions are described in
-[`docs/feature-frontend.md`](../docs/feature-frontend.md).
+A React interface for the EDM-Auditor API. The screens are described in the root
+[`README.md`](../README.md); the decisions made while building them are kept in the archived plan
+[`docs/archive/feature-frontend.md`](../docs/archive/feature-frontend.md).
 
 ## Setup
+
+To run the whole system in Docker, see [`docs/docker.md`](../docs/docker.md). The Docker image serves the
+build with nginx (`docker/nginx.conf`), which forwards `/api` to the backend.
 
 Node.js 22.22 or newer is required. Start the backend first, as described in
 [`backend/README.md`](../backend/README.md), then run from `frontend/`:
@@ -60,5 +64,6 @@ Run `npm run api:types` after changing the API and commit the result. It reads
 | `src/i18n/`       | Dictionary and formatting                                                                                  |
 | `src/pages/`      | Generic pages: not found, forbidden, crash                                                                 |
 | `src/styles/`     | Tailwind entry point and theme variables                                                                   |
+| `docker/`         | nginx configuration of the Docker image                                                                    |
 
 shadcn/ui is configured in `components.json`; add a component with `npx shadcn@latest add <name>`.
