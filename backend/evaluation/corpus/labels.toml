@@ -1,0 +1,169 @@
+# Ground truth for the evaluation corpus.
+#
+# A quote is a fragment of the file text; line breaks and runs of spaces in it match any whitespace.
+# Norm kinds describe the expected rule structure: value, frequency, day_of_month or text.
+# A norm with checkable = false is not about documents, so no rule should be created for it.
+# Every checkable norm of a document's acts that is not listed in its violations must be met.
+# A violation without a quote is a missing condition.
+
+[[acts]]
+id = "payments"
+file = "acts/payments.txt"
+code = "EVAL-PAYMENTS"
+title = "Положение об оплате труда работников"
+norms = [
+  { id = "pay-scope", quote = "Настоящее Положение определяет порядок и сроки выплаты", kind = "text", checkable = false },
+  { id = "pay-control", quote = "Контроль за соблюдением настоящего Положения осуществляет главный бухгалтер", kind = "text", checkable = false },
+  { id = "pay-frequency", quote = "Заработная плата выплачивается не реже двух раз в месяц", kind = "frequency" },
+  { id = "pay-advance", quote = "Размер аванса должен составлять не менее 40 процентов", kind = "value" },
+  { id = "pay-final", quote = "Окончательный расчет за месяц производится не позднее 5 числа следующего месяца", kind = "day_of_month" },
+  { id = "pay-period", quote = "период, за который производится выплата", kind = "text" },
+  { id = "pay-method", quote = "способ выплаты: наличными денежными средствами или перечислением на счет работника", kind = "text" },
+  { id = "pay-in-kind", quote = "Не допускается выплата заработной платы в натуральной форме", kind = "text" },
+]
+
+[[acts]]
+id = "remote"
+file = "acts/remote_work.txt"
+code = "EVAL-REMOTE"
+title = "Положение о дистанционной работе"
+norms = [
+  { id = "remote-schedule", quote = "режим рабочего времени работника", kind = "text" },
+  { id = "remote-interaction", quote = "порядок взаимодействия работника и нанимателя", kind = "text" },
+  { id = "remote-internet", quote = "компенсация расходов работника на интернет не может быть меньше 50 рублей", kind = "value" },
+  { id = "remote-notice", quote = "не позднее чем за 10 календарных дней до их изменения", kind = "value" },
+  { id = "remote-notice-child", quote = "имеющего ребенка в возрасте до трех лет, наниматель уведомляет", kind = "value" },
+]
+
+[[acts]]
+id = "trip"
+file = "acts/business_trip.txt"
+code = "EVAL-TRIP"
+title = "Положение о служебных командировках"
+norms = [
+  { id = "trip-length", quote = "Срок служебной командировки не может превышать 30 календарных дней", kind = "value" },
+  { id = "trip-report", quote = "авансовый отчет в течение 3 рабочих дней", kind = "value" },
+  { id = "trip-content", quote = "указываются место назначения, срок и цель командировки", kind = "text" },
+  { id = "trip-allowance", quote = "в размере не менее 25 рублей", kind = "value" },
+  { id = "trip-journal", quote = "Отдел кадров ведет журнал учета работников", kind = "text", checkable = false },
+]
+
+[[acts]]
+id = "vacation"
+file = "acts/vacation.txt"
+code = "EVAL-VACATION"
+title = "Положение о трудовых отпусках"
+norms = [
+  { id = "vac-length", quote = "Продолжительность основного отпуска составляет не менее 24 календарных дней", kind = "value" },
+  { id = "vac-minor", quote = "Работникам моложе восемнадцати лет основной отпуск", kind = "value" },
+  { id = "vac-notice", quote = "не позднее чем за 15 календарных дней до его начала", kind = "value" },
+  { id = "vac-compensation", quote = "Замена отпуска денежной компенсацией не допускается", kind = "text" },
+  { id = "vac-content", quote = "указываются вид отпуска и период работы", kind = "text" },
+]
+
+[[documents]]
+id = "payroll-violating"
+file = "documents/payroll_violating.txt"
+acts = ["payments"]
+document_types = ["payroll_order"]
+violations = [
+  { norm = "pay-frequency", quote = "один раз в месяц" },
+  { norm = "pay-advance", quote = "25 процентов" },
+  { norm = "pay-final", quote = "8 числа следующего месяца" },
+  { norm = "pay-method" },
+  { norm = "pay-in-kind", quote = "продукцией собственного производства" },
+]
+
+[[documents]]
+id = "payroll-compliant"
+file = "documents/payroll_compliant.txt"
+acts = ["payments"]
+document_types = ["payroll_order"]
+violations = []
+note = "Премия 10 процентов не аванс."
+
+[[documents]]
+id = "payroll-paraphrase"
+file = "documents/payroll_paraphrase.txt"
+acts = ["payments"]
+document_types = ["payroll_order"]
+violations = []
+note = "Все условия выполнены, но записаны другими словами."
+
+[[documents]]
+id = "remote-violating"
+file = "documents/remote_violating.txt"
+acts = ["remote"]
+document_types = ["remote_work_agreement"]
+violations = [
+  { norm = "remote-schedule" },
+  { norm = "remote-internet", quote = "35 рублей" },
+  { norm = "remote-notice", quote = "25.02.2027" },
+]
+
+[[documents]]
+id = "remote-compliant"
+file = "documents/remote_compliant.txt"
+acts = ["remote"]
+document_types = ["remote_work_agreement"]
+violations = []
+note = "Доставка оборудования 20 рублей не компенсация за интернет."
+
+[[documents]]
+id = "remote-child"
+file = "documents/remote_child.txt"
+acts = ["remote"]
+document_types = ["remote_work_agreement"]
+violations = [
+  { norm = "remote-notice-child", quote = "за 14 календарных дней" },
+]
+note = "Условие применения: у работника ребенок до трех лет."
+
+[[documents]]
+id = "trip-violating"
+file = "documents/trip_violating.txt"
+acts = ["trip"]
+document_types = ["business_trip_order"]
+violations = [
+  { norm = "trip-length", quote = "45 календарных дней" },
+  { norm = "trip-report", quote = "7 рабочих дней" },
+  { norm = "trip-content" },
+  { norm = "trip-allowance", quote = "20 рублей" },
+]
+
+[[documents]]
+id = "trip-compliant"
+file = "documents/trip_compliant.txt"
+acts = ["trip"]
+document_types = ["business_trip_order"]
+violations = []
+note = "Проезд 15 рублей не суточные."
+
+[[documents]]
+id = "vacation-violating"
+file = "documents/vacation_violating.txt"
+acts = ["vacation"]
+document_types = ["vacation_order"]
+violations = [
+  { norm = "vac-length", quote = "21 календарный день" },
+  { norm = "vac-notice", quote = "24.11.2026" },
+  { norm = "vac-compensation", quote = "заменить денежной компенсацией" },
+  { norm = "vac-content" },
+]
+
+[[documents]]
+id = "vacation-compliant"
+file = "documents/vacation_compliant.txt"
+acts = ["vacation"]
+document_types = ["vacation_order"]
+violations = []
+
+[[documents]]
+id = "vacation-minor"
+file = "documents/vacation_minor.txt"
+acts = ["vacation"]
+document_types = ["vacation_order"]
+violations = [
+  { norm = "vac-minor", quote = "24 календарных дня" },
+]
+note = "Условие применения: работнику 17 лет."

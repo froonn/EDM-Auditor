@@ -1,0 +1,1653 @@
+{
+  "run": {
+    "label": "baseline",
+    "models": {
+      "extractor": "gemini-3.5-flash-lite",
+      "llm": "gemini-3.5-flash-lite",
+      "embedding": "gemini-embedding-2"
+    },
+    "started_at": "2026-11-13T17:23:08+00:00",
+    "acts": {
+      "payments": {
+        "status": "ok",
+        "error": null,
+        "rules": [
+          {
+            "id": 1,
+            "rule_code": "EVAL-PAYMENTS-0-001-41f8b0da",
+            "name": "Выплата заработной платы не реже двух раз в месяц",
+            "applicability_scope": "typed",
+            "document_types": [
+              "payroll_order"
+            ],
+            "applicability_confidence": 0.9,
+            "applicability_source": "llm",
+            "automatic_applicability": {
+              "confidence": 0.9,
+              "document_types": [
+                "payroll_order"
+              ],
+              "scope": "typed"
+            },
+            "severity": "high",
+            "description": "Заработная плата должна выплачиваться не реже двух раз в месяц",
+            "check_type": "duration",
+            "parameters": {
+              "max_days": 15,
+              "min_days": 1
+            },
+            "is_active": true,
+            "legal_act_id": 1,
+            "is_generated": true,
+            "source_quote": "Заработная плата выплачивается не реже двух раз в месяц.",
+            "source_location": "legal-act-1:base:49c0a1f797f87697:paragraph-v1:0",
+            "source_start": 296,
+            "source_end": 352
+          },
+          {
+            "id": 2,
+            "rule_code": "EVAL-PAYMENTS-0-002-c8e88c98",
+            "name": "Минимальный размер аванса",
+            "applicability_scope": "typed",
+            "document_types": [
+              "payroll_order"
+            ],
+            "applicability_confidence": 0.9,
+            "applicability_source": "llm",
+            "automatic_applicability": {
+              "confidence": 0.9,
+              "document_types": [
+                "payroll_order"
+              ],
+              "scope": "typed"
+            },
+            "severity": "high",
+            "description": "Размер аванса должен составлять не менее 40 процентов начисленной заработной платы за месяц",
+            "check_type": "numeric",
+            "parameters": {
+              "entity": "percent",
+              "min": 40
+            },
+            "is_active": true,
+            "legal_act_id": 1,
+            "is_generated": true,
+            "source_quote": "Размер аванса должен составлять не менее 40 процентов начисленной\n\nзаработной платы за месяц.",
+            "source_location": "legal-act-1:base:49c0a1f797f87697:paragraph-v1:0",
+            "source_start": 357,
+            "source_end": 450
+          },
+          {
+            "id": 3,
+            "rule_code": "EVAL-PAYMENTS-0-003-a19a23c4",
+            "name": "Срок окончательного расчета",
+            "applicability_scope": "typed",
+            "document_types": [
+              "payroll_order"
+            ],
+            "applicability_confidence": 0.9,
+            "applicability_source": "llm",
+            "automatic_applicability": {
+              "confidence": 0.9,
+              "document_types": [
+                "payroll_order"
+              ],
+              "scope": "typed"
+            },
+            "severity": "high",
+            "description": "Окончательный расчет за месяц производится не позднее 5 числа следующего месяца",
+            "check_type": "numeric",
+            "parameters": {
+              "entity": "number",
+              "max": 5
+            },
+            "is_active": true,
+            "legal_act_id": 1,
+            "is_generated": true,
+            "source_quote": "Окончательный расчет за месяц производится не позднее 5 числа следующего\n\nмесяца.",
+            "source_location": "legal-act-1:base:49c0a1f797f87697:paragraph-v1:0",
+            "source_start": 455,
+            "source_end": 536
+          },
+          {
+            "id": 4,
+            "rule_code": "EVAL-PAYMENTS-0-004-c2c53649",
+            "name": "Указание периода выплаты",
+            "applicability_scope": "typed",
+            "document_types": [
+              "payroll_order"
+            ],
+            "applicability_confidence": 0.9,
+            "applicability_source": "llm",
+            "automatic_applicability": {
+              "confidence": 0.9,
+              "document_types": [
+                "payroll_order"
+              ],
+              "scope": "typed"
+            },
+            "severity": "medium",
+            "description": "В приказе о выплате заработной платы указывается период, за который производится выплата",
+            "check_type": "keyword",
+            "parameters": {
+              "keywords": [
+                "период"
+              ],
+              "match": "literal",
+              "mode": "required"
+            },
+            "is_active": true,
+            "legal_act_id": 1,
+            "is_generated": true,
+            "source_quote": "В приказе о выплате заработной платы указываются:\n\n1) период, за который производится выплата;",
+            "source_location": "legal-act-1:base:49c0a1f797f87697:paragraph-v1:0",
+            "source_start": 541,
+            "source_end": 635
+          },
+          {
+            "id": 5,
+            "rule_code": "EVAL-PAYMENTS-0-005-71bc10d3",
+            "name": "Указание способа выплаты",
+            "applicability_scope": "typed",
+            "document_types": [
+              "payroll_order"
+            ],
+            "applicability_confidence": 0.9,
+            "applicability_source": "llm",
+            "automatic_applicability": {
+              "confidence": 0.9,
+              "document_types": [
+                "payroll_order"
+              ],
+              "scope": "typed"
+            },
+            "severity": "medium",
+            "description": "В приказе о выплате заработной платы указывается способ выплаты",
+            "check_type": "keyword",
+            "parameters": {
+              "keywords": [
+                "способ выплаты"
+              ],
+              "match": "literal",
+              "mode": "required"
+            },
+            "is_active": true,
+            "legal_act_id": 1,
+            "is_generated": true,
+            "source_quote": "2) способ выплаты: наличными денежными средствами или перечислением на счет\n\nработника.",
+            "source_location": "legal-act-1:base:49c0a1f797f87697:paragraph-v1:0",
+            "source_start": 637,
+            "source_end": 724
+          },
+          {
+            "id": 6,
+            "rule_code": "EVAL-PAYMENTS-0-006-7aaf2e4e",
+            "name": "Запрет выплаты в натуральной форме",
+            "applicability_scope": "typed",
+            "document_types": [
+              "payroll_order"
+            ],
+            "applicability_confidence": 0.9,
+            "applicability_source": "llm",
+            "automatic_applicability": {
+              "confidence": 0.9,
+              "document_types": [
+                "payroll_order"
+              ],
+              "scope": "typed"
+            },
+            "severity": "critical",
+            "description": "Не допускается выплата заработной платы в натуральной форме",
+            "check_type": "keyword",
+            "parameters": {
+              "keywords": [
+                "в натуральной форме"
+              ],
+              "match": "literal",
+              "mode": "forbidden"
+            },
+            "is_active": true,
+            "legal_act_id": 1,
+            "is_generated": true,
+            "source_quote": "Не допускается выплата заработной платы в натуральной форме.",
+            "source_location": "legal-act-1:base:49c0a1f797f87697:paragraph-v1:0",
+            "source_start": 729,
+            "source_end": 789
+          }
+        ],
+        "text": "Положение об оплате труда работников\n\nГлава 1. Общие положения\n\n1. Настоящее Положение определяет порядок и сроки выплаты заработной платы\n\nработникам организации.\n\n2. Контроль за соблюдением настоящего Положения осуществляет главный\n\nбухгалтер организации.\n\nГлава 2. Сроки и порядок выплаты\n\n3. Заработная плата выплачивается не реже двух раз в месяц.\n\n4. Размер аванса должен составлять не менее 40 процентов начисленной\n\nзаработной платы за месяц.\n\n5. Окончательный расчет за месяц производится не позднее 5 числа следующего\n\nмесяца.\n\n6. В приказе о выплате заработной платы указываются:\n\n1) период, за который производится выплата;\n\n2) способ выплаты: наличными денежными средствами или перечислением на счет\n\nработника.\n\n7. Не допускается выплата заработной платы в натуральной форме.",
+        "seconds": 9.5
+      },
+      "remote": {
+        "status": "error",
+        "error": "HTTP 503 rule_extraction_error: Online rule extraction failed for 1 chunk(s)",
+        "rules": [],
+        "text": "Положение о дистанционной работе\n\nСтатья 1. Соглашение о дистанционной работе\n\n1. В соглашении о дистанционной работе указываются:\n\nа) режим рабочего времени работника;\n\nб) порядок взаимодействия работника и нанимателя.\n\n2. Ежемесячная компенсация расходов работника на интернет не может быть\n\nменьше 50 рублей.\n\nСтатья 2. Изменение условий дистанционной работы\n\n1. Наниматель обязан письменно уведомить работника об изменении условий\n\nдистанционной работы не позднее чем за 10 календарных дней до их изменения.\n\n2. Работника, имеющего ребенка в возрасте до трех лет, наниматель уведомляет\n\nоб изменении условий дистанционной работы не позднее чем за 30 календарных\n\nдней до их изменения.",
+        "seconds": 11.3,
+        "diagnostics": [
+          {
+            "chunk": 1,
+            "status": "accepted"
+          },
+          {
+            "chunk": 2,
+            "status": "failed",
+            "error_code": "quote_not_found",
+            "text": "Статья 1 со списком «указываются: а) ... б) ...»"
+          },
+          {
+            "chunk": 3,
+            "status": "accepted"
+          }
+        ],
+        "diagnostics_note": "Диагностика записана повторным извлечением этого акта на той же модели: в прогоне её ещё не сохраняли."
+      },
+      "trip": {
+        "status": "ok",
+        "error": null,
+        "rules": [
+          {
+            "id": 7,
+            "rule_code": "EVAL-TRIP-0-001-c0c57615",
+            "name": "Максимальный срок служебной командировки",
+            "applicability_scope": "typed",
+            "document_types": [
+              "business_trip_order"
+            ],
+            "applicability_confidence": 0.9,
+            "applicability_source": "llm",
+            "automatic_applicability": {
+              "confidence": 0.9,
+              "document_types": [
+                "business_trip_order"
+              ],
+              "scope": "typed"
+            },
+            "severity": "high",
+            "description": "Срок служебной командировки не может превышать 30 календарных дней, не считая времени нахождения в пути.",
+            "check_type": "duration",
+            "parameters": {
+              "max_days": 30
+            },
+            "is_active": true,
+            "legal_act_id": 3,
+            "is_generated": true,
+            "source_quote": "Срок служебной командировки не может превышать 30 календарных дней, не\n\nсчитая времени нахождения в пути.",
+            "source_location": "legal-act-3:base:6016044052fb23c4:paragraph-v1:0",
+            "source_start": 40,
+            "source_end": 145
+          },
+          {
+            "id": 8,
+            "rule_code": "EVAL-TRIP-0-002-3346ec62",
+            "name": "Срок предоставления авансового отчета",
+            "applicability_scope": "unknown",
+            "document_types": [],
+            "applicability_confidence": 0.7,
+            "applicability_source": "llm",
+            "automatic_applicability": {
+              "confidence": 0.7,
+              "document_types": [],
+              "scope": "unknown"
+            },
+            "severity": "high",
+            "description": "Работник представляет авансовый отчет в течение 3 рабочих дней после возвращения из командировки.",
+            "check_type": "duration",
+            "parameters": {
+              "max_days": 3
+            },
+            "is_active": true,
+            "legal_act_id": 3,
+            "is_generated": true,
+            "source_quote": "Работник представляет авансовый отчет в течение 3 рабочих дней после\n\nвозвращения из командировки.",
+            "source_location": "legal-act-3:base:6016044052fb23c4:paragraph-v1:0",
+            "source_start": 150,
+            "source_end": 248
+          },
+          {
+            "id": 9,
+            "rule_code": "EVAL-TRIP-0-003-e6df1017",
+            "name": "Обязательные сведения в приказе о направлении в командировку",
+            "applicability_scope": "typed",
+            "document_types": [
+              "business_trip_order"
+            ],
+            "applicability_confidence": 1.0,
+            "applicability_source": "llm",
+            "automatic_applicability": {
+              "confidence": 1.0,
+              "document_types": [
+                "business_trip_order"
+              ],
+              "scope": "typed"
+            },
+            "severity": "medium",
+            "description": "В приказе о направлении в командировку указываются место назначения, срок и цель командировки.",
+            "check_type": "keyword",
+            "parameters": {
+              "keywords": [
+                "место назначения",
+                "срок",
+                "цель командировки"
+              ],
+              "match": "literal",
+              "mode": "required"
+            },
+            "is_active": true,
+            "legal_act_id": 3,
+            "is_generated": true,
+            "source_quote": "В приказе о направлении в командировку указываются место назначения, срок\n\nи цель командировки.",
+            "source_location": "legal-act-3:base:6016044052fb23c4:paragraph-v1:0",
+            "source_start": 253,
+            "source_end": 348
+          },
+          {
+            "id": 10,
+            "rule_code": "EVAL-TRIP-0-004-6c5b4788",
+            "name": "Минимальный размер суточных",
+            "applicability_scope": "unknown",
+            "document_types": [],
+            "applicability_confidence": 0.6,
+            "applicability_source": "llm",
+            "automatic_applicability": {
+              "confidence": 0.6,
+              "document_types": [],
+              "scope": "unknown"
+            },
+            "severity": "high",
+            "description": "Суточные выплачиваются за каждый день нахождения в командировке в размере не менее 25 рублей.",
+            "check_type": "numeric",
+            "parameters": {
+              "entity": "money",
+              "min": 25
+            },
+            "is_active": true,
+            "legal_act_id": 3,
+            "is_generated": true,
+            "source_quote": "Суточные выплачиваются за каждый день нахождения в командировке в размере\n\nне менее 25 рублей.",
+            "source_location": "legal-act-3:base:6016044052fb23c4:paragraph-v1:0",
+            "source_start": 353,
+            "source_end": 447
+          },
+          {
+            "id": 11,
+            "rule_code": "EVAL-TRIP-0-005-f8942d82",
+            "name": "Ведение журнала учета работников",
+            "applicability_scope": "unknown",
+            "document_types": [],
+            "applicability_confidence": 0.5,
+            "applicability_source": "llm",
+            "automatic_applicability": {
+              "confidence": 0.5,
+              "document_types": [],
+              "scope": "unknown"
+            },
+            "severity": "low",
+            "description": "Отдел кадров ведет журнал учета работников, выбывающих в служебные командировки.",
+            "check_type": "keyword",
+            "parameters": {
+              "keywords": [
+                "журнал учета"
+              ],
+              "match": "literal",
+              "mode": "required"
+            },
+            "is_active": true,
+            "legal_act_id": 3,
+            "is_generated": true,
+            "source_quote": "Отдел кадров ведет журнал учета работников, выбывающих в служебные\n\nкомандировки.",
+            "source_location": "legal-act-3:base:6016044052fb23c4:paragraph-v1:0",
+            "source_start": 452,
+            "source_end": 533
+          }
+        ],
+        "text": "Положение о служебных командировках\n\n1. Срок служебной командировки не может превышать 30 календарных дней, не\n\nсчитая времени нахождения в пути.\n\n2. Работник представляет авансовый отчет в течение 3 рабочих дней после\n\nвозвращения из командировки.\n\n3. В приказе о направлении в командировку указываются место назначения, срок\n\nи цель командировки.\n\n4. Суточные выплачиваются за каждый день нахождения в командировке в размере\n\nне менее 25 рублей.\n\n5. Отдел кадров ведет журнал учета работников, выбывающих в служебные\n\nкомандировки.",
+        "seconds": 17.6
+      },
+      "vacation": {
+        "status": "ok",
+        "error": null,
+        "rules": [
+          {
+            "id": 12,
+            "rule_code": "EVAL-VACATION-0-001-4e07e9f1",
+            "name": "Продолжительность основного отпуска",
+            "applicability_scope": "typed",
+            "document_types": [
+              "vacation_order"
+            ],
+            "applicability_confidence": 0.9,
+            "applicability_source": "llm",
+            "automatic_applicability": {
+              "confidence": 0.9,
+              "document_types": [
+                "vacation_order"
+              ],
+              "scope": "typed"
+            },
+            "severity": "high",
+            "description": "Продолжительность основного отпуска составляет не менее 24 календарных дней.",
+            "check_type": "duration",
+            "parameters": {
+              "min_days": 24
+            },
+            "is_active": true,
+            "legal_act_id": 4,
+            "is_generated": true,
+            "source_quote": "Продолжительность основного отпуска составляет не менее 24 календарных\n\nдней.",
+            "source_location": "legal-act-4:base:54a747d3c081c921:paragraph-v1:0",
+            "source_start": 34,
+            "source_end": 111
+          },
+          {
+            "id": 13,
+            "rule_code": "EVAL-VACATION-0-002-b3805666",
+            "name": "Продолжительность отпуска для работников моложе 18 лет",
+            "applicability_scope": "typed",
+            "document_types": [
+              "vacation_order"
+            ],
+            "applicability_confidence": 0.9,
+            "applicability_source": "llm",
+            "automatic_applicability": {
+              "confidence": 0.9,
+              "document_types": [
+                "vacation_order"
+              ],
+              "scope": "typed"
+            },
+            "severity": "high",
+            "description": "Работникам моложе восемнадцати лет основной отпуск предоставляется продолжительностью не менее 30 календарных дней.",
+            "check_type": "duration",
+            "parameters": {
+              "min_days": 30
+            },
+            "is_active": true,
+            "legal_act_id": 4,
+            "is_generated": true,
+            "source_quote": "Работникам моложе восемнадцати лет основной отпуск предоставляется\n\nпродолжительностью не менее 30 календарных дней.",
+            "source_location": "legal-act-4:base:54a747d3c081c921:paragraph-v1:0",
+            "source_start": 116,
+            "source_end": 232
+          },
+          {
+            "id": 14,
+            "rule_code": "EVAL-VACATION-0-003-ecb315af",
+            "name": "Срок уведомления о времени начала отпуска",
+            "applicability_scope": "unknown",
+            "document_types": [],
+            "applicability_confidence": 0.8,
+            "applicability_source": "llm",
+            "automatic_applicability": {
+              "confidence": 0.8,
+              "document_types": [],
+              "scope": "unknown"
+            },
+            "severity": "high",
+            "description": "Наниматель уведомляет работника о времени начала отпуска не позднее чем за 15 календарных дней до его начала.",
+            "check_type": "duration",
+            "parameters": {
+              "min_days": 15
+            },
+            "is_active": true,
+            "legal_act_id": 4,
+            "is_generated": true,
+            "source_quote": "Наниматель уведомляет работника о времени начала отпуска не позднее чем за\n\n15 календарных дней до его начала.",
+            "source_location": "legal-act-4:base:54a747d3c081c921:paragraph-v1:0",
+            "source_start": 237,
+            "source_end": 347
+          },
+          {
+            "id": 15,
+            "rule_code": "EVAL-VACATION-0-004-7cd4b755",
+            "name": "Запрет замены отпуска денежной компенсацией",
+            "applicability_scope": "typed",
+            "document_types": [
+              "vacation_order"
+            ],
+            "applicability_confidence": 0.85,
+            "applicability_source": "llm",
+            "automatic_applicability": {
+              "confidence": 0.85,
+              "document_types": [
+                "vacation_order"
+              ],
+              "scope": "typed"
+            },
+            "severity": "critical",
+            "description": "Замена отпуска денежной компенсацией не допускается, кроме случая увольнения работника.",
+            "check_type": "keyword",
+            "parameters": {
+              "keywords": [
+                "денежной компенсацией"
+              ],
+              "mode": "forbidden"
+            },
+            "is_active": true,
+            "legal_act_id": 4,
+            "is_generated": true,
+            "source_quote": "Замена отпуска денежной компенсацией не допускается, кроме случая\n\nувольнения работника.",
+            "source_location": "legal-act-4:base:54a747d3c081c921:paragraph-v1:0",
+            "source_start": 352,
+            "source_end": 440
+          },
+          {
+            "id": 16,
+            "rule_code": "EVAL-VACATION-0-005-7d0eb712",
+            "name": "Сведения в приказе о предоставлении отпуска",
+            "applicability_scope": "typed",
+            "document_types": [
+              "vacation_order"
+            ],
+            "applicability_confidence": 1.0,
+            "applicability_source": "llm",
+            "automatic_applicability": {
+              "confidence": 1.0,
+              "document_types": [
+                "vacation_order"
+              ],
+              "scope": "typed"
+            },
+            "severity": "medium",
+            "description": "В приказе о предоставлении отпуска указываются вид отпуска и период работы, за который он предоставляется.",
+            "check_type": "keyword",
+            "parameters": {
+              "keywords": [
+                "вид отпуска",
+                "период работы"
+              ],
+              "mode": "required"
+            },
+            "is_active": true,
+            "legal_act_id": 4,
+            "is_generated": true,
+            "source_quote": "В приказе о предоставлении отпуска указываются вид отпуска и период\n\nработы, за который он предоставляется.",
+            "source_location": "legal-act-4:base:54a747d3c081c921:paragraph-v1:0",
+            "source_start": 445,
+            "source_end": 552
+          }
+        ],
+        "text": "Положение о трудовых отпусках\n\n1. Продолжительность основного отпуска составляет не менее 24 календарных\n\nдней.\n\n2. Работникам моложе восемнадцати лет основной отпуск предоставляется\n\nпродолжительностью не менее 30 календарных дней.\n\n3. Наниматель уведомляет работника о времени начала отпуска не позднее чем за\n\n15 календарных дней до его начала.\n\n4. Замена отпуска денежной компенсацией не допускается, кроме случая\n\nувольнения работника.\n\n5. В приказе о предоставлении отпуска указываются вид отпуска и период\n\nработы, за который он предоставляется.",
+        "seconds": 27.1
+      }
+    },
+    "documents": {
+      "payroll-violating": {
+        "status": "ok",
+        "error": null,
+        "findings": [
+          {
+            "id": 1,
+            "rule_id": 2,
+            "legal_act_id": 1,
+            "severity": "high",
+            "description": "Размер аванса должен составлять не менее 40 процентов начисленной заработной платы за месяц",
+            "start_char": 185,
+            "end_char": 197,
+            "quote": "25 процентов",
+            "recommendation": null,
+            "source_context": null,
+            "finding_key": "EVAL-PAYMENTS-0-002-c8e88c98:185:197",
+            "rule_code": "EVAL-PAYMENTS-0-002-c8e88c98",
+            "rule_name": "Минимальный размер аванса",
+            "legal_act_code": "EVAL-PAYMENTS",
+            "legal_act_title": "Положение об оплате труда работников",
+            "norm_quote": "Размер аванса должен составлять не менее 40 процентов начисленной\n\nзаработной платы за месяц."
+          },
+          {
+            "id": 2,
+            "rule_id": 3,
+            "legal_act_id": 1,
+            "severity": "high",
+            "description": "Окончательный расчет за месяц производится не позднее 5 числа следующего месяца",
+            "start_char": 275,
+            "end_char": 276,
+            "quote": "8",
+            "recommendation": null,
+            "source_context": null,
+            "finding_key": "EVAL-PAYMENTS-0-003-a19a23c4:275:276",
+            "rule_code": "EVAL-PAYMENTS-0-003-a19a23c4",
+            "rule_name": "Срок окончательного расчета",
+            "legal_act_code": "EVAL-PAYMENTS",
+            "legal_act_title": "Положение об оплате труда работников",
+            "norm_quote": "Окончательный расчет за месяц производится не позднее 5 числа следующего\n\nмесяца."
+          },
+          {
+            "id": 3,
+            "rule_id": 4,
+            "legal_act_id": 1,
+            "severity": "medium",
+            "description": "В приказе о выплате заработной платы указывается период, за который производится выплата",
+            "start_char": null,
+            "end_char": null,
+            "quote": null,
+            "recommendation": null,
+            "source_context": null,
+            "finding_key": "EVAL-PAYMENTS-0-004-c2c53649::",
+            "rule_code": "EVAL-PAYMENTS-0-004-c2c53649",
+            "rule_name": "Указание периода выплаты",
+            "legal_act_code": "EVAL-PAYMENTS",
+            "legal_act_title": "Положение об оплате труда работников",
+            "norm_quote": "В приказе о выплате заработной платы указываются:\n\n1) период, за который производится выплата;"
+          },
+          {
+            "id": 4,
+            "rule_id": 5,
+            "legal_act_id": 1,
+            "severity": "medium",
+            "description": "В приказе о выплате заработной платы указывается способ выплаты",
+            "start_char": null,
+            "end_char": null,
+            "quote": null,
+            "recommendation": null,
+            "source_context": null,
+            "finding_key": "EVAL-PAYMENTS-0-005-71bc10d3::",
+            "rule_code": "EVAL-PAYMENTS-0-005-71bc10d3",
+            "rule_name": "Указание способа выплаты",
+            "legal_act_code": "EVAL-PAYMENTS",
+            "legal_act_title": "Положение об оплате труда работников",
+            "norm_quote": "2) способ выплаты: наличными денежными средствами или перечислением на счет\n\nработника."
+          }
+        ],
+        "classified_types": [
+          "payroll_order"
+        ],
+        "text": "Приказ о выплате заработной платы\n\n1. Выплатить работникам заработную плату за октябрь 2026 года.\n\n2. Заработная плата выплачивается один раз в месяц.\n\n3. Аванс выплачивается в размере 25 процентов начисленной заработной платы.\n\n4. Окончательный расчет за месяц производится 8 числа следующего месяца.\n\n5. Часть заработной платы выплачивается продукцией собственного производства\n\nорганизации.",
+        "rejected_candidates": [
+          {
+            "end_char": 91,
+            "quote": "2026",
+            "reason": "Цитата содержит год 2026, который является частью периода выплаты заработной платы за октябрь 2026 года, а не сроком окончательного расчета за месяц.",
+            "rule_code": "EVAL-PAYMENTS-0-003-a19a23c4",
+            "start_char": 87
+          },
+          {
+            "end_char": 187,
+            "quote": "25",
+            "reason": "Цитата содержит цифру 25, которая относится к размеру аванса, а не к сроку окончательного расчета за месяц.",
+            "rule_code": "EVAL-PAYMENTS-0-003-a19a23c4",
+            "start_char": 185
+          }
+        ],
+        "seconds": 17.6
+      },
+      "payroll-compliant": {
+        "status": "ok",
+        "error": null,
+        "findings": [
+          {
+            "id": 5,
+            "rule_id": 4,
+            "legal_act_id": 1,
+            "severity": "medium",
+            "description": "В приказе о выплате заработной платы указывается период, за который производится выплата",
+            "start_char": null,
+            "end_char": null,
+            "quote": null,
+            "recommendation": null,
+            "source_context": null,
+            "finding_key": "EVAL-PAYMENTS-0-004-c2c53649::",
+            "rule_code": "EVAL-PAYMENTS-0-004-c2c53649",
+            "rule_name": "Указание периода выплаты",
+            "legal_act_code": "EVAL-PAYMENTS",
+            "legal_act_title": "Положение об оплате труда работников",
+            "norm_quote": "В приказе о выплате заработной платы указываются:\n\n1) период, за который производится выплата;"
+          },
+          {
+            "id": 6,
+            "rule_id": 5,
+            "legal_act_id": 1,
+            "severity": "medium",
+            "description": "В приказе о выплате заработной платы указывается способ выплаты",
+            "start_char": null,
+            "end_char": null,
+            "quote": null,
+            "recommendation": null,
+            "source_context": null,
+            "finding_key": "EVAL-PAYMENTS-0-005-71bc10d3::",
+            "rule_code": "EVAL-PAYMENTS-0-005-71bc10d3",
+            "rule_name": "Указание способа выплаты",
+            "legal_act_code": "EVAL-PAYMENTS",
+            "legal_act_title": "Положение об оплате труда работников",
+            "norm_quote": "2) способ выплаты: наличными денежными средствами или перечислением на счет\n\nработника."
+          }
+        ],
+        "classified_types": [
+          "payroll_order"
+        ],
+        "text": "Приказ о выплате заработной платы\n\n1. Выплатить работникам заработную плату за октябрь 2026 года путем\n\nперечисления на счета работников.\n\n2. Заработная плата выплачивается два раза в месяц.\n\n3. Аванс выплачивается в размере 50 процентов начисленной заработной платы.\n\n4. Окончательный расчет за месяц производится 3 числа следующего месяца.\n\n5. Работникам отдела продаж начислить премию в размере 10 процентов\n\nдолжностного оклада.",
+        "retried_after": "HTTP 503 model_provider_error: Audit was not completed: LLM analysis failed",
+        "rejected_candidates": [
+          {
+            "end_char": 96,
+            "quote": "2026 года",
+            "reason": "Цитата '2026 года' не содержит информацию о периодичности выплаты заработной платы, а относится к году выплаты.",
+            "rule_code": "EVAL-PAYMENTS-0-001-41f8b0da",
+            "start_char": 87
+          },
+          {
+            "end_char": 91,
+            "quote": "2026",
+            "reason": "Цитата '2026' относится к году, а не к срокам окончательного расчета за месяц.",
+            "rule_code": "EVAL-PAYMENTS-0-003-a19a23c4",
+            "start_char": 87
+          },
+          {
+            "end_char": 227,
+            "quote": "50",
+            "reason": "Цитата '50' относится к размеру аванса (50 процентов), а не к сроку окончательного расчета.",
+            "rule_code": "EVAL-PAYMENTS-0-003-a19a23c4",
+            "start_char": 225
+          },
+          {
+            "end_char": 400,
+            "quote": "10",
+            "reason": "Цитата '10' относится к размеру премии (10 процентов), а не к размеру аванса.",
+            "rule_code": "EVAL-PAYMENTS-0-002-c8e88c98",
+            "start_char": 398
+          },
+          {
+            "end_char": 400,
+            "quote": "10",
+            "reason": "Цитата '10' относится к размеру премии, а не к сроку окончательного расчета за месяц.",
+            "rule_code": "EVAL-PAYMENTS-0-003-a19a23c4",
+            "start_char": 398
+          }
+        ],
+        "seconds": 74.4
+      },
+      "payroll-paraphrase": {
+        "status": "ok",
+        "error": null,
+        "findings": [
+          {
+            "id": 7,
+            "rule_id": 4,
+            "legal_act_id": 1,
+            "severity": "medium",
+            "description": "В приказе о выплате заработной платы указывается период, за который производится выплата",
+            "start_char": null,
+            "end_char": null,
+            "quote": null,
+            "recommendation": null,
+            "source_context": null,
+            "finding_key": "EVAL-PAYMENTS-0-004-c2c53649::",
+            "rule_code": "EVAL-PAYMENTS-0-004-c2c53649",
+            "rule_name": "Указание периода выплаты",
+            "legal_act_code": "EVAL-PAYMENTS",
+            "legal_act_title": "Положение об оплате труда работников",
+            "norm_quote": "В приказе о выплате заработной платы указываются:\n\n1) период, за который производится выплата;"
+          },
+          {
+            "id": 8,
+            "rule_id": 5,
+            "legal_act_id": 1,
+            "severity": "medium",
+            "description": "В приказе о выплате заработной платы указывается способ выплаты",
+            "start_char": null,
+            "end_char": null,
+            "quote": null,
+            "recommendation": null,
+            "source_context": null,
+            "finding_key": "EVAL-PAYMENTS-0-005-71bc10d3::",
+            "rule_code": "EVAL-PAYMENTS-0-005-71bc10d3",
+            "rule_name": "Указание способа выплаты",
+            "legal_act_code": "EVAL-PAYMENTS",
+            "legal_act_title": "Положение об оплате труда работников",
+            "norm_quote": "2) способ выплаты: наличными денежными средствами или перечислением на счет\n\nработника."
+          }
+        ],
+        "classified_types": [
+          "payroll_order"
+        ],
+        "text": "Приказ об оплате труда\n\n1. Заработную плату за ноябрь 2026 года зачислить на карточные счета\n\nработников.\n\n2. Выплату производить 15 и 30 числа каждого месяца.\n\n3. Первая выплата в месяце составляет половину начисленной суммы.\n\n4. Расчет за месяц завершается до 5-го числа месяца, следующего за расчетным.",
+        "rejected_candidates": [
+          {
+            "end_char": 63,
+            "quote": "2026 года",
+            "reason": "Цитата '2026 года' обозначает год выплаты, а не частоту выплат заработной платы, поэтому норма о выплате не реже двух раз в месяц данным фрагментом не нарушается.",
+            "rule_code": "EVAL-PAYMENTS-0-001-41f8b0da",
+            "start_char": 54
+          },
+          {
+            "end_char": 58,
+            "quote": "2026",
+            "reason": "Цитата '2026' относится к году периода, а не к срокам окончательного расчета за месяц.",
+            "rule_code": "EVAL-PAYMENTS-0-003-a19a23c4",
+            "start_char": 54
+          },
+          {
+            "end_char": 132,
+            "quote": "15",
+            "reason": "Цитата '15' указывает дату выплаты первой части заработной платы, а не срок окончательного расчета.",
+            "rule_code": "EVAL-PAYMENTS-0-003-a19a23c4",
+            "start_char": 130
+          },
+          {
+            "end_char": 137,
+            "quote": "30",
+            "reason": "Цитата '30' указывает дату выплаты второй части заработной платы, а не срок окончательного расчета.",
+            "rule_code": "EVAL-PAYMENTS-0-003-a19a23c4",
+            "start_char": 135
+          }
+        ],
+        "seconds": 17.1
+      },
+      "remote-violating": {
+        "status": "error",
+        "error": "no rules for the document's acts",
+        "findings": [],
+        "classified_types": [
+          "remote_work_agreement"
+        ],
+        "text": "Соглашение о дистанционной работе\n\n1. Работник выполняет работу дистанционно с использованием сети Интернет.\n\n2. Работник и наниматель взаимодействуют по электронной почте и в рабочем\n\nчате организации.\n\n3. Ежемесячная компенсация расходов на интернет установлена в размере\n\n35 рублей.\n\n4. Стороны согласовали изменение условий дистанционной работы с 01.03.2027.\n\nУведомление об изменении направлено работнику 25.02.2027."
+      },
+      "remote-compliant": {
+        "status": "error",
+        "error": "no rules for the document's acts",
+        "findings": [],
+        "classified_types": [
+          "remote_work_agreement"
+        ],
+        "text": "Соглашение о дистанционной работе\n\n1. Работник выполняет работу дистанционно с понедельника по пятницу с 9.00 до\n\n18.00.\n\n2. Работник и наниматель взаимодействуют по электронной почте и по телефону.\n\n3. Ежемесячная компенсация расходов на интернет установлена в размере\n\n75 рублей.\n\n4. Стоимость доставки оборудования работнику в размере 20 рублей оплачивает\n\nнаниматель.\n\n5. Работник уведомлен об изменении условий дистанционной работы за 14\n\nкалендарных дней до их изменения."
+      },
+      "remote-child": {
+        "status": "error",
+        "error": "no rules for the document's acts",
+        "findings": [],
+        "classified_types": [
+          "remote_work_agreement"
+        ],
+        "text": "Соглашение о дистанционной работе\n\n1. Работник выполняет работу дистанционно с понедельника по пятницу с 9.00 до\n\n18.00.\n\n2. Работник и наниматель взаимодействуют по электронной почте и по телефону.\n\n3. Ежемесячная компенсация расходов на интернет установлена в размере\n\n60 рублей.\n\n4. Работник воспитывает ребенка в возрасте двух лет.\n\n5. Работник уведомлен об изменении условий дистанционной работы за 14\n\nкалендарных дней до их изменения."
+      },
+      "trip-violating": {
+        "status": "ok",
+        "error": null,
+        "findings": [
+          {
+            "id": 9,
+            "rule_id": 7,
+            "legal_act_id": 3,
+            "severity": "high",
+            "description": "Срок служебной командировки не может превышать 30 календарных дней, не считая времени нахождения в пути.",
+            "start_char": 97,
+            "end_char": 117,
+            "quote": "45 календарных\n\nдней",
+            "recommendation": null,
+            "source_context": null,
+            "finding_key": "EVAL-TRIP-0-001-c0c57615:97:117",
+            "rule_code": "EVAL-TRIP-0-001-c0c57615",
+            "rule_name": "Максимальный срок служебной командировки",
+            "legal_act_code": "EVAL-TRIP",
+            "legal_act_title": "Положение о служебных командировках",
+            "norm_quote": "Срок служебной командировки не может превышать 30 календарных дней, не\n\nсчитая времени нахождения в пути."
+          },
+          {
+            "id": 10,
+            "rule_id": 10,
+            "legal_act_id": 3,
+            "severity": "high",
+            "description": "Суточные выплачиваются за каждый день нахождения в командировке в размере не менее 25 рублей.",
+            "start_char": 156,
+            "end_char": 165,
+            "quote": "20 рублей",
+            "recommendation": null,
+            "source_context": null,
+            "finding_key": "EVAL-TRIP-0-004-6c5b4788:156:165",
+            "rule_code": "EVAL-TRIP-0-004-6c5b4788",
+            "rule_name": "Минимальный размер суточных",
+            "legal_act_code": "EVAL-TRIP",
+            "legal_act_title": "Положение о служебных командировках",
+            "norm_quote": "Суточные выплачиваются за каждый день нахождения в командировке в размере\n\nне менее 25 рублей."
+          },
+          {
+            "id": 11,
+            "rule_id": 8,
+            "legal_act_id": 3,
+            "severity": "high",
+            "description": "Работник представляет авансовый отчет в течение 3 рабочих дней после возвращения из командировки.",
+            "start_char": 240,
+            "end_char": 254,
+            "quote": "7 рабочих дней",
+            "recommendation": null,
+            "source_context": null,
+            "finding_key": "EVAL-TRIP-0-002-3346ec62:240:254",
+            "rule_code": "EVAL-TRIP-0-002-3346ec62",
+            "rule_name": "Срок предоставления авансового отчета",
+            "legal_act_code": "EVAL-TRIP",
+            "legal_act_title": "Положение о служебных командировках",
+            "norm_quote": "Работник представляет авансовый отчет в течение 3 рабочих дней после\n\nвозвращения из командировки."
+          },
+          {
+            "id": 12,
+            "rule_id": 11,
+            "legal_act_id": 3,
+            "severity": "low",
+            "description": "Отдел кадров ведет журнал учета работников, выбывающих в служебные командировки.",
+            "start_char": null,
+            "end_char": null,
+            "quote": null,
+            "recommendation": null,
+            "source_context": null,
+            "finding_key": "EVAL-TRIP-0-005-f8942d82::",
+            "rule_code": "EVAL-TRIP-0-005-f8942d82",
+            "rule_name": "Ведение журнала учета работников",
+            "legal_act_code": "EVAL-TRIP",
+            "legal_act_title": "Положение о служебных командировках",
+            "norm_quote": "Отдел кадров ведет журнал учета работников, выбывающих в служебные\n\nкомандировки."
+          },
+          {
+            "id": 13,
+            "rule_id": 9,
+            "legal_act_id": 3,
+            "severity": "medium",
+            "description": "В приказе о направлении в командировку указываются место назначения, срок и цель командировки.",
+            "start_char": null,
+            "end_char": null,
+            "quote": null,
+            "recommendation": null,
+            "source_context": null,
+            "finding_key": "EVAL-TRIP-0-003-e6df1017::",
+            "rule_code": "EVAL-TRIP-0-003-e6df1017",
+            "rule_name": "Обязательные сведения в приказе о направлении в командировку",
+            "legal_act_code": "EVAL-TRIP",
+            "legal_act_title": "Положение о служебных командировках",
+            "norm_quote": "В приказе о направлении в командировку указываются место назначения, срок\n\nи цель командировки."
+          }
+        ],
+        "classified_types": [
+          "business_trip_order"
+        ],
+        "text": "Приказ о направлении в командировку\n\n1. Направить инженера Иванова И.И. в город Гродно сроком на 45 календарных\n\nдней.\n\n2. Суточные выплачиваются в размере 20 рублей за каждый день командировки.\n\n3. Авансовый отчет представляется в течение 7 рабочих дней после\n\nвозвращения.",
+        "rejected_candidates": [
+          {
+            "end_char": 117,
+            "quote": "45 календарных\n\nдней",
+            "reason": "В тексте цитируется срок командировки 45 календарных дней вместо срока подачи авансового отчета.",
+            "rule_code": "EVAL-TRIP-0-002-3346ec62",
+            "start_char": 97
+          }
+        ],
+        "seconds": 25.3
+      },
+      "trip-compliant": {
+        "status": "ok",
+        "error": null,
+        "findings": [
+          {
+            "id": 14,
+            "rule_id": 11,
+            "legal_act_id": 3,
+            "severity": "low",
+            "description": "Отдел кадров ведет журнал учета работников, выбывающих в служебные командировки.",
+            "start_char": null,
+            "end_char": null,
+            "quote": null,
+            "recommendation": null,
+            "source_context": null,
+            "finding_key": "EVAL-TRIP-0-005-f8942d82::",
+            "rule_code": "EVAL-TRIP-0-005-f8942d82",
+            "rule_name": "Ведение журнала учета работников",
+            "legal_act_code": "EVAL-TRIP",
+            "legal_act_title": "Положение о служебных командировках",
+            "norm_quote": "Отдел кадров ведет журнал учета работников, выбывающих в служебные\n\nкомандировки."
+          },
+          {
+            "id": 15,
+            "rule_id": 9,
+            "legal_act_id": 3,
+            "severity": "medium",
+            "description": "В приказе о направлении в командировку указываются место назначения, срок и цель командировки.",
+            "start_char": null,
+            "end_char": null,
+            "quote": null,
+            "recommendation": null,
+            "source_context": null,
+            "finding_key": "EVAL-TRIP-0-003-e6df1017::",
+            "rule_code": "EVAL-TRIP-0-003-e6df1017",
+            "rule_name": "Обязательные сведения в приказе о направлении в командировку",
+            "legal_act_code": "EVAL-TRIP",
+            "legal_act_title": "Положение о служебных командировках",
+            "norm_quote": "В приказе о направлении в командировку указываются место назначения, срок\n\nи цель командировки."
+          }
+        ],
+        "classified_types": [
+          "business_trip_order"
+        ],
+        "text": "Приказ о направлении в командировку\n\n1. Направить инженера Петрова П.П. в город Брест сроком на 20 календарных\n\nдней для наладки оборудования заказчика.\n\n2. Суточные выплачиваются в размере 30 рублей за каждый день командировки.\n\n3. Компенсировать стоимость проезда в размере 15 рублей.\n\n4. Авансовый отчет представляется в течение 2 рабочих дней после\n\nвозвращения.",
+        "rejected_candidates": [
+          {
+            "end_char": 116,
+            "quote": "20 календарных\n\nдней",
+            "reason": "В тексте приказа указан срок командировки в 20 календарных дней, который не относится к норме о сроке представления авансового отчета.",
+            "rule_code": "EVAL-TRIP-0-002-3346ec62",
+            "start_char": 96
+          },
+          {
+            "end_char": 285,
+            "quote": "15 рублей",
+            "reason": "В тексте приказа упоминается компенсация стоимости проезда в размере 15 рублей, что относится к проезду, а не к выплате суточных.",
+            "rule_code": "EVAL-TRIP-0-004-6c5b4788",
+            "start_char": 276
+          }
+        ],
+        "seconds": 18.4
+      },
+      "vacation-violating": {
+        "status": "ok",
+        "error": null,
+        "findings": [
+          {
+            "id": 16,
+            "rule_id": 16,
+            "legal_act_id": 4,
+            "severity": "medium",
+            "description": "В приказе о предоставлении отпуска указываются вид отпуска и период работы, за который он предоставляется.",
+            "start_char": null,
+            "end_char": null,
+            "quote": null,
+            "recommendation": null,
+            "source_context": null,
+            "finding_key": "EVAL-VACATION-0-005-7d0eb712::",
+            "rule_code": "EVAL-VACATION-0-005-7d0eb712",
+            "rule_name": "Сведения в приказе о предоставлении отпуска",
+            "legal_act_code": "EVAL-VACATION",
+            "legal_act_title": "Положение о трудовых отпусках",
+            "norm_quote": "В приказе о предоставлении отпуска указываются вид отпуска и период\n\nработы, за который он предоставляется."
+          }
+        ],
+        "classified_types": [
+          "vacation_order"
+        ],
+        "text": "Приказ о предоставлении отпуска\n\n1. Предоставить Сидорову С.С. основной отпуск продолжительностью 21\n\nкалендарный день с 01.12.2026.\n\n2. Часть отпуска продолжительностью 7 календарных дней заменить денежной\n\nкомпенсацией.\n\n3. Работник уведомлен о времени начала отпуска 24.11.2026.",
+        "rejected_candidates": [],
+        "seconds": 15.3
+      },
+      "vacation-compliant": {
+        "status": "ok",
+        "error": null,
+        "findings": [
+          {
+            "id": 17,
+            "rule_id": 13,
+            "legal_act_id": 4,
+            "severity": "high",
+            "description": "Работникам моложе восемнадцати лет основной отпуск предоставляется продолжительностью не менее 30 календарных дней.",
+            "start_char": 125,
+            "end_char": 170,
+            "quote": "02.2027 продолжительностью 24 календарных дня",
+            "recommendation": null,
+            "source_context": null,
+            "finding_key": "EVAL-VACATION-0-002-b3805666:125:170",
+            "rule_code": "EVAL-VACATION-0-002-b3805666",
+            "rule_name": "Продолжительность отпуска для работников моложе 18 лет",
+            "legal_act_code": "EVAL-VACATION",
+            "legal_act_title": "Положение о трудовых отпусках",
+            "norm_quote": "Работникам моложе восемнадцати лет основной отпуск предоставляется\n\nпродолжительностью не менее 30 календарных дней."
+          },
+          {
+            "id": 18,
+            "rule_id": 13,
+            "legal_act_id": 4,
+            "severity": "high",
+            "description": "Работникам моложе восемнадцати лет основной отпуск предоставляется продолжительностью не менее 30 календарных дней.",
+            "start_char": 152,
+            "end_char": 170,
+            "quote": "24 календарных дня",
+            "recommendation": null,
+            "source_context": null,
+            "finding_key": "EVAL-VACATION-0-002-b3805666:152:170",
+            "rule_code": "EVAL-VACATION-0-002-b3805666",
+            "rule_name": "Продолжительность отпуска для работников моложе 18 лет",
+            "legal_act_code": "EVAL-VACATION",
+            "legal_act_title": "Положение о трудовых отпусках",
+            "norm_quote": "Работникам моложе восемнадцати лет основной отпуск предоставляется\n\nпродолжительностью не менее 30 календарных дней."
+          },
+          {
+            "id": 19,
+            "rule_id": 16,
+            "legal_act_id": 4,
+            "severity": "medium",
+            "description": "В приказе о предоставлении отпуска указываются вид отпуска и период работы, за который он предоставляется.",
+            "start_char": null,
+            "end_char": null,
+            "quote": null,
+            "recommendation": null,
+            "source_context": null,
+            "finding_key": "EVAL-VACATION-0-005-7d0eb712::",
+            "rule_code": "EVAL-VACATION-0-005-7d0eb712",
+            "rule_name": "Сведения в приказе о предоставлении отпуска",
+            "legal_act_code": "EVAL-VACATION",
+            "legal_act_title": "Положение о трудовых отпусках",
+            "norm_quote": "В приказе о предоставлении отпуска указываются вид отпуска и период\n\nработы, за который он предоставляется."
+          }
+        ],
+        "classified_types": [
+          "vacation_order"
+        ],
+        "text": "Приказ о предоставлении отпуска\n\n1. Предоставить Козловой К.К. основной трудовой отпуск за период работы с\n\n01.03.2026 по 28.02.2027 продолжительностью 24 календарных дня с 01.12.2026.\n\n2. Работник уведомлен о времени начала отпуска 10.11.2026.",
+        "rejected_candidates": [],
+        "seconds": 18.3
+      },
+      "vacation-minor": {
+        "status": "ok",
+        "error": null,
+        "findings": [
+          {
+            "id": 20,
+            "rule_id": 13,
+            "legal_act_id": 4,
+            "severity": "high",
+            "description": "Работникам моложе восемнадцати лет основной отпуск предоставляется продолжительностью не менее 30 календарных дней.",
+            "start_char": 175,
+            "end_char": 221,
+            "quote": "05.2027\n\nпродолжительностью 24 календарных дня",
+            "recommendation": null,
+            "source_context": null,
+            "finding_key": "EVAL-VACATION-0-002-b3805666:175:221",
+            "rule_code": "EVAL-VACATION-0-002-b3805666",
+            "rule_name": "Продолжительность отпуска для работников моложе 18 лет",
+            "legal_act_code": "EVAL-VACATION",
+            "legal_act_title": "Положение о трудовых отпусках",
+            "norm_quote": "Работникам моложе восемнадцати лет основной отпуск предоставляется\n\nпродолжительностью не менее 30 календарных дней."
+          },
+          {
+            "id": 21,
+            "rule_id": 13,
+            "legal_act_id": 4,
+            "severity": "high",
+            "description": "Работникам моложе восемнадцати лет основной отпуск предоставляется продолжительностью не менее 30 календарных дней.",
+            "start_char": 203,
+            "end_char": 221,
+            "quote": "24 календарных дня",
+            "recommendation": null,
+            "source_context": null,
+            "finding_key": "EVAL-VACATION-0-002-b3805666:203:221",
+            "rule_code": "EVAL-VACATION-0-002-b3805666",
+            "rule_name": "Продолжительность отпуска для работников моложе 18 лет",
+            "legal_act_code": "EVAL-VACATION",
+            "legal_act_title": "Положение о трудовых отпусках",
+            "norm_quote": "Работникам моложе восемнадцати лет основной отпуск предоставляется\n\nпродолжительностью не менее 30 календарных дней."
+          },
+          {
+            "id": 22,
+            "rule_id": 16,
+            "legal_act_id": 4,
+            "severity": "medium",
+            "description": "В приказе о предоставлении отпуска указываются вид отпуска и период работы, за который он предоставляется.",
+            "start_char": null,
+            "end_char": null,
+            "quote": null,
+            "recommendation": null,
+            "source_context": null,
+            "finding_key": "EVAL-VACATION-0-005-7d0eb712::",
+            "rule_code": "EVAL-VACATION-0-005-7d0eb712",
+            "rule_name": "Сведения в приказе о предоставлении отпуска",
+            "legal_act_code": "EVAL-VACATION",
+            "legal_act_title": "Положение о трудовых отпусках",
+            "norm_quote": "В приказе о предоставлении отпуска указываются вид отпуска и период\n\nработы, за который он предоставляется."
+          }
+        ],
+        "classified_types": [
+          "vacation_order"
+        ],
+        "text": "Приказ о предоставлении отпуска\n\n1. Предоставить Новикову Н.Н., 2009 года рождения, которому исполнилось 17\n\nлет, основной трудовой отпуск за период работы с 01.06.2026 по 31.05.2027\n\nпродолжительностью 24 календарных дня с 01.12.2026.\n\n2. Работник уведомлен о времени начала отпуска 10.11.2026.",
+        "rejected_candidates": [],
+        "seconds": 18.1
+      }
+    },
+    "requests": {
+      "total": 47,
+      "by_kind": {
+        "rules": 6,
+        "embedding": 12,
+        "classification": 11,
+        "entities": 9,
+        "llm": 9
+      },
+      "audit_retries": 1
+    },
+    "duration_seconds": 283.4,
+    "preset": "google-ai-studio"
+  },
+  "metrics": {
+    "extraction": {
+      "norm_recall": 0.75,
+      "covered": 15,
+      "checkable_norms": 20,
+      "extra_rules": 0,
+      "not_checkable_with_rules": 1,
+      "acts": [
+        {
+          "act": "payments",
+          "status": "ok",
+          "error": null,
+          "rules": 6,
+          "checkable_norms": 6,
+          "covered": 6,
+          "missed": [],
+          "not_checkable_with_rules": [],
+          "extra_rules": [],
+          "duplicated_norms": []
+        },
+        {
+          "act": "remote",
+          "status": "error",
+          "error": "HTTP 503 rule_extraction_error: Online rule extraction failed for 1 chunk(s)",
+          "rules": 0,
+          "checkable_norms": 5,
+          "covered": 0,
+          "missed": [
+            "remote-schedule",
+            "remote-interaction",
+            "remote-internet",
+            "remote-notice",
+            "remote-notice-child"
+          ],
+          "not_checkable_with_rules": [],
+          "extra_rules": [],
+          "duplicated_norms": []
+        },
+        {
+          "act": "trip",
+          "status": "ok",
+          "error": null,
+          "rules": 5,
+          "checkable_norms": 4,
+          "covered": 4,
+          "missed": [],
+          "not_checkable_with_rules": [
+            "trip-journal"
+          ],
+          "extra_rules": [],
+          "duplicated_norms": []
+        },
+        {
+          "act": "vacation",
+          "status": "ok",
+          "error": null,
+          "rules": 5,
+          "checkable_norms": 5,
+          "covered": 5,
+          "missed": [],
+          "not_checkable_with_rules": [],
+          "extra_rules": [],
+          "duplicated_norms": []
+        }
+      ]
+    },
+    "audit": {
+      "precision": 0.45,
+      "recall": 0.5,
+      "f1": 0.474,
+      "true": 9,
+      "false": 11,
+      "missed": 9,
+      "duplicates": 2,
+      "false_reasons": {
+        "norm_is_met": 11
+      },
+      "miss_reasons": {
+        "not_detected": 5,
+        "audit_failed": 4
+      },
+      "recall_by_kind": {
+        "day_of_month": 1.0,
+        "frequency": 0.0,
+        "text": 0.5,
+        "value": 0.5
+      },
+      "clean_documents_without_false": 0,
+      "clean_documents": 5,
+      "documents": [
+        {
+          "document": "payroll-violating",
+          "status": "ok",
+          "error": null,
+          "expected": 5,
+          "applicable_norms": 6,
+          "true": [
+            {
+              "rule_code": "EVAL-PAYMENTS-0-002-c8e88c98",
+              "quote": "25 процентов",
+              "norms": [
+                "pay-advance"
+              ],
+              "norm": "pay-advance"
+            },
+            {
+              "rule_code": "EVAL-PAYMENTS-0-003-a19a23c4",
+              "quote": "8",
+              "norms": [
+                "pay-final"
+              ],
+              "norm": "pay-final"
+            },
+            {
+              "rule_code": "EVAL-PAYMENTS-0-005-71bc10d3",
+              "quote": null,
+              "norms": [
+                "pay-method"
+              ],
+              "norm": "pay-method"
+            }
+          ],
+          "false": [
+            {
+              "rule_code": "EVAL-PAYMENTS-0-004-c2c53649",
+              "quote": null,
+              "norms": [
+                "pay-period"
+              ],
+              "reason": "norm_is_met"
+            }
+          ],
+          "missed": [
+            {
+              "norm": "pay-frequency",
+              "reason": "not_detected"
+            },
+            {
+              "norm": "pay-in-kind",
+              "reason": "not_detected"
+            }
+          ],
+          "duplicates": []
+        },
+        {
+          "document": "payroll-compliant",
+          "status": "ok",
+          "error": null,
+          "expected": 0,
+          "applicable_norms": 6,
+          "true": [],
+          "false": [
+            {
+              "rule_code": "EVAL-PAYMENTS-0-004-c2c53649",
+              "quote": null,
+              "norms": [
+                "pay-period"
+              ],
+              "reason": "norm_is_met"
+            },
+            {
+              "rule_code": "EVAL-PAYMENTS-0-005-71bc10d3",
+              "quote": null,
+              "norms": [
+                "pay-method"
+              ],
+              "reason": "norm_is_met"
+            }
+          ],
+          "missed": [],
+          "duplicates": []
+        },
+        {
+          "document": "payroll-paraphrase",
+          "status": "ok",
+          "error": null,
+          "expected": 0,
+          "applicable_norms": 6,
+          "true": [],
+          "false": [
+            {
+              "rule_code": "EVAL-PAYMENTS-0-004-c2c53649",
+              "quote": null,
+              "norms": [
+                "pay-period"
+              ],
+              "reason": "norm_is_met"
+            },
+            {
+              "rule_code": "EVAL-PAYMENTS-0-005-71bc10d3",
+              "quote": null,
+              "norms": [
+                "pay-method"
+              ],
+              "reason": "norm_is_met"
+            }
+          ],
+          "missed": [],
+          "duplicates": []
+        },
+        {
+          "document": "remote-violating",
+          "status": "error",
+          "error": "no rules for the document's acts",
+          "expected": 3,
+          "applicable_norms": 5,
+          "true": [],
+          "false": [],
+          "missed": [
+            {
+              "norm": "remote-schedule",
+              "reason": "audit_failed"
+            },
+            {
+              "norm": "remote-internet",
+              "reason": "audit_failed"
+            },
+            {
+              "norm": "remote-notice",
+              "reason": "audit_failed"
+            }
+          ],
+          "duplicates": []
+        },
+        {
+          "document": "remote-compliant",
+          "status": "error",
+          "error": "no rules for the document's acts",
+          "expected": 0,
+          "applicable_norms": 5,
+          "true": [],
+          "false": [],
+          "missed": [],
+          "duplicates": []
+        },
+        {
+          "document": "remote-child",
+          "status": "error",
+          "error": "no rules for the document's acts",
+          "expected": 1,
+          "applicable_norms": 5,
+          "true": [],
+          "false": [],
+          "missed": [
+            {
+              "norm": "remote-notice-child",
+              "reason": "audit_failed"
+            }
+          ],
+          "duplicates": []
+        },
+        {
+          "document": "trip-violating",
+          "status": "ok",
+          "error": null,
+          "expected": 4,
+          "applicable_norms": 4,
+          "true": [
+            {
+              "rule_code": "EVAL-TRIP-0-001-c0c57615",
+              "quote": "45 календарных\n\nдней",
+              "norms": [
+                "trip-length"
+              ],
+              "norm": "trip-length"
+            },
+            {
+              "rule_code": "EVAL-TRIP-0-004-6c5b4788",
+              "quote": "20 рублей",
+              "norms": [
+                "trip-allowance"
+              ],
+              "norm": "trip-allowance"
+            },
+            {
+              "rule_code": "EVAL-TRIP-0-002-3346ec62",
+              "quote": "7 рабочих дней",
+              "norms": [
+                "trip-report"
+              ],
+              "norm": "trip-report"
+            },
+            {
+              "rule_code": "EVAL-TRIP-0-003-e6df1017",
+              "quote": null,
+              "norms": [
+                "trip-content"
+              ],
+              "norm": "trip-content"
+            }
+          ],
+          "false": [
+            {
+              "rule_code": "EVAL-TRIP-0-005-f8942d82",
+              "quote": null,
+              "norms": [
+                "trip-journal"
+              ],
+              "reason": "norm_is_met"
+            }
+          ],
+          "missed": [],
+          "duplicates": []
+        },
+        {
+          "document": "trip-compliant",
+          "status": "ok",
+          "error": null,
+          "expected": 0,
+          "applicable_norms": 4,
+          "true": [],
+          "false": [
+            {
+              "rule_code": "EVAL-TRIP-0-005-f8942d82",
+              "quote": null,
+              "norms": [
+                "trip-journal"
+              ],
+              "reason": "norm_is_met"
+            },
+            {
+              "rule_code": "EVAL-TRIP-0-003-e6df1017",
+              "quote": null,
+              "norms": [
+                "trip-content"
+              ],
+              "reason": "norm_is_met"
+            }
+          ],
+          "missed": [],
+          "duplicates": []
+        },
+        {
+          "document": "vacation-violating",
+          "status": "ok",
+          "error": null,
+          "expected": 4,
+          "applicable_norms": 5,
+          "true": [
+            {
+              "rule_code": "EVAL-VACATION-0-005-7d0eb712",
+              "quote": null,
+              "norms": [
+                "vac-content"
+              ],
+              "norm": "vac-content"
+            }
+          ],
+          "false": [],
+          "missed": [
+            {
+              "norm": "vac-length",
+              "reason": "not_detected"
+            },
+            {
+              "norm": "vac-notice",
+              "reason": "not_detected"
+            },
+            {
+              "norm": "vac-compensation",
+              "reason": "not_detected"
+            }
+          ],
+          "duplicates": []
+        },
+        {
+          "document": "vacation-compliant",
+          "status": "ok",
+          "error": null,
+          "expected": 0,
+          "applicable_norms": 5,
+          "true": [],
+          "false": [
+            {
+              "rule_code": "EVAL-VACATION-0-002-b3805666",
+              "quote": "02.2027 продолжительностью 24 календарных дня",
+              "norms": [
+                "vac-minor"
+              ],
+              "reason": "norm_is_met"
+            },
+            {
+              "rule_code": "EVAL-VACATION-0-005-7d0eb712",
+              "quote": null,
+              "norms": [
+                "vac-content"
+              ],
+              "reason": "norm_is_met"
+            }
+          ],
+          "missed": [],
+          "duplicates": [
+            {
+              "rule_code": "EVAL-VACATION-0-002-b3805666",
+              "quote": "24 календарных дня",
+              "norms": [
+                "vac-minor"
+              ]
+            }
+          ]
+        },
+        {
+          "document": "vacation-minor",
+          "status": "ok",
+          "error": null,
+          "expected": 1,
+          "applicable_norms": 5,
+          "true": [
+            {
+              "rule_code": "EVAL-VACATION-0-002-b3805666",
+              "quote": "05.2027\n\nпродолжительностью 24 календарных дня",
+              "norms": [
+                "vac-minor"
+              ],
+              "norm": "vac-minor"
+            }
+          ],
+          "false": [
+            {
+              "rule_code": "EVAL-VACATION-0-005-7d0eb712",
+              "quote": null,
+              "norms": [
+                "vac-content"
+              ],
+              "reason": "norm_is_met"
+            }
+          ],
+          "missed": [],
+          "duplicates": [
+            {
+              "rule_code": "EVAL-VACATION-0-002-b3805666",
+              "quote": "24 календарных дня",
+              "norms": [
+                "vac-minor"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
