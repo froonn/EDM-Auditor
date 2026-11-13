@@ -43,7 +43,7 @@ flowchart LR
     M --> P["Отчёт: подсветка, нормы, рекомендации"]
 ```
 
-Модели задаются пресетом. Основной пресет использует Google Gemini (`gemini-3.1-flash-lite` и эмбеддинги
+Модели задаются пресетом. Основной пресет использует Google Gemini (`gemini-3.5-flash-lite` и эмбеддинги
 `gemini-embedding-2`), подходит бесплатный ключ Google AI Studio. Есть пресеты для LM Studio и OpenRouter, см.
 [`docs/model-configuration.md`](docs/model-configuration.md).
 

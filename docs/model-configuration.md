@@ -29,7 +29,7 @@ extractor = "<extractor-profile>"
 
 | Пресет             | Модели                                                   | Что нужно                               |
 |--------------------|----------------------------------------------------------|-----------------------------------------|
-| `google-ai-studio` | `gemini-3.1-flash-lite`, эмбеддинги `gemini-embedding-2` | `GEMINI_API_KEY`                        |
+| `google-ai-studio` | `gemini-3.5-flash-lite`, эмбеддинги `gemini-embedding-2` | `GEMINI_API_KEY`                        |
 | `lm-studio`        | `google/gemma-4-e4b` и локальная модель эмбеддингов      | запущенный сервер LM Studio             |
 | `openrouter`       | модель OpenRouter и локальная модель эмбеддингов         | `OPENROUTER_API_KEY` и локальный сервер |
 

@@ -91,7 +91,7 @@ dimension = 3072
 
 [profiles.llm.google-ai-studio]
 provider = "google-ai-studio"
-model = "gemini-3.1-flash-lite"
+model = "gemini-3.5-flash-lite"
 api_key_env = "GEMINI_API_KEY"
 temperature = 0.1
 # Ten findings are explained in Russian in one response.
@@ -100,7 +100,7 @@ structured_output = "json_schema"
 
 [profiles.extractor.google-ai-studio]
 provider = "google-ai-studio"
-model = "gemini-3.1-flash-lite"
+model = "gemini-3.5-flash-lite"
 api_key_env = "GEMINI_API_KEY"
 # Repeated extraction of one act should give the same rules and severities.
 temperature = 0

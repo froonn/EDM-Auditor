@@ -68,6 +68,13 @@
 
 ## Журнал
 
+### 2026-11-13: модель Gemini 3.5 Flash-Lite
+
+- Профили `llm` и `extractor` пресета `google-ai-studio` переведены с `gemini-3.1-flash-lite` на
+  `gemini-3.5-flash-lite` с теми же лимитами бесплатного тарифа: 15 запросов в минуту, 500 в день. На новой
+  модели извлечение правил из акта о дистанционной работе из набора оценки падает с `quote_not_found`,
+  см. базовый замер в [`feature-rules-audit-rework.md`](feature-rules-audit-rework.md).
+
 ### 2026-11-13: старые типы проверок удаляются в плане переработки
 
 - По [`feature-rules-audit-rework.md`](feature-rules-audit-rework.md) старые типы проверок не сохраняются:

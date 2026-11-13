@@ -63,7 +63,7 @@
     * Парсинг документов: `python-docx`, `pypdf`
     * Извлечение сущностей (даты, суммы, проценты, сроки, числа): регулярные выражения и языковая модель
     * Модели задаются в конфигурации, см. [`model-configuration.md`](model-configuration.md). Основной пресет
-      использует **Google Gemini**: `gemini-3.1-flash-lite` и эмбеддинги `gemini-embedding-2`. Также есть
+      использует **Google Gemini**: `gemini-3.5-flash-lite` и эмбеддинги `gemini-embedding-2`. Также есть
       пресеты для серверов с OpenAI-совместимым API: **LM Studio** и **OpenRouter**
 
 ---
