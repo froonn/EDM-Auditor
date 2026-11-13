@@ -68,6 +68,12 @@
 
 ## Журнал
 
+### 2026-11-13: план провайдера Claude Code
+
+- Добавлен план [`CLAUDE_CODE_PROVIDER.md`](CLAUDE_CODE_PROVIDER.md): вызов моделей через `claude -p` с
+  подпиской Claude, отдельный профиль для извлечения правил и фоновая обработка НПА. Флаги CLI нужно
+  сверить с установленной версией перед реализацией.
+
 ### 2026-11-13: план переработки извлечения правил и аудита
 
 - В ветке `feat/rules-audit-rework` начат план [`feature-rules-audit-rework.md`](feature-rules-audit-rework.md):
