@@ -1,7 +1,9 @@
 # Model profiles and presets. Secrets are read from environment variables.
 
 [legal_act_processing.chunking]
+# A legal act chunk for the model holds whole articles and points up to this size.
 max_chars = 4000
+# Used only by the RAG index: model chunks carry headings as context instead of an overlap.
 overlap_chars = 0
 max_rules_per_chunk = 20
 
@@ -10,8 +12,8 @@ max_prompt_chars = 12000
 max_response_tokens = 2000
 source_language = "auto"
 extraction_schema_version = "2"
-prompt_version = "2"
-processing_version = "2"
+prompt_version = "3"
+processing_version = "3"
 
 [document_processing]
 # The classifier reads only the start and the end of a document.

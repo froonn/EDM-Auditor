@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from edm_auditor.legal_structure import STRUCTURE_VERSION
 from edm_auditor.rag import (
     IndexSource,
     RAGIndexer,
@@ -33,6 +34,27 @@ def test_index_and_search_are_repeatable(tmp_path: Path) -> None:
     assert results[0].chunk.legal_act_id == 3
     assert results[0].chunk.rule_id == 9
     assert results[0].score > 0
+
+
+def test_indexer_uses_structure_chunks_by_default(tmp_path: Path) -> None:
+    provider = DeterministicEmbeddingProvider(dimension=8)
+    store = SQLiteVectorStore(
+        tmp_path / "vectors.sqlite3",
+        embedding_model=provider.model_name,
+        dimension=provider.dimension,
+        chunking_version=STRUCTURE_VERSION,
+    )
+    source = "Статья 1.\n1. Требование действует.\nСтатья 2.\n2. Другое требование."
+
+    assert RAGIndexer(store, provider, max_chars=35).build(
+        [IndexSource(legal_act_id=4, text=source)]
+    ) == 2
+    results = RAGSearch(store, provider).search("требование", k=2)
+
+    assert all(result.chunk.chunking_version == STRUCTURE_VERSION for result in results)
+    assert all(source[result.chunk.start_char : result.chunk.end_char] == result.chunk.text
+               for result in results)
+    assert all("Статья" in result.chunk.text for result in results)
 
 
 def test_search_filters_by_source(tmp_path: Path) -> None:

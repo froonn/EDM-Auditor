@@ -19,8 +19,8 @@ from edm_auditor.database.models import (
     LegalAct,
     RuleExtractionResult,
 )
+from edm_auditor.legal_structure import STRUCTURE_VERSION, LegalActChunk
 from edm_auditor.rag import SQLiteVectorStore
-from edm_auditor.rag.models import TextChunk
 from fakes import (
     DeterministicEmbeddingProvider,
     FailingEntityProvider,
@@ -456,7 +456,7 @@ def test_upload_legal_act_from_text_file(tmp_path: Path) -> None:
         tmp_path / "rag-index.sqlite3",
         embedding_model="deterministic-v1",
         dimension=32,
-        chunking_version="paragraph-v1",
+        chunking_version=STRUCTURE_VERSION,
     )
     assert store.count() > 0
 
@@ -532,6 +532,49 @@ def test_upload_legal_act_generates_neural_rule(
     assert diagnostics.json()["diagnostics"][0]["status"] == "accepted"
 
 
+def test_generated_rule_gets_structural_location_and_chunk_context(
+    tmp_path: Path, monkeypatch
+) -> None:
+    contexts = []
+    act = (
+        "Положение об оплате труда\n\nГлава 2. Сроки выплаты\n\n"
+        "6. В приказе указываются:\n1) период выплаты;\n2) способ выплаты.\n"
+    )
+
+    class FakeRuleExtractor:
+        def extract_rules(self, text: str, *, source_location: str, context: str = "", **_):
+            contexts.append(context)
+            return ({
+                "rule_code": "pay-method",
+                "name": "Способ выплаты",
+                "description": "В приказе указывается способ выплаты.",
+                "severity": "medium",
+                "check_type": "keyword",
+                "parameters": {"keywords": ["способ выплаты"], "mode": "required"},
+                "source_quote": "2) способ выплаты.",
+                "source_location": source_location,
+            },)
+
+    monkeypatch.setattr(
+        "edm_auditor.api.app.create_rule_extraction_provider",
+        lambda config: FakeRuleExtractor(),
+    )
+    client = make_client(tmp_path)
+
+    response = client.post(
+        "/api/legal-acts/upload",
+        data={"code": "ACT-PAY", "title": "Положение об оплате труда"},
+        files={"file": ("act.txt", act.encode(), "text/plain")},
+    )
+
+    assert response.status_code == 201
+    assert contexts == [""]
+    rule = client.get("/api/rules").json()[0]
+    assert rule["source_location"] == "гл. 2, п. 6, подп. 2)"
+    stored = client.get(f"/api/legal-acts/{response.json()['id']}").json()["article_text"]
+    assert stored[rule["source_start"]:rule["source_end"]] == "2) способ выплаты."
+
+
 def test_reprocess_replaces_generated_rules_atomically(tmp_path: Path, monkeypatch) -> None:
     calls = {"count": 0}
 
@@ -593,25 +636,17 @@ def test_failed_chunk_is_persisted_without_publishing_partial_rules(
                 raise RuntimeError("provider unavailable")
             return ()
 
-    def fake_chunks(text, *, legal_act_id, **kwargs):
+    def fake_chunks(structure, *, legal_act_id, **kwargs):
         return [
-            TextChunk(
-                f"legal-act-{legal_act_id}:chunk-{index}",
-                legal_act_id,
-                None,
-                part,
-                index,
-                start,
-                start + len(part),
-                "paragraph-v1",
-                "hash",
+            LegalActChunk(
+                f"legal-act-{legal_act_id}:chunk-{index}", index, start, start + len(part), part
             )
             for index, (part, start) in enumerate(
                 (("First article", 0), ("Second article", 14))
             )
         ]
 
-    monkeypatch.setattr("edm_auditor.api.app.chunk_text", fake_chunks)
+    monkeypatch.setattr("edm_auditor.api.app.chunk_legal_act", fake_chunks)
     monkeypatch.setattr(
         "edm_auditor.api.app.create_rule_extraction_provider",
         lambda config: FakeRuleExtractor(),
@@ -977,7 +1012,7 @@ def test_audit_continues_when_rag_index_is_incompatible(
         tmp_path / "rag-index.sqlite3",
         embedding_model="another-model",
         dimension=4,
-        chunking_version="paragraph-v1",
+        chunking_version=STRUCTURE_VERSION,
     )
 
     preview = client.post(f"/api/documents/{document['id']}/audit/preview").json()

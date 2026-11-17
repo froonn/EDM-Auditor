@@ -260,6 +260,21 @@ RULE_SEVERITY_PROMPT = (
 )
 
 
+# A quote is checked against the chunk text, so it must be one unbroken piece of it.
+RULE_QUOTE_PROMPT = (
+    "\nsource_quote — один непрерывный дословный фрагмент из Chunk без пропусков, многоточий и "
+    "добавленных слов. Для пункта списка цитируй только сам пункт: вводная фраза списка уже "
+    "видна в тексте или в Context. Текст из Context не цитируй.\n"
+)
+
+
+def _chunk_with_context(text: str, context: str) -> str:
+    """Headings and list lead-ins go before the chunk as text the model must not quote."""
+    if not context.strip():
+        return f"Chunk:\n{text}"
+    return f"Context (не цитировать):\n{context}\n\nChunk:\n{text}"
+
+
 def _rule_applicability_prompt(
     document_types: Sequence[DocumentTypeOption], legal_act_title: str
 ) -> str:
@@ -516,6 +531,7 @@ class OpenAICompatibleRuleExtractionProvider:
         source_location: str = "unknown",
         document_types: Sequence[DocumentTypeOption] = (),
         legal_act_title: str = "",
+        context: str = "",
     ) -> Sequence[dict[str, object]]:
         prompt = (
             "Извлеки только явные, проверяемые и обязательные требования из одного "
@@ -549,8 +565,9 @@ class OpenAICompatibleRuleExtractionProvider:
             "source_location."
             f"{RULE_SEVERITY_PROMPT}"
             f"{_rule_applicability_prompt(document_types, legal_act_title)}"
-            "Верни только JSON.\nChunk:\n"
-            f"{text}"
+            f"{RULE_QUOTE_PROMPT}"
+            "Верни только JSON.\n"
+            f"{_chunk_with_context(text, context)}"
         )
         response_format: dict[str, object] = {}
         if self._config.structured_output == "json_schema":
@@ -765,6 +782,7 @@ class GoogleAIStudioRuleExtractionProvider:
         source_location: str = "unknown",
         document_types: Sequence[DocumentTypeOption] = (),
         legal_act_title: str = "",
+        context: str = "",
     ) -> Sequence[dict[str, object]]:
         prompt = (
             "Извлеки только явные обязательные проверяемые требования из одного "
@@ -783,7 +801,8 @@ class GoogleAIStudioRuleExtractionProvider:
             "Every rule must contain source_quote and source_location."
             f"{RULE_SEVERITY_PROMPT}"
             f"{_rule_applicability_prompt(document_types, legal_act_title)}"
-            f"JSON.\nChunk:\n{text}"
+            f"{RULE_QUOTE_PROMPT}"
+            f"Верни только JSON.\n{_chunk_with_context(text, context)}"
         )
         logger.info(
             "Calling Google AI Studio rule extraction (model: %s, prompt length: %d)",

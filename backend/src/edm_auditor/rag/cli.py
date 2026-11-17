@@ -8,6 +8,7 @@ from edm_auditor.database.config import DatabaseSettings
 from edm_auditor.database.connection import create_engine_for, create_session_factory
 from edm_auditor.model_config import ModelSettings
 from edm_auditor.model_providers import create_embedding_provider
+from edm_auditor.legal_structure import STRUCTURE_VERSION
 
 from .config import RAGSettings
 from .indexer import RAGIndexer
@@ -23,7 +24,7 @@ def _components():
         settings.index_path,
         embedding_model=provider.model_name,
         dimension=provider.dimension,
-        chunking_version="paragraph-v1",
+        chunking_version=STRUCTURE_VERSION,
     )
     database = DatabaseSettings(
         path=Path(os.getenv("EDM_DATABASE_PATH", "data/edm_auditor.sqlite3"))

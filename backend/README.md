@@ -9,8 +9,11 @@ professional.
 
 ## How it works
 
-1. **Legal act upload.** A TXT act is split into chunks. The model returns rules for each chunk with
-   an exact quote of the norm, a check type, a severity and the document types the rule applies to.
+1. **Legal act upload.** A TXT act is parsed into chapters, articles, points and subpoints, and
+   chunks are packed from whole units (`legal_structure.py`); headings and list lead-ins that stay in
+   another chunk go to the model as context it must not quote. The model returns rules for each chunk
+   with an exact quote of the norm, a check type, a severity and the document types the rule applies
+   to; the location of the norm, such as «гл. 2, п. 6», is computed from the structure.
    The rules are validated and published together: a failed chunk publishes nothing.
 2. **Document upload.** The parser extracts the text of a TXT, DOCX or text-layer PDF file. The model
    chooses the document type from the catalog. A choice below the confidence threshold needs a

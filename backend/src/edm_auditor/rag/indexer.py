@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 import tempfile
 
+from edm_auditor.legal_structure import STRUCTURE_VERSION, chunk_legal_act, parse_legal_act
+
 from .chunking import CHUNKING_VERSION, chunk_text
 from .embeddings import EmbeddingProvider, validate_vectors
 from .models import TextChunk
@@ -33,7 +35,7 @@ class RAGIndexer:
         *,
         max_chars: int = 1200,
         overlap_chars: int = 120,
-        chunking_version: str = CHUNKING_VERSION,
+        chunking_version: str = STRUCTURE_VERSION,
     ) -> None:
         self.store = store
         self.provider = provider
@@ -77,18 +79,45 @@ class RAGIndexer:
     ) -> tuple[list[TextChunk], list[tuple[float, ...]]]:
         chunks: list[TextChunk] = []
         for source in sources:
-            chunks.extend(
-                chunk_text(
-                    source.text,
+            source_hash = source.source_hash or sha256(
+                source.text.encode("utf-8")
+            ).hexdigest()
+            if self.chunking_version == STRUCTURE_VERSION:
+                structured_chunks = chunk_legal_act(
+                    parse_legal_act(source.text),
                     legal_act_id=source.legal_act_id,
-                    rule_id=source.rule_id,
                     max_chars=self.max_chars,
-                    overlap_chars=self.overlap_chars,
-                    chunking_version=self.chunking_version,
-                    source_hash=source.source_hash
-                    or sha256(source.text.encode("utf-8")).hexdigest(),
                 )
-            )
+                chunks.extend(
+                    TextChunk(
+                        chunk_id=(
+                            f"legal-act-{source.legal_act_id}:"
+                            f"{source.rule_id or 'base'}:{source_hash[:16]}:"
+                            f"{self.chunking_version}:{chunk.chunk_index}"
+                        ),
+                        legal_act_id=source.legal_act_id,
+                        rule_id=source.rule_id,
+                        text=chunk.text,
+                        chunk_index=chunk.chunk_index,
+                        start_char=chunk.start_char,
+                        end_char=chunk.end_char,
+                        chunking_version=self.chunking_version,
+                        source_hash=source_hash,
+                    )
+                    for chunk in structured_chunks
+                )
+            else:
+                chunks.extend(
+                    chunk_text(
+                        source.text,
+                        legal_act_id=source.legal_act_id,
+                        rule_id=source.rule_id,
+                        max_chars=self.max_chars,
+                        overlap_chars=self.overlap_chars,
+                        chunking_version=self.chunking_version,
+                        source_hash=source_hash,
+                    )
+                )
         vectors = self.provider.embed_documents([chunk.text for chunk in chunks])
         validate_vectors(vectors, len(chunks), self.provider.dimension)
         return chunks, list(vectors)

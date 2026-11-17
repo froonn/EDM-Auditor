@@ -76,6 +76,11 @@ from edm_auditor.database.models import (
 )
 from edm_auditor.document_parser import parse_document
 from edm_auditor.document_parser.exceptions import DocumentParserError
+from edm_auditor.legal_structure import (
+    STRUCTURE_VERSION,
+    chunk_legal_act,
+    parse_legal_act,
+)
 from edm_auditor.model_config import ModelSettings, detect_source_language
 from edm_auditor.model_providers import (
     ModelRateLimited,
@@ -101,7 +106,6 @@ from edm_auditor.rag import (
     RAGIndexer,
     RAGSearch,
     SQLiteVectorStore,
-    chunk_text,
     normalize_source_text,
 )
 
@@ -214,7 +218,7 @@ def create_app(
                 ":memory:",
                 embedding_model=provider.model_name,
                 dimension=provider.dimension,
-                chunking_version="paragraph-v1",
+                chunking_version=STRUCTURE_VERSION,
             ),
             provider,
             max_chars=model_settings.processing.chunking.max_chars,
@@ -262,7 +266,7 @@ def create_app(
             config.rag_index_path,
             embedding_model=embedding.model_name,
             dimension=embedding.dimension,
-            chunking_version="paragraph-v1",
+            chunking_version=STRUCTURE_VERSION,
         )
         return [
             RagCandidate(
@@ -306,11 +310,12 @@ def create_app(
         source_language = model_settings.processing.source_language
         if source_language == "auto":
             source_language = detect_source_language(source_text)
-        chunks = chunk_text(
-            source_text,
+        structure = parse_legal_act(source_text)
+        # Whole units with their headings as context replace overlapping chunks.
+        chunks = chunk_legal_act(
+            structure,
             legal_act_id=legal_act_id,
             max_chars=model_settings.processing.chunking.max_chars,
-            overlap_chars=model_settings.processing.chunking.overlap_chars,
         )
         processing_version = model_settings.processing.processing_version
         with session_factory.begin() as session:
@@ -345,6 +350,7 @@ def create_app(
                     source_location=chunk.chunk_id,
                     document_types=catalog,
                     legal_act_title=source_title,
+                    context=chunk.context_text,
                 )
                 for item in raw_extracted:
                     if not isinstance(item, dict):
@@ -364,6 +370,9 @@ def create_app(
                     )
                     normalized["source_start"] = chunk.start_char + normalized["source_start"]
                     normalized["source_end"] = chunk.start_char + normalized["source_end"]
+                    normalized["source_location"] = structure.location(
+                        normalized["source_start"], normalized["source_end"]
+                    )
                     normalized["_chunk_id"] = chunk.chunk_id
                     normalized["_chunk_index"] = chunk_index
                     normalized["_applicability"] = model_applicability.to_json()
@@ -468,7 +477,7 @@ def create_app(
                         is_generated=True,
                         deduplication_key=deduplication_key,
                         source_quote=generated["source_quote"],
-                        source_location=chunk_id,
+                        source_location=str(generated["source_location"])[:255],
                         source_start=generated["source_start"],
                         source_end=generated["source_end"],
                         rule_code=rule_code,

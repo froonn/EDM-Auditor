@@ -118,12 +118,23 @@ def validate_manual_rule_parameters(check_type: str, parameters: dict[str, Any])
     )
 
 
+_ELLIPSIS = re.compile(r"\s*(?:\.\.\.|…)\s*")
+
+
 def _find_quote_matches(source_text: str, quote: str) -> list[tuple[int, int]]:
-    """Find a quote while treating whitespace runs as equivalent."""
-    parts = [re.escape(part) for part in re.split(r"\s+", quote) if part]
-    if not parts:
+    """Find a quote while treating whitespace runs as equivalent.
+
+    A model sometimes joins a list lead-in and a list item with an ellipsis; such a quote matches the
+    text from its first part to its last part.
+    """
+    pieces = []
+    for piece in _ELLIPSIS.split(quote):
+        words = [re.escape(word) for word in re.split(r"\s+", piece) if word]
+        if words:
+            pieces.append(r"\s+".join(words))
+    if not pieces:
         return []
-    pattern = re.compile(r"\s+".join(parts))
+    pattern = re.compile(r"[\s\S]*?".join(pieces))
     return [(match.start(), match.end()) for match in pattern.finditer(source_text)]
 
 

@@ -152,3 +152,26 @@ def test_model_cannot_create_a_semantic_rule() -> None:
         )
 
     assert error.value.code == "unsupported_check_type"
+
+
+@pytest.mark.parametrize("gap", ["...", "…", " ... "])
+def test_quote_with_ellipsis_matches_from_first_to_last_part(gap: str) -> None:
+    source = (
+        "В соглашении указываются:\nа) режим рабочего времени;\n"
+        "б) порядок взаимодействия работника и нанимателя."
+    )
+    result = validate_generated_rule(
+        _rule(
+            check_type="keyword",
+            parameters={"keywords": ["порядок взаимодействия"], "mode": "required"},
+            description="В соглашении указывается порядок взаимодействия.",
+            source_quote=f"В соглашении указываются:{gap}б) порядок взаимодействия работника и нанимателя.",
+        ),
+        source_text=source,
+        source_language="ru",
+        source_location="act:chunk-0",
+        index=1,
+    )
+
+    assert result["source_quote"] == source
+    assert (result["source_start"], result["source_end"]) == (0, len(source))

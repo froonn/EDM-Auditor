@@ -6,9 +6,7 @@ __pycache__/
 .venv/
 .junie
 .env
-backend/data/*.sqlite3
-backend/data/legal-acts/
-backend/data/uploads/
+backend/data/
 *.log
 logs/
 report
