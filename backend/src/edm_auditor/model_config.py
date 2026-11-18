@@ -114,6 +114,7 @@ class DocumentProcessingConfig:
     entity_chunk_max_chars: int = 4000
     entity_chunk_overlap_chars: int = 200
     entity_max_chunks: int = 100
+    statement_prompt_version: str = "1"
 
     def __post_init__(self) -> None:
         if self.classification_head_chars <= 0:
@@ -128,6 +129,8 @@ class DocumentProcessingConfig:
             raise ValueError("entity_chunk_overlap_chars must be in [0, entity_chunk_max_chars)")
         if self.entity_max_chunks <= 0:
             raise ValueError("entity_max_chunks must be positive")
+        if not self.statement_prompt_version.strip():
+            raise ValueError("statement_prompt_version must not be empty")
 
 
 def detect_source_language(text: str) -> str:
@@ -271,6 +274,9 @@ def _document_processing_config(values: dict[str, Any]) -> DocumentProcessingCon
             values.get("entity_chunk_overlap_chars", defaults.entity_chunk_overlap_chars)
         ),
         entity_max_chunks=int(values.get("entity_max_chunks", defaults.entity_max_chunks)),
+        statement_prompt_version=str(
+            values.get("statement_prompt_version", defaults.statement_prompt_version)
+        ),
     )
 
 

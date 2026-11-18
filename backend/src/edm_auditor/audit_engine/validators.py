@@ -8,10 +8,14 @@ import math
 import re
 from typing import Any
 
-from edm_auditor.rule_validation import RuleValidationError, validate_manual_constraint
+from edm_auditor.rule_validation import (
+    RuleValidationError,
+    parse_constraint_from_text,
+    validate_manual_constraint,
+)
 
 from .exceptions import InvalidRuleConfiguration
-from .models import ExtractedEntity, FindingDraft, RuleSpec
+from .models import ExtractedEntity, FindingDraft, RuleSpec, StatementSpec
 
 _FREQUENCY_WORDS = {
     "один": 1,
@@ -41,8 +45,9 @@ def validate_rule(
     rule: RuleSpec,
     text: str,
     entities: Iterable[ExtractedEntity] = (),
+    statements: Iterable[StatementSpec] = (),
 ) -> tuple[FindingDraft, ...]:
-    """Evaluate a rule's structured constraint against document entities and text."""
+    """Evaluate a rule's structured constraint against document statements, entities, and text."""
     if not rule.is_active or rule.constraint_json is None:
         return ()
     try:
@@ -55,32 +60,76 @@ def validate_rule(
     kind = str(constraint["kind"])
     operator = str(constraint["operator"])
     entity_tuple = tuple(entities)
+    statement_tuple = tuple(statements)
+
+    statement_findings = _statement_findings(rule, text, statement_tuple, constraint)
 
     if kind == "value":
         target = float(constraint["value"])
         unit = str(constraint["unit"])
         if unit == "day":
-            return _day_value_findings(rule, text, entity_tuple, operator, target)
+            base = _day_value_findings(rule, text, entity_tuple, operator, target)
+            return (*statement_findings, *base)
         entity_kind = {"byn": "money", "%": "percent", "hour": "number"}[unit]
-        return _numeric_entity_findings(
+        base = _numeric_entity_findings(
             rule, text, entity_tuple, entity_kind, operator, target
         )
+        return (*statement_findings, *base)
     if kind == "frequency":
-        return _frequency_findings(
+        base = _frequency_findings(
             rule,
             text,
             operator=operator,
             target=float(constraint["count"]),
             period=str(constraint["period"]),
         )
+        return (*statement_findings, *base)
     if kind == "day_of_month":
-        return _day_of_month_findings(
+        base = _day_of_month_findings(
             rule,
             text,
             operator=operator,
             target=float(constraint["day"]),
         )
+        return (*statement_findings, *base)
     raise InvalidRuleConfiguration(f"unsupported constraint kind: {kind}")
+
+
+def _statement_findings(
+    rule: RuleSpec,
+    text: str,
+    statements: tuple[StatementSpec, ...],
+    rule_constraint: dict[str, object],
+) -> tuple[FindingDraft, ...]:
+    if not statements:
+        return ()
+    kind = str(rule_constraint["kind"])
+    operator = str(rule_constraint["operator"])
+    findings: list[FindingDraft] = []
+    for statement in statements:
+        stmt_constraint = statement.constraint_json or parse_constraint_from_text(
+            f"{statement.statement_text} {statement.source_quote}"
+        )
+        if not isinstance(stmt_constraint, dict) or stmt_constraint.get("kind") != kind:
+            continue
+        if kind == "value":
+            if stmt_constraint.get("unit") != rule_constraint["unit"]:
+                continue
+            actual = float(stmt_constraint["value"])
+            target = float(rule_constraint["value"])
+        elif kind == "frequency":
+            if stmt_constraint.get("period") != rule_constraint["period"]:
+                continue
+            actual = float(stmt_constraint["count"])
+            target = float(rule_constraint["count"])
+        elif kind == "day_of_month":
+            actual = float(stmt_constraint["day"])
+            target = float(rule_constraint["day"])
+        else:
+            continue
+        if not _satisfies(actual, operator, target):
+            findings.append(_draft(rule, text, statement.start_char, statement.end_char))
+    return tuple(findings)
 
 
 def _satisfies(actual: float, operator: str, target: float) -> bool:

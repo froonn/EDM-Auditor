@@ -5,6 +5,7 @@ export type Schemas = components["schemas"];
 
 export type DocumentItem = Schemas["DocumentResponse"];
 export type DocumentDetail = Schemas["DocumentDetailResponse"];
+export type DocumentStatement = Schemas["DocumentStatementResponse"];
 export type DocumentType = Schemas["DocumentTypeResponse"];
 export type LegalAct = Schemas["LegalActResponse"];
 export type Rule = Schemas["RuleResponse"];

@@ -6,7 +6,7 @@ from dataclasses import replace
 import logging
 import sqlite3
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, selectinload
 
@@ -26,6 +26,7 @@ from edm_auditor.database.models import (
     AuditReport,
     AuditRule,
     Document,
+    DocumentStatement,
     LegalAct,
 )
 from edm_auditor.model_config import detect_source_language
@@ -33,7 +34,7 @@ from edm_auditor.rag.exceptions import RAGError
 
 from .engine import AuditEngine
 from .llm_interpreter import LLMInterpreter
-from .models import AuditResult, FindingDraft, RuleSpec
+from .models import AuditResult, FindingDraft, RuleSpec, StatementSpec
 from .neural_errors import AuditModelError, DocumentTooLargeForAudit
 from .neural_models import NeuralFinding, NeuralResult
 
@@ -62,11 +63,13 @@ class AuditPersistence:
         neural_interpreter: LLMInterpreter,
         *,
         rag_recommender: Callable[[str], Sequence[RagCandidate]] | None = None,
+        statement_prompt_version: str = "1",
     ) -> None:
         self._session_factory = session_factory
         self._engine = engine
         self._neural_interpreter = neural_interpreter
         self._rag_recommender = rag_recommender
+        self._statement_prompt_version = statement_prompt_version
         self._resolver = RuleApplicabilityResolver()
 
     def preview(
@@ -75,6 +78,49 @@ class AuditPersistence:
         """Resolve the same rule set that an audit with this selection would use."""
         with self._session_factory() as session:
             return self._resolve(session, self._load(session, document_id), selection)
+
+    def extract_document_statements(
+        self, document_id: int, *, force: bool = False
+    ) -> tuple[StatementSpec, ...]:
+        """Extract document statements once per prompt version and persist them on the document."""
+        with self._session_factory() as session:
+            document = self._load(session, document_id)
+            if (
+                not force
+                and document.statements_version == self._statement_prompt_version
+            ):
+                return tuple(_to_statement_spec(item) for item in document.statements)
+            text = document.raw_text
+
+        extracted = self._engine.extract_statements(text)
+        with self._session_factory.begin() as session:
+            document = self._load(session, document_id)
+            session.execute(
+                delete(DocumentStatement).where(
+                    DocumentStatement.document_id == document_id
+                )
+            )
+            document.statements_version = self._statement_prompt_version
+            rows = [
+                DocumentStatement(
+                    document_id=document_id,
+                    subject=item.subject,
+                    statement_text=item.statement_text,
+                    constraint_json=(
+                        json.dumps(item.constraint_json, ensure_ascii=False, sort_keys=True)
+                        if item.constraint_json is not None
+                        else None
+                    ),
+                    source_quote=item.source_quote,
+                    start_char=item.start_char,
+                    end_char=item.end_char,
+                    prompt_version=self._statement_prompt_version,
+                )
+                for item in extracted
+            ]
+            session.add_all(rows)
+            session.flush()
+            return tuple(_to_statement_spec(row) for row in rows)
 
     def audit_document(
         self, document_id: int, selection: SelectionConfig | None = None
@@ -92,9 +138,51 @@ class AuditPersistence:
                 )
                 context = _document_context(document)
                 applied_acts = _applied_legal_acts(session, resolution)
+                cached_statements: tuple[StatementSpec, ...] | None = (
+                    tuple(_to_statement_spec(item) for item in document.statements)
+                    if document.statements_version == self._statement_prompt_version
+                    else None
+                )
 
             # SQLite allows one writer, so no transaction stays open during model calls.
-            candidates = self._engine.audit(text, resolution.selected_rules)
+            if cached_statements is None:
+                extracted_statements = self._engine.extract_statements(text)
+                with self._session_factory.begin() as session:
+                    document = self._load(session, document_id)
+                    session.execute(
+                        delete(DocumentStatement).where(
+                            DocumentStatement.document_id == document_id
+                        )
+                    )
+                    document.statements_version = self._statement_prompt_version
+                    rows = [
+                        DocumentStatement(
+                            document_id=document_id,
+                            subject=item.subject,
+                            statement_text=item.statement_text,
+                            constraint_json=(
+                                json.dumps(
+                                    item.constraint_json,
+                                    ensure_ascii=False,
+                                    sort_keys=True,
+                                )
+                                if item.constraint_json is not None
+                                else None
+                            ),
+                            source_quote=item.source_quote,
+                            start_char=item.start_char,
+                            end_char=item.end_char,
+                            prompt_version=self._statement_prompt_version,
+                        )
+                        for item in extracted_statements
+                    ]
+                    session.add_all(rows)
+                    session.flush()
+                    cached_statements = tuple(_to_statement_spec(row) for row in rows)
+
+            candidates = self._engine.audit(
+                text, resolution.selected_rules, statements=cached_statements
+            )
             neural = self._analyze(candidates.findings, document_type, text)
             result, neural, rejected = _apply_model_verdicts(candidates, neural)
             neural = _with_legal_basis(neural, result.findings, applied_acts)
@@ -172,7 +260,10 @@ class AuditPersistence:
     def _load(self, session: Session, document_id: int) -> Document:
         document = session.scalar(
             select(Document)
-            .options(selectinload(Document.paragraphs))
+            .options(
+                selectinload(Document.paragraphs),
+                selectinload(Document.statements),
+            )
             .where(Document.id == document_id)
         )
         if document is None:
@@ -363,6 +454,22 @@ def _to_rule_spec(rule: AuditRule) -> RuleSpec:
         legal_act_id=rule.legal_act_id,
         is_active=rule.is_active,
         source_quote=rule.source_quote,
+    )
+
+
+def _to_statement_spec(statement: DocumentStatement) -> StatementSpec:
+    constraint_json = (
+        json.loads(statement.constraint_json) if statement.constraint_json else None
+    )
+    return StatementSpec(
+        statement_id=statement.id,
+        subject=statement.subject,
+        statement_text=statement.statement_text,
+        source_quote=statement.source_quote,
+        start_char=statement.start_char,
+        end_char=statement.end_char,
+        constraint_json=constraint_json,
+        prompt_version=statement.prompt_version,
     )
 
 

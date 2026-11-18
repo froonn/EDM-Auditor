@@ -98,6 +98,33 @@ CONSTRAINT_JSON_SCHEMA = {
     "additionalProperties": False,
 }
 
+STATEMENT_EXTRACTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "statements": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "subject": {"type": "string"},
+                    "statement_text": {"type": "string"},
+                    "constraint_json": CONSTRAINT_JSON_SCHEMA,
+                    "source_quote": {"type": "string"},
+                },
+                "required": [
+                    "subject",
+                    "statement_text",
+                    "constraint_json",
+                    "source_quote",
+                ],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["statements"],
+    "additionalProperties": False,
+}
+
 RULE_EXTRACTION_SCHEMA = {
     "type": "object",
     "properties": {
@@ -235,6 +262,27 @@ RULE_QUOTE_PROMPT = (
 )
 
 
+def _statement_extraction_prompt(text: str, *, source_language: str = "auto") -> str:
+    return (
+        "Извлеки каждое положение (факт, условие, срок, сумму, периодичность, обязанность) "
+        "из одного фрагмента документа. Для каждого положения верни:\n"
+        "- subject: предмет условия или параметра (например: «продолжительность основного отпуска», "
+        "«срок служебной командировки», «размер суточных», «периодичность выплаты заработной платы», "
+        "«дата уведомления об отпуске», «возраст работника»). В subject указывай именно название "
+        "условия или параметра, а не ФИО работника или должность;\n"
+        "- statement_text: краткое изложение утверждения;\n"
+        "- source_quote: один непрерывный дословный фрагмент из текста документа;\n"
+        "- constraint_json: только если структура подтверждается текстом "
+        "(виды: value с operator='eq'/value/unit, frequency с operator='eq'/count/period, "
+        "day_of_month с operator='eq'/day/month_offset). Если структуру определить нельзя, "
+        "верни constraint_json как null.\n\n"
+        f"source_language={source_language}; output_language={source_language}. "
+        "source_quote должен быть непрерывным дословным фрагментом из текста документа. "
+        "Верни только JSON.\n"
+        f"Document:\n{text}"
+    )
+
+
 def _chunk_with_context(text: str, context: str) -> str:
     """Headings and list lead-ins go before the chunk as text the model must not quote."""
     if not context.strip():
@@ -299,6 +347,20 @@ class EntityExtractionProvider(Protocol):
 
     def extract(self, text: str) -> Sequence[dict[str, str]]:
         """Return entity kinds and verbatim values found in the text."""
+
+
+class StatementExtractionProvider(Protocol):
+    """Provider used to extract structured statements (provisions) from a document chunk."""
+
+    model_name: str
+
+    def extract_statements(
+        self,
+        text: str,
+        *,
+        source_language: str = "auto",
+    ) -> Sequence[dict[str, object]]:
+        """Return document statements explicitly present in the chunk."""
 
 
 class RuleExtractionProvider(Protocol):
@@ -479,6 +541,51 @@ class OpenAICompatibleEntityExtractionProvider:
             )
         except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as error:
             raise ValueError("entity extraction provider returned invalid JSON") from error
+
+    def extract_statements(
+        self,
+        text: str,
+        *,
+        source_language: str = "auto",
+    ) -> Sequence[dict[str, object]]:
+        prompt = _statement_extraction_prompt(text, source_language=source_language)
+        response_format: dict[str, object] = {}
+        if self._config.structured_output == "json_schema":
+            response_format = {
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "statement_extraction",
+                        "strict": True,
+                        "schema": STATEMENT_EXTRACTION_SCHEMA,
+                    },
+                }
+            }
+        elif self._config.structured_output == "json_object":
+            response_format = {"response_format": {"type": "json_object"}}
+        payload = _post_json(
+            self._config,
+            "chat/completions",
+            {
+                "model": self.model_name,
+                "temperature": self._config.temperature,
+                "max_tokens": self._config.max_tokens,
+                "messages": [{"role": "user", "content": prompt}],
+                **response_format,
+            },
+            self._timeout,
+        )
+        try:
+            content = payload["choices"][0]["message"]["content"]
+            if not isinstance(content, str):
+                raise ValueError
+            parsed = json.loads(content.strip().strip("`").removeprefix("json").strip())
+            statements = parsed["statements"]
+            if not isinstance(statements, list):
+                raise ValueError
+            return tuple(item for item in statements if isinstance(item, dict))
+        except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as error:
+            raise ValueError("statement extraction provider returned invalid JSON") from error
 
 
 class OpenAICompatibleRuleExtractionProvider:
@@ -718,6 +825,44 @@ class GoogleAIStudioEntityExtractionProvider:
         except Exception as exc:
             logger.warning("Google AI Studio entity extraction failed: %s", exc)
             raise _google_failure("Google AI Studio entity extraction failed", exc) from exc
+
+    def extract_statements(
+        self,
+        text: str,
+        *,
+        source_language: str = "auto",
+    ) -> Sequence[dict[str, object]]:
+        prompt = _statement_extraction_prompt(text, source_language=source_language)
+        logger.info(
+            "Calling Google AI Studio statement extraction (model: %s, text length: %d)",
+            self.model_name,
+            len(text),
+        )
+        try:
+            response = _generate_google_with_retries(
+                self._client,
+                model=self.model_name,
+                contents=prompt,
+                config=_google_generation_config(
+                    self._config, schema=STATEMENT_EXTRACTION_SCHEMA
+                ),
+                attempts=self._config.retry_attempts + 1,
+                backoff_factor=self._config.retry_backoff_factor,
+            )
+            payload = _parse_json_response(response)
+            statements = payload.get("statements")
+            if not isinstance(statements, list):
+                raise ValueError("statement extraction provider returned invalid JSON")
+            result = tuple(item for item in statements if isinstance(item, dict))
+            logger.info(
+                "Google AI Studio successfully extracted %d statements", len(result)
+            )
+            return result
+        except Exception as exc:
+            logger.warning("Google AI Studio statement extraction failed: %s", exc)
+            raise _google_failure(
+                "Google AI Studio statement extraction failed", exc
+            ) from exc
 
 
 class GoogleAIStudioRuleExtractionProvider:
@@ -1092,6 +1237,17 @@ def create_entity_extraction_provider(
     if config.provider == "google-ai-studio":
         return GoogleAIStudioEntityExtractionProvider(config)
     raise ValueError(f"unsupported entity extraction provider: {config.provider}")
+
+
+OpenAICompatibleStatementExtractionProvider = OpenAICompatibleEntityExtractionProvider
+GoogleAIStudioStatementExtractionProvider = GoogleAIStudioEntityExtractionProvider
+
+
+def create_statement_extraction_provider(
+    config: ModelConfig,
+) -> StatementExtractionProvider:
+    """Create a configured document statement extraction provider."""
+    return create_entity_extraction_provider(config)
 
 
 def create_document_classification_provider(

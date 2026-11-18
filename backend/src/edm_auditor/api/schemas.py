@@ -104,10 +104,25 @@ class DocumentResponse(BaseModel):
     latest_report: LatestReportSummary | None = None
 
 
+class DocumentStatementResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    subject: str
+    statement_text: str
+    constraint_json: dict[str, Any] | None = None
+    source_quote: str
+    start_char: int
+    end_char: int
+    prompt_version: str = "1"
+
+
 class DocumentDetailResponse(DocumentResponse):
     """Finding offsets in a report refer to this text."""
 
     text: str
+    statements_version: str | None = None
+    statements: list[DocumentStatementResponse] = Field(default_factory=list)
 
 
 class AuditSelectionRequest(BaseModel):

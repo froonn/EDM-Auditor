@@ -152,6 +152,7 @@ class Document(Base):
     classification_candidates: Mapped[str | None] = mapped_column(Text, nullable=True)
     classification_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
     classification_auto: Mapped[str | None] = mapped_column(Text, nullable=True)
+    statements_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
     status: Mapped[str] = mapped_column(
         String(20), default=DocumentStatus.UPLOADED.value
     )
@@ -165,6 +166,12 @@ class Document(Base):
         back_populates="document",
         cascade="all, delete-orphan",
         order_by="DocumentParagraph.paragraph_index",
+        passive_deletes=True,
+    )
+    statements: Mapped[list["DocumentStatement"]] = relationship(
+        back_populates="document",
+        cascade="all, delete-orphan",
+        order_by="DocumentStatement.start_char, DocumentStatement.id",
         passive_deletes=True,
     )
     reports: Mapped[list["AuditReport"]] = relationship(
@@ -203,6 +210,36 @@ class DocumentParagraph(Base):
         UniqueConstraint("document_id", "paragraph_index", name="uq_document_paragraph"),
         CheckConstraint("paragraph_index >= 0", name="ck_paragraph_index"),
         CheckConstraint("start_char >= 0 AND end_char >= start_char", name="ck_range"),
+    )
+
+
+class DocumentStatement(Base):
+    __tablename__ = "document_statements"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), index=True
+    )
+    subject: Mapped[str] = mapped_column(String(255))
+    statement_text: Mapped[str] = mapped_column(Text)
+    constraint_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_quote: Mapped[str] = mapped_column(Text)
+    start_char: Mapped[int] = mapped_column(Integer)
+    end_char: Mapped[int] = mapped_column(Integer)
+    prompt_version: Mapped[str] = mapped_column(String(50), default="1")
+    created_at: Mapped[datetime] = mapped_column(default=utc_now)
+
+    document: Mapped[Document] = relationship(back_populates="statements")
+
+    __table_args__ = (
+        CheckConstraint(
+            "start_char >= 0 AND end_char >= start_char",
+            name="ck_document_statements_range",
+        ),
+        CheckConstraint(
+            "constraint_json IS NULL OR json_valid(constraint_json)",
+            name="ck_document_statements_constraint_json",
+        ),
     )
 
 

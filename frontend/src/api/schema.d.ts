@@ -590,6 +590,31 @@ export interface components {
             latest_report?: components["schemas"]["LatestReportSummary"] | null;
             /** Text */
             text: string;
+            /** Statements Version */
+            statements_version?: string | null;
+            /** Statements */
+            statements?: components["schemas"]["DocumentStatementResponse"][];
+        };
+        /** DocumentStatementResponse */
+        DocumentStatementResponse: {
+            /** Id */
+            id: number;
+            /** Subject */
+            subject: string;
+            /** Statement Text */
+            statement_text: string;
+            /** Constraint Json */
+            constraint_json?: {
+                [key: string]: unknown;
+            } | null;
+            /** Source Quote */
+            source_quote: string;
+            /** Start Char */
+            start_char: number;
+            /** End Char */
+            end_char: number;
+            /** Prompt Version */
+            prompt_version?: string;
         };
         /** DocumentResponse */
         DocumentResponse: {

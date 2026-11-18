@@ -6,6 +6,7 @@ import type {
   AuditSelection,
   DocumentDetail,
   DocumentItem,
+  DocumentStatement,
   DocumentType,
   DocumentTypeSuggestion,
   ExportFormat,
@@ -55,6 +56,14 @@ export const api = {
     list: ({ limit, offset }: PageRequest, signal?: AbortSignal) =>
       apiRequestPage<DocumentItem>("/api/documents", { query: { limit, offset }, signal }),
     get: (id: number, signal?: AbortSignal) => apiRequest<DocumentDetail>(`/api/documents/${id}`, { signal }),
+    statements: (id: number, signal?: AbortSignal) =>
+      apiRequest<DocumentStatement[]>(`/api/documents/${id}/statements`, { signal }),
+    /** Calls the model to extract statements from the document. */
+    extractStatements: (id: number, force = false) =>
+      apiRequest<DocumentStatement[]>(`/api/documents/${id}/statements/extract`, {
+        method: "POST",
+        query: force ? { force: true } : undefined,
+      }),
     /** Calls the model to determine the document type. */
     upload: (file: File, title?: string) => {
       const form = new FormData();

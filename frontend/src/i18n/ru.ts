@@ -375,6 +375,10 @@ export const ru = {
   "extras.appliedActs": "НПА",
   "extras.appliedRules": "Применено правил: {count}",
   "extras.noSelection": "Отчёт создан до сохранения набора правил.",
+  "extras.statements": "Положения документа ({count})",
+  "extras.statementsEmpty": "Положения ещё не извлечены.",
+  "extras.statementsHint": "Факты и условия, извлечённые моделью из текста документа (FR-2).",
+  "extras.statementStructure": "Структура: {structure}",
 
   "page.notFound.title": "Страница не найдена",
   "page.notFound.description": "Такого адреса нет. Проверьте ссылку или вернитесь на главную.",

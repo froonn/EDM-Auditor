@@ -19,7 +19,7 @@ import { DocumentText } from "./DocumentText";
 import { FindingsPanel, PassedRules } from "./FindingsPanel";
 import { buildSegments } from "./highlight";
 import { ReportExport } from "./ReportExport";
-import { ReportExtras } from "./ReportExtras";
+import { DocumentStatementsSection, ReportExtras } from "./ReportExtras";
 import { toReportView, type FindingView } from "./reportModel";
 
 export function useDocumentId(): number | null {
@@ -65,9 +65,12 @@ function AuditScreen({ documentId }: { documentId: number }) {
       {report.isError && <ErrorAlert error={report.error} onRetry={() => void report.refetch()} />}
       {report.isPending && <p role="status">{t("table.loading")}</p>}
       {report.data === null && (
-        <div className="rounded-lg border bg-card p-6 text-sm">
-          <p className="font-medium">{t("audit.noReport")}</p>
-          <p className="text-muted-foreground">{t("audit.noReportHint")}</p>
+        <div className="space-y-4">
+          <div className="rounded-lg border bg-card p-6 text-sm">
+            <p className="font-medium">{t("audit.noReport")}</p>
+            <p className="text-muted-foreground">{t("audit.noReportHint")}</p>
+          </div>
+          <DocumentStatementsSection statements={document.data.statements} />
         </div>
       )}
       {report.data && (
@@ -264,7 +267,7 @@ function ReportView({
         </section>
       </div>
 
-      <ReportExtras view={view} />
+      <ReportExtras view={view} statements={document.statements} />
       <p className="text-xs text-muted-foreground">{t("audit.disclaimer")}</p>
     </div>
   );

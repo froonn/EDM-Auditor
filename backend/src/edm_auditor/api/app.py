@@ -39,7 +39,12 @@ from edm_auditor.applicability.rule_scope import (
     split_generated_rule,
 )
 from edm_auditor.audit_engine.persistence import AuditPersistence, AuditSelectionRequired
-from edm_auditor.audit_engine import AuditEngine, ChunkedEntityExtractor, LLMInterpreter
+from edm_auditor.audit_engine import (
+    AuditEngine,
+    ChunkedEntityExtractor,
+    ChunkedStatementExtractor,
+    LLMInterpreter,
+)
 from edm_auditor.audit_engine.neural_errors import AuditModelError, DocumentTooLargeForAudit
 from edm_auditor.database import (
     Base,
@@ -66,6 +71,7 @@ from edm_auditor.database.models import (
     AuditReport,
     AuditRule,
     Document,
+    DocumentStatement,
     DocumentType,
     DocumentTypeSuggestion,
     LegalAct,
@@ -117,6 +123,7 @@ from .schemas import (
     AuditSelectionRequest,
     ClassificationUpdate,
     DocumentDetailResponse,
+    DocumentStatementResponse,
     DocumentTypeCreate,
     DocumentTypeResponse,
     DocumentTypeSuggestionAccept,
@@ -246,6 +253,15 @@ def create_app(
         max_chunks=document_processing.entity_max_chunks,
         delay_seconds=model_settings.extractor.inter_chunk_delay_seconds,
     )
+    statement_extractor = ChunkedStatementExtractor(
+        provider,
+        max_chars=document_processing.entity_chunk_max_chars,
+        overlap_chars=document_processing.entity_chunk_overlap_chars,
+        max_chunks=document_processing.entity_max_chunks,
+        delay_seconds=model_settings.extractor.inter_chunk_delay_seconds,
+        source_language=model_settings.processing.source_language,
+        prompt_version=document_processing.statement_prompt_version,
+    )
     rule_extractor = create_rule_extraction_provider(model_settings.extractor)
     classification = DocumentClassificationService(
         session_factory,
@@ -283,9 +299,13 @@ def create_app(
     def audit_persistence() -> AuditPersistence:
         return AuditPersistence(
             session_factory,
-            engine=AuditEngine(entity_extractor=entity_extractor),
+            engine=AuditEngine(
+                entity_extractor=entity_extractor,
+                statement_extractor=statement_extractor,
+            ),
             neural_interpreter=neural_interpreter,
             rag_recommender=rag_recommendations,
+            statement_prompt_version=document_processing.statement_prompt_version,
         )
 
     def ensure_classified(document_id: int) -> None:
@@ -904,12 +924,60 @@ def create_app(
     @app.get("/api/documents/{document_id}", response_model=DocumentDetailResponse)
     def get_document(document_id: int) -> DocumentDetailResponse:
         with session_factory() as session:
-            document = session.get(Document, document_id)
+            document = session.scalar(
+                select(Document)
+                .options(selectinload(Document.statements))
+                .where(Document.id == document_id)
+            )
             if document is None:
                 raise ApiError(404, "document_not_found", "Document does not exist")
             return DocumentDetailResponse(
-                **_document_response(document).model_dump(), text=document.raw_text
+                **_document_response(document).model_dump(),
+                text=document.raw_text,
+                statements_version=document.statements_version,
+                statements=[_statement_response(item) for item in document.statements],
             )
+
+    @app.get(
+        "/api/documents/{document_id}/statements",
+        response_model=list[DocumentStatementResponse],
+    )
+    def list_document_statements(document_id: int) -> list[DocumentStatementResponse]:
+        with session_factory() as session:
+            document = session.scalar(
+                select(Document)
+                .options(selectinload(Document.statements))
+                .where(Document.id == document_id)
+            )
+            if document is None:
+                raise ApiError(404, "document_not_found", "Document does not exist")
+            return [_statement_response(item) for item in document.statements]
+
+    @app.post(
+        "/api/documents/{document_id}/statements/extract",
+        response_model=list[DocumentStatementResponse],
+    )
+    def extract_document_statements(
+        document_id: int, force: bool = Query(default=False)
+    ) -> list[DocumentStatementResponse]:
+        try:
+            audit_persistence().extract_document_statements(document_id, force=force)
+        except LookupError as exc:
+            raise ApiError(404, "document_not_found", str(exc)) from exc
+        except DocumentTooLargeForAudit as exc:
+            raise ApiError(413, "document_too_large_for_audit", str(exc)) from exc
+        except AuditModelError as exc:
+            raise _model_failure(
+                exc,
+                ApiError(503, "model_provider_error", f"Statement extraction failed: {exc}"),
+            ) from exc
+        with session_factory() as session:
+            document = session.scalar(
+                select(Document)
+                .options(selectinload(Document.statements))
+                .where(Document.id == document_id)
+            )
+            return [_statement_response(item) for item in document.statements]
 
     @app.delete("/api/documents/{document_id}", status_code=204)
     def delete_document(document_id: int) -> None:
@@ -1778,14 +1846,20 @@ def _refresh_generated_rule_applicability(
 
 def _require_current_schema(engine) -> None:
     """``create_all`` cannot add columns, so report an outdated database at startup."""
-    columns = {item["name"] for item in inspect_schema(engine).get_columns("audit_rules")}
+    inspector = inspect_schema(engine)
+    columns = {item["name"] for item in inspector.get_columns("audit_rules")}
     finding_columns = {
-        item["name"] for item in inspect_schema(engine).get_columns("audit_findings")
+        item["name"] for item in inspector.get_columns("audit_findings")
+    }
+    document_columns = {
+        item["name"] for item in inspector.get_columns("documents")
     }
     if (
         "subject" not in columns
         or "applicability_auto" not in columns
         or "finding_key" not in finding_columns
+        or "statements_version" not in document_columns
+        or not inspector.has_table("document_statements")
     ):
         raise RuntimeError(
             "The database schema is outdated. Back it up and run "
@@ -1922,6 +1996,22 @@ def _manual_applicability(
             "Document types are required for the typed scope and only allowed for it",
         )
     return RuleApplicability(resolved, tuple(types), 1.0, SOURCE_MANUAL)
+
+
+def _statement_response(statement: DocumentStatement) -> DocumentStatementResponse:
+    constraint_json = (
+        json.loads(statement.constraint_json) if statement.constraint_json else None
+    )
+    return DocumentStatementResponse(
+        id=statement.id,
+        subject=statement.subject,
+        statement_text=statement.statement_text,
+        constraint_json=constraint_json,
+        source_quote=statement.source_quote,
+        start_char=statement.start_char,
+        end_char=statement.end_char,
+        prompt_version=statement.prompt_version,
+    )
 
 
 def _rule_response(rule: AuditRule) -> RuleResponse:

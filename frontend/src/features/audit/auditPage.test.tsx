@@ -101,9 +101,31 @@ describe("audit screen", () => {
   });
 
   it("shows the summary, rejected candidates and the rule selection", async () => {
-    routes();
+    routes({
+      "GET /api/documents/1": () =>
+        json(
+          documentDetail({
+            statements_version: "1",
+            statements: [
+              {
+                id: 1,
+                subject: "Компенсация расходов на интернет",
+                statement_text: "Компенсация составляет 35 рублей.",
+                constraint_json: { kind: "value", operator: "eq", value: 35, unit: "byn" },
+                source_quote: "Компенсация 35 рублей.",
+                start_char: 0,
+                end_char: 21,
+                prompt_version: "1",
+              },
+            ],
+          }),
+        ),
+    });
     renderApp("/documents/1/audit");
     expect(await screen.findByText("Найдено два нарушения срока и суммы.")).toBeInTheDocument();
+    expect(screen.getByText("Положения документа (1)")).toBeInTheDocument();
+    expect(screen.getByText("Компенсация расходов на интернет")).toBeInTheDocument();
+    expect(screen.getByText("35 byn")).toBeInTheDocument();
     expect(screen.getByText("Отклонённые моделью кандидаты (1)")).toBeInTheDocument();
     expect(screen.getByText("Это дата, а не срок")).toBeInTheDocument();
     expect(screen.getByText("Режим: Автоматически")).toBeInTheDocument();

@@ -21,10 +21,11 @@ classification_head_chars = 4000
 classification_tail_chars = 1000
 # A type or a rule scope below this model confidence needs a person's decision.
 classification_min_confidence = 0.7
-# Entity extraction reads the whole document in parts; a longer document is refused.
+# Entity/statement extraction reads the whole document in parts; a longer document is refused.
 entity_chunk_max_chars = 4000
 entity_chunk_overlap_chars = 200
 entity_max_chunks = 100
+statement_prompt_version = "1"
 
 [profiles.embedding.local-multilingual]
 provider = "openai-compatible"

@@ -41,6 +41,20 @@ class ExtractedEntity:
 
 
 @dataclass(frozen=True, slots=True)
+class StatementSpec:
+    """A validated document statement (provision) with optional structured constraint."""
+
+    subject: str
+    statement_text: str
+    source_quote: str
+    start_char: int
+    end_char: int
+    constraint_json: dict[str, Any] | None = None
+    statement_id: int | None = None
+    prompt_version: str = "1"
+
+
+@dataclass(frozen=True, slots=True)
 class FindingDraft:
     """A validated finding before persistence."""
 

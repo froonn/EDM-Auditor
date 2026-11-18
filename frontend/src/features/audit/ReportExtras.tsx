@@ -1,15 +1,66 @@
 import type { ReactNode } from "react";
 
+import type { DocumentStatement } from "@/api/types";
 import { useI18n } from "@/i18n";
 
 import type { ReportView } from "./reportModel";
+import { asOneLine } from "./textFormat";
+
+function formatStatementConstraint(constraint: Record<string, unknown> | null | undefined): string | null {
+  if (!constraint || typeof constraint !== "object") return null;
+  const kind = constraint.kind;
+  if (kind === "value" && constraint.value !== undefined && constraint.unit !== undefined) {
+    return `${String(constraint.value)} ${String(constraint.unit)}`;
+  }
+  if (kind === "frequency" && constraint.count !== undefined && constraint.period !== undefined) {
+    return `${String(constraint.count)} / ${String(constraint.period)}`;
+  }
+  if (kind === "day_of_month" && constraint.day !== undefined) {
+    const offset = Number(constraint.month_offset ?? 0);
+    return offset > 0 ? `день ${String(constraint.day)} (+${offset} мес.)` : `день ${String(constraint.day)}`;
+  }
+  return JSON.stringify(constraint);
+}
+
+export function DocumentStatementsSection({ statements }: { statements: DocumentStatement[] | undefined }) {
+  const { t } = useI18n();
+  const list = statements ?? [];
+  if (list.length === 0) return null;
+  return (
+    <Section title={t("extras.statements", { count: list.length })}>
+      <p className="text-muted-foreground">{t("extras.statementsHint")}</p>
+      <ul className="space-y-2">
+        {list.map((item) => {
+          const structure = formatStatementConstraint(item.constraint_json);
+          return (
+            <li key={item.id} className="rounded-md bg-muted p-2">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <p className="font-medium">{item.subject}</p>
+                {structure && <span className="font-mono text-xs text-muted-foreground">{structure}</span>}
+              </div>
+              <p>{item.statement_text}</p>
+              <p className="text-xs text-muted-foreground italic">«{asOneLine(item.source_quote)}»</p>
+            </li>
+          );
+        })}
+      </ul>
+    </Section>
+  );
+}
 
 /** Secondary report data, collapsed by default. */
-export function ReportExtras({ view }: { view: ReportView }) {
+export function ReportExtras({
+  view,
+  statements,
+}: {
+  view: ReportView;
+  statements?: DocumentStatement[] | undefined;
+}) {
   const { t, tOptional } = useI18n();
   const { selection } = view;
   return (
     <div className="space-y-2">
+      <DocumentStatementsSection statements={statements} />
       {view.rejected.length > 0 && (
         <Section title={t("extras.rejected", { count: view.rejected.length })}>
           <p className="text-muted-foreground">{t("extras.rejectedHint")}</p>
