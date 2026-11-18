@@ -70,6 +70,12 @@
 
 ## Журнал
 
+### 2026-11-18: добавление PostgreSQL + `pgvector` в план диплома
+
+- В [`DIPLOMA.md`](DIPLOMA.md) добавлен раздел о переходе с SQLite (`edm_auditor.sqlite3` и
+  `rag-index.sqlite3`) на PostgreSQL с расширением `pgvector` для поддержки нескольких воркеров и
+  фоновых задач.
+
 ### 2026-11-18: перенос завершённых планов `feature-*` в архив
 
 - Завершённые планы [`feature-rules-audit-rework.md`](archive/feature-rules-audit-rework.md) и
