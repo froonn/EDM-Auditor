@@ -123,7 +123,7 @@
 - [x] Прогнать `pytest backend/tests -q -p no:cacheprovider`, `npm --prefix frontend test -- --run`,
   `npm --prefix frontend run build`.
 - [x] Проверить, что `tests/evaluation` проходит без ошибок.
-- [ ] Записать итоги в `docs/DEVLOG.md`, слить ветку в `feature/rules-audit-rework`.
+- [x] Записать итоги в `docs/DEVLOG.md`, слить ветку в `feature/rules-audit-rework`.
 
 ## 4. Риски
 
