@@ -12,17 +12,21 @@ professional.
 1. **Legal act upload.** A TXT act is parsed into chapters, articles, points and subpoints, and
    chunks are packed from whole units (`legal_structure.py`); headings and list lead-ins that stay in
    another chunk go to the model as context it must not quote. The model returns rules for each chunk
-   with an exact quote of the norm, a check type, a severity and the document types the rule applies
-   to; the location of the norm, such as «гл. 2, п. 6», is computed from the structure.
-   The rules are validated and published together: a failed chunk publishes nothing.
+   with an exact quote of the norm, `subject`, `constraint_text`, optional structured `constraint`
+   (`value`, `frequency`, or `day_of_month`), optional `condition`, severity, and document types; the
+   location of the norm, such as «гл. 2, п. 6», is computed from the structure.
+   Valid chunks are published immediately (`completed` or `partial`), failed chunks can be retried
+   individually, and non-checkable norms are recorded as `skipped_norms` in diagnostics.
 2. **Document upload.** The parser extracts the text of a TXT, DOCX or text-layer PDF file. The model
    chooses the document type from the catalog. A choice below the confidence threshold needs a
    person's confirmation.
 3. **Rule selection.** The resolver selects the rules for the document. Preview the result with
    `POST /api/documents/{id}/audit/preview`. Each report stores the selection it used.
-4. **Audit.** Code checks the keyword, regex, numeric, date and duration rules. The model extracts
-   entities and explains every finding. It also confirms or rejects each duration and numeric
-   finding from the norm and the surrounding text.
+4. **Audit.** The document is split into statements (`DocumentStatement`) once and cached. `RuleMatcher`
+   matches statements to rules using subject embeddings and the LLM: structured constraints are checked
+   by code (`compare_structured`, `evaluation_mode="structured"`) and explained by the model, while text
+   constraints are evaluated by the model (`"model"` or `"missing"`). The legacy entity-based mode
+   remains available via `EDM_AUDIT_MATCHING=off`.
 
 No substitute exists for the models. If a required model call fails, the audit stops, no report is
 saved and the document status becomes `error`. The model cannot change the severity or the source
@@ -103,9 +107,10 @@ header.
 | `POST /api/documents/{id}/classify`        | Determine the document type again              |
 | `PATCH /api/documents/{id}/classification` | Confirm the document types manually            |
 | `POST /api/documents/{id}/audit/preview`   | Show the rules an audit would use              |
-| `POST /api/documents/{id}/audit`           | Run an audit                                   |
-| `GET /api/documents/{id}/report`           | Latest report, or the one set by `report_id`   |
-| `GET /api/reports`                         | List reports, paginated. Filter: `document_id` |
+| `POST /api/documents/{id}/audit`                             | Run an audit                                   |
+| `GET /api/documents/{id}/report`                             | Latest report, or the one set by `report_id`   |
+| `PATCH /api/documents/{id}/statements/{statement_id}/link`   | Manually link or unlink a statement to a rule  |
+| `GET /api/reports`                                           | List reports, paginated. Filter: `document_id` |
 | `GET /api/reports/{id}`                    | One report                                     |
 | `GET /api/reports/{id}/export`             | Download the report as a file, see below       |
 
@@ -131,7 +136,9 @@ Check types and their parameters:
 | `duration`   | `min_days` and/or `max_days`                                                                |
 
 A rule whose document types are all deactivated cannot be enabled: change its applicability or reactivate a
-type first. A manually created rule may also have a `recommendation` parameter. Semantic rules are not executed
+type first. Rules can also store `subject`, `constraint_text`, `condition`, and an optional structured
+`constraint` (`value`, `frequency`, or `day_of_month`) used by statement matching (`EDM_AUDIT_MATCHING=on`).
+A manually created rule may also have a `recommendation` parameter. Semantic rules are not executed
 in this version, so the model cannot create them and the API refuses them.
 
 ### Legal acts
@@ -143,13 +150,14 @@ in this version, so the model cannot create them and the API refuses them.
 | `POST /api/legal-acts/upload`          | Upload a TXT act and extract its rules                    |
 | `GET /api/legal-acts/{id}`             | Act with its text                                         |
 | `GET /api/legal-acts/{id}/diagnostics` | Extraction result of each chunk                           |
-| `POST /api/legal-acts/{id}/reprocess`  | Extract the rules again                                   |
+| `POST /api/legal-acts/{id}/reprocess`  | Extract rules again (`only_failed`, `chunk_id` optional)  |
 | `PATCH /api/legal-acts/{id}`           | Change an act                                             |
 | `DELETE /api/legal-acts/{id}`          | Delete an act with its rules; findings stay in reports    |
 
-Changing the text of a processed act sets its status to `needs_reprocessing`. The act keeps its rules
-until `reprocess` replaces them. `reprocess` loses manual changes to the generated rules of the act,
-including `is_active` and applicability. Findings in earlier reports keep their stored rule details.
+Changing the text of a processed act sets its status to `needs_reprocessing`. Full `reprocess` replaces
+the act's rules and loses manual changes to them (including `is_active` and applicability), while
+selective reprocessing (`only_failed=true` or `chunk_id=...`) keeps already published rules from other
+chunks. Findings in earlier reports keep their stored rule details.
 
 Changes to acts and to fields used for search rebuild the RAG index, which calls the embedding model.
 
@@ -188,12 +196,15 @@ as recommendations and never select a rule.
 Each item of `findings` contains:
 
 - `start_char`, `end_char` and `quote`: the position in the `text` of the document;
+- `statement_text` and `evaluation_mode` (`structured`, `model`, or `missing`): the matched document
+  statement and how compliance was checked;
 - `finding_key`: the key of the matching item in `neural_analyses`, which holds the explanation,
   recommendation and legal basis;
 - `rule_code`, `rule_name`, `legal_act_code`, `legal_act_title` and `norm_quote`: copies stored in the
   report, available after the rule or act is deleted. They can be empty in reports created before
   these fields existed, if the rule or act had already been deleted.
 
+`summary.matching.pairs` maps each extracted statement to its matched rule (or `null`).
 `summary.rejected_candidates` lists the findings the model rejected, with its reason.
 `summary.diagnostics` lists rules that could not be evaluated. `selection` stores the rule selection.
 
@@ -249,6 +260,7 @@ the regression test.
 | `src/edm_auditor/audit_engine/`      | Rule checks, model interpretation, report storage        |
 | `src/edm_auditor/rag/`               | Chunking, vector index, search and its command line tool |
 | `src/edm_auditor/report_export/`     | Report export to a file (HTML)                           |
+| `src/edm_auditor/evaluation/`        | Benchmark corpus, runner, and quality metrics            |
 | `src/edm_auditor/database/`          | SQLAlchemy models and the document repository            |
 | `src/edm_auditor/model_providers.py` | Model clients, prompts and response schemas              |
 | `src/edm_auditor/rule_validation.py` | Validation of generated and manual rules                 |
@@ -291,13 +303,11 @@ rejected.
 
 ## Limitations
 
-- Only small legal acts work reliably. One failed chunk stops the publication of the whole act, and a
-  large act quickly exceeds the request limit of a free model plan.
-- Payment frequency is not checked: "at least twice a month" becomes a `duration` rule, and "once a
-  month" in a document has no duration to compare, so the violation is missed.
-- "No later than the 5th of the next month" produces no rule: no check type compares a day of the month,
-  and the model skips such a requirement without a diagnostic.
-- The model's verdicts and severity stability were checked only on the examples in `examples/`.
+- Large legal acts still face rate limits on a free model plan, though partial publishing (`partial`)
+  and selective chunk reprocessing (`only_failed=true` / `chunk_id=...`) keep completed chunks intact.
+- Condition applicability for rules is assessed by the model during statement matching; if the model
+  misses an unstated mandatory requirement, it is not reported as `missing`.
+- The model's verdicts and severity stability were checked only on `examples/` and `evaluation/corpus/`.
 - Legal act codes are unique only at the API level, with no database constraint.
 - Reports are exported only as HTML; PDF and an annotated DOCX are planned for the diploma project.
 - The database created by the server itself has no `alembic_version` table; see
