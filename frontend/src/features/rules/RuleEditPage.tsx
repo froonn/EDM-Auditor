@@ -108,29 +108,104 @@ function SourceQuote({ rule }: { rule: Rule }) {
   );
 }
 
+type ConstraintKind = "none" | "value" | "frequency" | "day_of_month";
+type ConstraintOperator = "gte" | "lte" | "gt" | "lt" | "eq";
+type ValueUnit = "day" | "hour" | "byn" | "%";
+type FrequencyPeriod = "month" | "year";
+
+const OPERATORS: readonly ConstraintOperator[] = ["gte", "lte", "gt", "lt", "eq"];
+const UNITS: readonly { value: ValueUnit; labelKey: "rules.constraint.unit.day" | "rules.constraint.unit.hour" | "rules.constraint.unit.byn" | "rules.constraint.unit.percent" }[] = [
+  { value: "day", labelKey: "rules.constraint.unit.day" },
+  { value: "hour", labelKey: "rules.constraint.unit.hour" },
+  { value: "byn", labelKey: "rules.constraint.unit.byn" },
+  { value: "%", labelKey: "rules.constraint.unit.percent" },
+];
+
+function initialConstraint(raw: Record<string, unknown> | null | undefined): {
+  kind: ConstraintKind;
+  operator: ConstraintOperator;
+  value: string;
+  unit: ValueUnit;
+  count: string;
+  period: FrequencyPeriod;
+  day: string;
+  monthOffset: string;
+} {
+  const kind = raw?.kind === "value" || raw?.kind === "frequency" || raw?.kind === "day_of_month" ? raw.kind : "none";
+  const operator =
+    raw?.operator === "gte" || raw?.operator === "lte" || raw?.operator === "gt" || raw?.operator === "lt" || raw?.operator === "eq"
+      ? raw.operator
+      : "gte";
+  const unit = raw?.unit === "day" || raw?.unit === "hour" || raw?.unit === "byn" || raw?.unit === "%" ? raw.unit : "day";
+  const period = raw?.period === "month" || raw?.period === "year" ? raw.period : "month";
+  return {
+    kind,
+    operator,
+    value: raw?.value !== undefined && raw?.value !== null ? String(raw.value) : "",
+    unit,
+    count: raw?.count !== undefined && raw?.count !== null ? String(raw.count) : "",
+    period,
+    day: raw?.day !== undefined && raw?.day !== null ? String(raw.day) : "",
+    monthOffset: raw?.month_offset !== undefined && raw?.month_offset !== null ? String(raw.month_offset) : "0",
+  };
+}
+
 function RuleForm({ rule }: { rule: Rule | null }) {
   const { t } = useI18n();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const acts = useQuery({ queryKey: queryKeys.legalActs, queryFn: ({ signal }) => api.legalActs.all(signal) });
+  const [init] = useState(() => initialConstraint(rule?.constraint_json));
 
   const [code, setCode] = useState("");
   const [subject, setSubject] = useState(rule?.subject ?? rule?.name ?? "");
   const [constraintText, setConstraintText] = useState(rule?.constraint_text ?? rule?.description ?? "");
   const [condition, setCondition] = useState(rule?.condition ?? "");
-  const [constraintJson, setConstraintJson] = useState(
-    rule?.constraint_json ? JSON.stringify(rule.constraint_json, null, 2) : "",
-  );
+  const [constraintKind, setConstraintKind] = useState<ConstraintKind>(init.kind);
+  const [operator, setOperator] = useState<ConstraintOperator>(init.operator);
+  const [valueInput, setValueInput] = useState(init.value);
+  const [unit, setUnit] = useState<ValueUnit>(init.unit);
+  const [countInput, setCountInput] = useState(init.count);
+  const [period, setPeriod] = useState<FrequencyPeriod>(init.period);
+  const [dayInput, setDayInput] = useState(init.day);
+  const [monthOffsetInput, setMonthOffsetInput] = useState(init.monthOffset);
   const [severity, setSeverity] = useState(rule?.severity ?? "medium");
   const [active, setActive] = useState(rule?.is_active ?? true);
   const [actId, setActId] = useState("");
   const [scope, setScope] = useState<ApplicabilityScope>("universal");
   const [types, setTypes] = useState<string[]>([]);
-  const [numberError, setNumberError] = useState(false);
+  const [constraintError, setConstraintError] = useState(false);
+
+  const buildConstraint = (): Record<string, unknown> | null | "invalid" => {
+    if (constraintKind === "none") return null;
+    if (constraintKind === "value") {
+      const parsed = Number(valueInput.trim().replace(",", "."));
+      if (!valueInput.trim() || !Number.isFinite(parsed) || parsed <= 0) return "invalid";
+      return { kind: "value", operator, value: parsed, unit };
+    }
+    if (constraintKind === "frequency") {
+      const parsed = Number(countInput.trim());
+      if (!countInput.trim() || !Number.isInteger(parsed) || parsed < 1) return "invalid";
+      return { kind: "frequency", operator, count: parsed, period };
+    }
+    const parsedDay = Number(dayInput.trim());
+    const parsedOffset = monthOffsetInput.trim() ? Number(monthOffsetInput.trim()) : 0;
+    if (
+      !dayInput.trim() ||
+      !Number.isInteger(parsedDay) ||
+      parsedDay < 1 ||
+      parsedDay > 31 ||
+      !Number.isInteger(parsedOffset) ||
+      parsedOffset < 0 ||
+      parsedOffset > 12
+    ) {
+      return "invalid";
+    }
+    return { kind: "day_of_month", operator, day: parsedDay, month_offset: parsedOffset };
+  };
 
   const save = useMutation({
-    mutationFn: async () => {
-      const parsedConstraint = constraintJson.trim() ? JSON.parse(constraintJson) : null;
+    mutationFn: async (parsedConstraint: Record<string, unknown> | null) => {
       if (rule) {
         return api.rules.update(rule.id, {
           subject: subject.trim(),
@@ -160,20 +235,13 @@ function RuleForm({ rule }: { rule: Rule | null }) {
   });
 
   const submit = () => {
-    setNumberError(false);
-    if (constraintJson.trim()) {
-      try {
-        const parsed = JSON.parse(constraintJson);
-        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-          setNumberError(true);
-          return;
-        }
-      } catch {
-        setNumberError(true);
-        return;
-      }
+    setConstraintError(false);
+    const parsedConstraint = buildConstraint();
+    if (parsedConstraint === "invalid") {
+      setConstraintError(true);
+      return;
     }
-    save.mutate();
+    save.mutate(parsedConstraint);
   };
   const valid = subject.trim() && constraintText.trim() && (rule || code.trim()) && (rule || scope !== "typed" || types.length > 0);
 
@@ -195,9 +263,94 @@ function RuleForm({ rule }: { rule: Rule | null }) {
           <FormField label={t("rules.field.condition")} className="col-span-2">
             <Textarea value={condition} onChange={(event) => setCondition(event.target.value)} rows={2} />
           </FormField>
-          <FormField label={t("rules.field.constraintJson")} className="col-span-2">
-            <Textarea value={constraintJson} onChange={(event) => setConstraintJson(event.target.value)} rows={4} />
-          </FormField>
+          <div className="col-span-2 space-y-3 rounded-md border bg-muted/30 p-3">
+            <p className="text-sm font-medium">{t("rules.constraint.title")}</p>
+            <div className="grid grid-cols-2 gap-3">
+              <FormField label={t("rules.constraint.kind")}>
+                <Select
+                  value={constraintKind}
+                  onChange={(event) => setConstraintKind(event.target.value as ConstraintKind)}
+                >
+                  <option value="none">{t("rules.constraint.kind.none")}</option>
+                  <option value="value">{t("rules.constraint.kind.value")}</option>
+                  <option value="frequency">{t("rules.constraint.kind.frequency")}</option>
+                  <option value="day_of_month">{t("rules.constraint.kind.day_of_month")}</option>
+                </Select>
+              </FormField>
+              {constraintKind !== "none" && (
+                <FormField label={t("rules.constraint.operator")}>
+                  <Select
+                    value={operator}
+                    onChange={(event) => setOperator(event.target.value as ConstraintOperator)}
+                  >
+                    {OPERATORS.map((op) => (
+                      <option key={op} value={op}>
+                        {t(`rules.constraint.op.${op}`)}
+                      </option>
+                    ))}
+                  </Select>
+                </FormField>
+              )}
+              {constraintKind === "value" && (
+                <>
+                  <FormField label={t("rules.constraint.value")}>
+                    <Input
+                      inputMode="decimal"
+                      value={valueInput}
+                      onChange={(event) => setValueInput(event.target.value)}
+                    />
+                  </FormField>
+                  <FormField label={t("rules.constraint.unit")}>
+                    <Select value={unit} onChange={(event) => setUnit(event.target.value as ValueUnit)}>
+                      {UNITS.map((item) => (
+                        <option key={item.value} value={item.value}>
+                          {t(item.labelKey)}
+                        </option>
+                      ))}
+                    </Select>
+                  </FormField>
+                </>
+              )}
+              {constraintKind === "frequency" && (
+                <>
+                  <FormField label={t("rules.constraint.count")}>
+                    <Input
+                      inputMode="numeric"
+                      value={countInput}
+                      onChange={(event) => setCountInput(event.target.value)}
+                    />
+                  </FormField>
+                  <FormField label={t("rules.constraint.period")}>
+                    <Select
+                      value={period}
+                      onChange={(event) => setPeriod(event.target.value as FrequencyPeriod)}
+                    >
+                      <option value="month">{t("rules.constraint.period.month")}</option>
+                      <option value="year">{t("rules.constraint.period.year")}</option>
+                    </Select>
+                  </FormField>
+                </>
+              )}
+              {constraintKind === "day_of_month" && (
+                <>
+                  <FormField label={t("rules.constraint.day")}>
+                    <Input
+                      inputMode="numeric"
+                      value={dayInput}
+                      onChange={(event) => setDayInput(event.target.value)}
+                    />
+                  </FormField>
+                  <FormField label={t("rules.constraint.monthOffset")}>
+                    <Input
+                      inputMode="numeric"
+                      value={monthOffsetInput}
+                      onChange={(event) => setMonthOffsetInput(event.target.value)}
+                    />
+                  </FormField>
+                </>
+              )}
+            </div>
+          </div>
           <FormField label={t("rules.field.severity")}>
             <Select value={severity} onChange={(event) => setSeverity(event.target.value)}>
               {SEVERITIES.map((value) => (
@@ -234,9 +387,9 @@ function RuleForm({ rule }: { rule: Rule | null }) {
           {rule ? t("action.save") : t("action.create")}
         </Button>
       </fieldset>
-      {numberError && (
+      {constraintError && (
         <p role="alert" className="text-sm text-destructive">
-          {t("rules.invalidNumber")}
+          {t("rules.constraint.invalid")}
         </p>
       )}
       {save.isSuccess && rule && <p role="status" className="text-sm text-success">{t("action.saved")}</p>}

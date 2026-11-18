@@ -85,6 +85,12 @@ function FindingItem({ item, expanded, onSelect }: { item: FindingView; expanded
         <>
           <div className="flex flex-wrap items-center gap-2">
             <SeverityBadge severity={finding.severity} />
+            {finding.evaluation_mode === "model" && (
+              <Badge className="bg-warning-muted text-warning-foreground">{t("finding.modelEstimate")}</Badge>
+            )}
+            {finding.evaluation_mode === "missing" && (
+              <Badge className="bg-muted text-muted-foreground">{t("finding.notStatedBadge")}</Badge>
+            )}
             {!item.positioned && <Badge className="bg-muted text-muted-foreground">{t("audit.unpositioned")}</Badge>}
           </div>
           <p className="font-medium">{finding.rule_name ?? finding.description}</p>
@@ -107,9 +113,18 @@ export function FindingCard({ item }: { item: FindingView }) {
   const { finding, analysis } = item;
   const act = joinNameAndCode(finding.legal_act_title, finding.legal_act_code);
   const rule = joinNameAndCode(finding.rule_name, finding.rule_code);
+  const isMissing = finding.evaluation_mode === "missing";
+  const inDocument = isMissing
+    ? t("finding.inDocumentMissing")
+    : (finding.statement_text ?? finding.quote);
   return (
     <dl className="space-y-3 pt-3 text-sm">
-      <Field label={t("finding.description")}>{finding.description}</Field>
+      {inDocument && (
+        <Field label={t("finding.inDocument")}>
+          <span className={isMissing ? "text-muted-foreground italic" : undefined}>{inDocument}</span>
+        </Field>
+      )}
+      <Field label={t("finding.normConstraint")}>{finding.description}</Field>
       <Field label={t("finding.explanation")}>
         {analysis?.explanation ?? <span className="text-muted-foreground">{t("finding.noExplanation")}</span>}
       </Field>

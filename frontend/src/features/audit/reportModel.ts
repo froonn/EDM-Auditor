@@ -38,6 +38,14 @@ export interface AppliedSelection {
   appliedRuleCount: number;
 }
 
+export interface MatchedPair {
+  ruleId: number | undefined;
+  ruleCode: string | undefined;
+  statementId: number | undefined;
+  mode: string | undefined;
+  isViolation: boolean | undefined;
+}
+
 export interface ReportView {
   generalSummary: string | undefined;
   rejected: RejectedCandidate[];
@@ -46,6 +54,7 @@ export interface ReportView {
   findings: FindingView[];
   /** Applied rules without findings; `null` for reports saved before the selection was stored. */
   passedRules: PassedRule[] | null;
+  matchedPairs: MatchedPair[];
 }
 
 export interface FindingView {
@@ -59,6 +68,7 @@ export interface FindingView {
 export function toReportView(report: Report): ReportView {
   const summary = isObject(report.summary) ? report.summary : {};
   const neural = isObject(summary.neural) ? summary.neural : {};
+  const matching = isObject(summary.matching) ? summary.matching : {};
   const analyses = new Map((report.neural_analyses ?? []).map((item) => [item.finding_key, item]));
 
   const findings = report.findings
@@ -87,6 +97,13 @@ export function toReportView(report: Report): ReportView {
     })),
     selection: toSelection(report.selection),
     passedRules: toPassedRules(report),
+    matchedPairs: objects(matching.pairs).map((item) => ({
+      ruleId: integer(item.rule_id),
+      ruleCode: text(item.rule_code),
+      statementId: integer(item.statement_id),
+      mode: text(item.mode),
+      isViolation: typeof item.is_violation === "boolean" ? item.is_violation : undefined,
+    })),
   };
 }
 

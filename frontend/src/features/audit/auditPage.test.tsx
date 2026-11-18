@@ -303,4 +303,132 @@ describe("audit screen", () => {
     await screen.findByRole("region", { name: "Текст документа" });
     expect(screen.queryByRole("button", { name: "Скачать HTML" })).not.toBeInTheDocument();
   });
+
+  it("shows statement comparison, not-stated wording, model estimate badge and filter", async () => {
+    routes({
+      "GET /api/documents/1/report": () =>
+        json(
+          report({
+            findings: [
+              {
+                id: 1,
+                rule_id: 1,
+                legal_act_id: 1,
+                severity: "high",
+                description: "Не менее 50 BYN",
+                start_char: 46,
+                end_char: 55,
+                quote: "35 рублей",
+                recommendation: null,
+                finding_key: "R1",
+                rule_code: "R1",
+                rule_name: "Компенсация",
+                statement_text: "Компенсация 35 BYN",
+                evaluation_mode: "structured",
+              },
+              {
+                id: 2,
+                rule_id: 2,
+                legal_act_id: 1,
+                severity: "medium",
+                description: "Указывается порядок взаимодействия",
+                start_char: null,
+                end_char: null,
+                quote: null,
+                recommendation: null,
+                finding_key: "R2",
+                rule_code: "R2",
+                rule_name: "Порядок взаимодействия",
+                statement_text: null,
+                evaluation_mode: "missing",
+              },
+              {
+                id: 3,
+                rule_id: 3,
+                legal_act_id: 1,
+                severity: "low",
+                description: "Запрет натуральной формы",
+                start_char: 33,
+                end_char: 38,
+                quote: "4 дня",
+                recommendation: null,
+                finding_key: "R3",
+                rule_code: "R3",
+                rule_name: "Форма оплаты",
+                statement_text: "Часть выплаты продукцией",
+                evaluation_mode: "model",
+              },
+            ],
+            neural_analyses: [],
+          }),
+        ),
+    });
+    renderApp("/documents/1/audit");
+    const panel = await screen.findByRole("region", { name: "Список нарушений" });
+    expect(within(panel).getByText("Оценка модели")).toBeInTheDocument();
+    expect(within(panel).getByText("Не указано")).toBeInTheDocument();
+
+    await userEvent.click(within(panel).getByRole("button", { name: /Порядок взаимодействия/ }));
+    expect(within(panel).getByText("условие не указано в документе")).toBeInTheDocument();
+
+    await userEvent.click(within(panel).getByRole("button", { name: /Компенсация/ }));
+    expect(within(panel).getByText("Компенсация 35 BYN")).toBeInTheDocument();
+
+    const filterBtn = screen.getByRole("button", { name: "Оценка модели (1)" });
+    await userEvent.click(filterBtn);
+    expect(within(panel).queryByRole("button", { name: /Компенсация/ })).not.toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: /Форма оплаты/ })).toBeInTheDocument();
+  });
+
+  it("shows matched rule for a statement and allows manual linking", async () => {
+    const api = routes({
+      "GET /api/documents/1": () =>
+        json(
+          documentDetail({
+            statements_version: "1",
+            statements: [
+              {
+                id: 11,
+                subject: "Компенсация",
+                statement_text: "Компенсация 35 рублей.",
+                constraint_json: { kind: "value", operator: "eq", value: 35, unit: "byn" },
+                source_quote: "35 рублей",
+                start_char: 46,
+                end_char: 55,
+                prompt_version: "1",
+              },
+            ],
+          }),
+        ),
+      "GET /api/documents/1/report": () =>
+        json(
+          report({
+            summary: {
+              matching: {
+                pairs: [{ rule_id: 1, rule_code: "R1", statement_id: 11, mode: "structured", is_violation: true }],
+              },
+            },
+            selection: {
+              selection_mode: "automatic",
+              applied_legal_acts: [],
+              applied_rule_ids: [1, 2],
+              selection_reasons: [
+                { rule_id: 1, rule_code: "R1", subject: "Интернет", selected: true },
+                { rule_id: 2, rule_code: "R2", subject: "Срок", selected: true },
+              ],
+            },
+          }),
+        ),
+      "PATCH /api/documents/1/statements/11/link": () => json(report()),
+    });
+    renderApp("/documents/1/audit");
+    await userEvent.click(await screen.findByText("Положения документа (1)"));
+    expect(screen.getByText("Сопоставлено с правилом: Интернет (R1)")).toBeInTheDocument();
+
+    const select = screen.getByLabelText("Привязать к правилу: Компенсация");
+    await userEvent.selectOptions(select, "2");
+    await waitFor(() => expect(api.calls.some((call) => call.path.endsWith("/statements/11/link"))).toBe(true));
+    const linkCall = api.calls.find((call) => call.path.endsWith("/statements/11/link"))!;
+    expect(JSON.parse(linkCall.init.body as string)).toEqual({ rule_id: 2, report_id: 10 });
+  });
 });

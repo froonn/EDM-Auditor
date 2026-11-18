@@ -2260,3 +2260,72 @@ def test_rules_filter_by_legal_act(tmp_path: Path) -> None:
     assert [item["id"] for item in response.json()] == [own["id"]]
     assert response.headers["X-Total-Count"] == "1"
     assert client.get("/api/rules?legal_act_id=999").json() == []
+
+
+def test_manual_statement_link_updates_report_pairs_and_findings(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from edm_auditor.database.models import DocumentStatement
+
+    client = make_client(tmp_path)
+    doc = client.post(
+        "/api/documents/upload",
+        files={"file": ("doc.txt", "Отпуск 14 дней.".encode("utf-8"), "text/plain")},
+    ).json()
+    rule = client.post(
+        "/api/rules",
+        json={
+            "rule_code": "LEAVE-MIN",
+            "subject": "Отпуск",
+            "constraint_text": "Отпуск не менее 24 дней.",
+            "constraint_json": {"kind": "value", "operator": "gte", "value": 24, "unit": "day"},
+            "condition": "",
+            "severity": "high",
+            "applicability_scope": "universal",
+        },
+    ).json()
+    # Run initial audit to create a report, then add a statement directly and link it manually.
+    audit_resp = client.post(f"/api/documents/{doc['id']}/audit", json={"selection_mode": "manual", "included_rule_ids": [rule["id"]]})
+    assert audit_resp.status_code == 200
+    with create_session_factory(create_engine(f"sqlite:///{tmp_path / 'api.sqlite3'}"))() as session:
+        pass
+    # Fetch statement via DB from app's session_factory? Actually make_client uses tmp_path/'api.sqlite3'
+    from sqlalchemy import create_engine as _ce
+    from sqlalchemy.orm import Session as _Session
+    eng = _ce(f"sqlite:///{tmp_path / 'api.sqlite3'}")
+    with _Session(eng) as s:
+        st = DocumentStatement(
+            document_id=doc["id"],
+            subject="Отпуск",
+            statement_text="Отпуск 14 дней.",
+            constraint_json='{"kind": "value", "operator": "eq", "value": 14, "unit": "day"}',
+            source_quote="Отпуск 14 дней.",
+            start_char=0,
+            end_char=15,
+            prompt_version="1",
+        )
+        s.add(st)
+        s.commit()
+        st_id = st.id
+
+    linked = client.patch(
+        f"/api/documents/{doc['id']}/statements/{st_id}/link",
+        json={"rule_id": rule["id"]},
+    )
+    assert linked.status_code == 200
+    body_linked = linked.json()
+    assert body_linked["total_findings"] == 1
+    assert body_linked["findings"][0]["evaluation_mode"] == "structured"
+    assert body_linked["findings"][0]["statement_text"] == "Отпуск 14 дней."
+    assert any(
+        pair["statement_id"] == st_id and pair["rule_id"] == rule["id"]
+        for pair in body_linked["summary"]["matching"]["pairs"]
+    )
+
+    unlinked = client.patch(
+        f"/api/documents/{doc['id']}/statements/{st_id}/link",
+        json={"rule_id": None},
+    )
+    assert unlinked.status_code == 200
+    assert unlinked.json()["total_findings"] == 0
+    assert unlinked.json()["summary"]["matching"]["pairs"] == []

@@ -229,15 +229,27 @@ describe("rule form", () => {
     expect(alert).toHaveTextContent("unsupported constraint kind");
   });
 
-  it("rejects invalid JSON in structured constraint without sending it", async () => {
-    const api = mockApi({ ...base, "GET /api/rules/1": () => json(rule()) });
+  it("rejects invalid number in structured constraint without sending it and saves valid structure", async () => {
+    const api = mockApi({
+      ...base,
+      "GET /api/rules/1": () => json(rule()),
+      "PATCH /api/rules/1": () => json(rule()),
+    });
     renderApp("/rules/1");
-    const jsonField = await screen.findByLabelText("Структура ограничения");
-    await userEvent.clear(jsonField);
-    await userEvent.type(jsonField, "не-json");
+    const valueField = await screen.findByLabelText("Значение");
+    await userEvent.clear(valueField);
+    await userEvent.type(valueField, "не-число");
     await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("Введите число.");
+    expect(screen.getByRole("alert")).toHaveTextContent("Проверьте числовые значения структуры ограничения.");
     expect(api.calls.some((call) => call.method === "PATCH")).toBe(false);
+
+    await userEvent.clear(valueField);
+    await userEvent.type(valueField, "14");
+    await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+    await waitFor(() => expect(api.calls.some((call) => call.method === "PATCH")).toBe(true));
+    expect(body(api.calls.find((call) => call.method === "PATCH")!.init)).toMatchObject({
+      constraint_json: { kind: "value", operator: "gte", value: 14, unit: "day" },
+    });
   });
 
   it("reads only the opened rule and shows a missing one as not found", async () => {

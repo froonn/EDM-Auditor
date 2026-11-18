@@ -755,6 +755,10 @@ export interface components {
             legal_act_title?: string | null;
             /** Norm Quote */
             norm_quote?: string | null;
+            /** Statement Text */
+            statement_text?: string | null;
+            /** Evaluation Mode */
+            evaluation_mode?: string | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {

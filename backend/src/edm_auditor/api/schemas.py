@@ -117,6 +117,11 @@ class DocumentStatementResponse(BaseModel):
     prompt_version: str = "1"
 
 
+class StatementLinkRequest(BaseModel):
+    rule_id: int | None = None
+    report_id: int | None = None
+
+
 class DocumentDetailResponse(DocumentResponse):
     """Finding offsets in a report refer to this text."""
 

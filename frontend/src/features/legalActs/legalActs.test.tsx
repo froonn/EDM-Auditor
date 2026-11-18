@@ -115,12 +115,47 @@ describe("legal act page", () => {
     });
   }
 
-  it("shows that the rules are outdated and the diagnostics", async () => {
-    routes();
+  it("shows that the rules are outdated, failed chunks, skipped norms, and the diagnostics", async () => {
+    routes({
+      "GET /api/legal-acts/1/diagnostics": () =>
+        json({
+          legal_act_id: 1,
+          processing_status: "partial",
+          chunks_total: 2,
+          chunks_processed: 2,
+          rules_accepted: 3,
+          rules_rejected: 1,
+          diagnostics: [
+            { id: 1, chunk_id: "ACT-REMOTE-0", status: "failed", error_code: "invalid_quote", diagnostic_message: "quote not found", rules_total: 1, rules_accepted: 0, rules_rejected: 1, processing_version: "2", created_at: "2026-11-05T10:00:00" },
+            { id: 2, chunk_id: "ACT-REMOTE-1", status: "accepted", error_code: null, diagnostic_message: "skipped: «Настоящее положение определяет порядок.» (общее описание)", rules_total: 1, rules_accepted: 1, rules_rejected: 0, processing_version: "2", created_at: "2026-11-05T10:00:00" },
+          ],
+        }),
+    });
     renderApp("/legal-acts/1");
     expect(await screen.findByText(/правила извлечены из старого текста/)).toBeInTheDocument();
-    expect(await screen.findByText("quote not found")).toBeInTheDocument();
-    expect(screen.getByText("Ошибка")).toBeInTheDocument();
+    const diagSection = screen.getByRole("heading", { name: "Диагностика извлечения" }).closest("section")!;
+    expect(await within(diagSection).findByText("quote not found")).toBeInTheDocument();
+    expect(within(diagSection).getByText("Ошибка")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Неудачные фрагменты (1)" })).toBeInTheDocument();
+    const skippedSection = screen.getByRole("heading", { name: "Не проверяемые нормы (1)" }).closest("section")!;
+    expect(within(skippedSection).getByText(/Настоящее положение определяет порядок\./)).toBeInTheDocument();
+    expect(within(skippedSection).getByText("общее описание")).toBeInTheDocument();
+  });
+
+  it("reprocesses failed chunks selectively", async () => {
+    const api = routes({
+      "POST /api/legal-acts/1/reprocess": () => json(act()),
+    });
+    renderApp("/legal-acts/1");
+    await userEvent.click(await screen.findByRole("button", { name: "Повторить неудачные" }));
+    await waitFor(() => expect(api.calls.some((call) => call.path.endsWith("/reprocess"))).toBe(true));
+    const firstCall = api.calls.find((call) => call.path.endsWith("/reprocess"))!;
+    expect(firstCall.url.searchParams.get("only_failed")).toBe("true");
+
+    await userEvent.click(screen.getByRole("button", { name: "Повторить фрагмент" }));
+    await waitFor(() => expect(api.calls.filter((call) => call.path.endsWith("/reprocess"))).toHaveLength(2));
+    const secondCall = api.calls.filter((call) => call.path.endsWith("/reprocess"))[1]!;
+    expect(secondCall.url.searchParams.get("chunk_id")).toBe("ACT-REMOTE-0");
   });
 
   it("asks the server for the rules of this act only", async () => {

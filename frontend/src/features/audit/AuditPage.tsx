@@ -144,14 +144,24 @@ function ReportView({
   const { t } = useI18n();
   const view = useMemo(() => toReportView(report), [report]);
   const [visible, setVisible] = useState<ReadonlySet<Severity>>(() => new Set(SEVERITIES));
+  const [onlyModelEstimate, setOnlyModelEstimate] = useState(false);
   const [showPassed, setShowPassed] = useState(false);
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<number>>(() => new Set());
   const marks = useRef(new Map<number, HTMLElement>());
   const cards = useRef(new Map<number, HTMLElement>());
 
+  const modelEstimateCount = useMemo(
+    () => view.findings.filter((item) => item.finding.evaluation_mode === "model").length,
+    [view.findings],
+  );
   const shown = useMemo(
-    () => view.findings.filter((item) => visible.has(item.finding.severity as Severity)),
-    [view.findings, visible],
+    () =>
+      view.findings.filter(
+        (item) =>
+          visible.has(item.finding.severity as Severity) &&
+          (!onlyModelEstimate || item.finding.evaluation_mode === "model"),
+      ),
+    [view.findings, visible, onlyModelEstimate],
   );
   const segments = useMemo(
     () =>
@@ -228,6 +238,17 @@ function ReportView({
           <span aria-hidden className="mx-1 h-5 border-l" />
           <button
             type="button"
+            aria-pressed={onlyModelEstimate}
+            onClick={() => setOnlyModelEstimate((current) => !current)}
+            className={cn(
+              "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-sm",
+              !onlyModelEstimate && "opacity-60",
+            )}
+          >
+            {t("audit.filterModelEstimate", { count: modelEstimateCount })}
+          </button>
+          <button
+            type="button"
             aria-pressed={showPassed}
             onClick={() => setShowPassed((current) => !current)}
             className={cn(
@@ -267,7 +288,7 @@ function ReportView({
         </section>
       </div>
 
-      <ReportExtras view={view} statements={document.statements} />
+      <ReportExtras view={view} statements={document.statements} documentId={document.id} report={report} />
       <p className="text-xs text-muted-foreground">{t("audit.disclaimer")}</p>
     </div>
   );

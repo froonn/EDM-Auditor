@@ -39,7 +39,7 @@ from edm_auditor.applicability.rule_scope import (
     split_generated_rule,
 )
 from edm_auditor.audit_engine.persistence import AuditPersistence, AuditSelectionRequired
-from edm_auditor.audit_engine.matching import RuleMatcher
+from edm_auditor.audit_engine.matching import RuleMatcher, compare_structured
 from edm_auditor.audit_engine import (
     AuditEngine,
     ChunkedEntityExtractor,
@@ -145,6 +145,7 @@ from .schemas import (
     RuleCreate,
     RuleResponse,
     RuleUpdate,
+    StatementLinkRequest,
     LegalActDiagnosticsResponse,
     RuleExtractionDiagnosticResponse,
 )
@@ -986,6 +987,126 @@ def create_app(
                 .where(Document.id == document_id)
             )
             return [_statement_response(item) for item in document.statements]
+
+    @app.patch(
+        "/api/documents/{document_id}/statements/{statement_id}/link",
+        response_model=ReportResponse,
+    )
+    def link_document_statement(
+        document_id: int, statement_id: int, payload: StatementLinkRequest
+    ) -> ReportResponse:
+        """Manually bind or unbind a document statement to an audit rule in the target report."""
+        with session_factory.begin() as session:
+            document = session.get(Document, document_id)
+            if document is None:
+                raise ApiError(404, "document_not_found", "Document does not exist")
+            statement = session.get(DocumentStatement, statement_id)
+            if statement is None or statement.document_id != document_id:
+                raise ApiError(404, "not_found", "Statement does not exist")
+
+            report_stmt = (
+                select(AuditReport)
+                .options(selectinload(AuditReport.findings))
+                .where(AuditReport.document_id == document_id)
+            )
+            if payload.report_id is not None:
+                report_stmt = report_stmt.where(AuditReport.id == payload.report_id)
+            else:
+                report_stmt = report_stmt.order_by(
+                    AuditReport.created_at.desc(), AuditReport.id.desc()
+                )
+            report = session.scalar(report_stmt.limit(1))
+            if report is None:
+                raise ApiError(404, "report_not_found", "Report does not exist")
+
+            rule: AuditRule | None = None
+            act: LegalAct | None = None
+            if payload.rule_id is not None:
+                rule = session.get(AuditRule, payload.rule_id)
+                if rule is None:
+                    raise ApiError(404, "rule_not_found", "Rule does not exist")
+                if rule.legal_act_id is not None:
+                    act = session.get(LegalAct, rule.legal_act_id)
+
+            summary = _parse_summary(report.summary)
+            matching = summary.get("matching")
+            if not isinstance(matching, dict):
+                matching = {}
+                summary["matching"] = matching
+            pairs = [
+                item
+                for item in matching.get("pairs", [])
+                if isinstance(item, dict)
+                and item.get("statement_id") != statement_id
+                and (rule is None or item.get("rule_id") != rule.id)
+            ]
+
+            # Remove findings previously tied to this statement or to the target rule.
+            remaining_findings: list[AuditFinding] = []
+            for finding in report.findings:
+                same_span = (
+                    finding.start_char == statement.start_char
+                    and finding.end_char == statement.end_char
+                )
+                same_rule = rule is not None and finding.rule_id == rule.id
+                if same_span or same_rule:
+                    session.delete(finding)
+                else:
+                    remaining_findings.append(finding)
+
+            if rule is not None:
+                rule_constraint = json.loads(rule.constraint_json) if rule.constraint_json else None
+                stmt_constraint = (
+                    json.loads(statement.constraint_json) if statement.constraint_json else None
+                )
+                comp = compare_structured(rule_constraint, stmt_constraint)
+                mode = "structured" if comp is not None else "model"
+                is_violation = (not comp) if comp is not None else True
+                pairs.append(
+                    {
+                        "rule_id": rule.id,
+                        "rule_code": rule.rule_code,
+                        "statement_id": statement.id,
+                        "mode": mode,
+                        "is_violation": is_violation,
+                        "manual": True,
+                    }
+                )
+                if is_violation:
+                    finding_key = f"{rule.rule_code}:{statement.start_char}:{statement.end_char}"
+                    new_finding = AuditFinding(
+                        report_id=report.id,
+                        rule_id=rule.id,
+                        legal_act_id=rule.legal_act_id,
+                        severity=rule.severity,
+                        description=rule.constraint_text or rule.subject,
+                        start_char=statement.start_char,
+                        end_char=statement.end_char,
+                        quote=document.raw_text[statement.start_char : statement.end_char]
+                        or statement.source_quote,
+                        recommendation=None,
+                        finding_key=finding_key,
+                        rule_code=rule.rule_code,
+                        rule_name=rule.subject,
+                        legal_act_code=act.code if act is not None else None,
+                        legal_act_title=act.title if act is not None else None,
+                        norm_quote=rule.source_quote,
+                        statement_text=statement.statement_text,
+                        evaluation_mode=mode,
+                    )
+                    session.add(new_finding)
+                    remaining_findings.append(new_finding)
+
+            matching["pairs"] = pairs
+            report.summary = json.dumps(summary, ensure_ascii=False, sort_keys=True)
+            report.total_findings = len(remaining_findings)
+            report.critical_count = sum(1 for item in remaining_findings if item.severity == "critical")
+            report.high_count = sum(1 for item in remaining_findings if item.severity == "high")
+            report.medium_count = sum(1 for item in remaining_findings if item.severity == "medium")
+            report.low_count = sum(1 for item in remaining_findings if item.severity == "low")
+            session.flush()
+            session.refresh(report)
+            return _report_response(report)
 
     @app.delete("/api/documents/{document_id}", status_code=204)
     def delete_document(document_id: int) -> None:

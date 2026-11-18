@@ -64,6 +64,12 @@ export const api = {
         method: "POST",
         query: force ? { force: true } : undefined,
       }),
+    /** Manually binds or unbinds a statement to an audit rule in the report. */
+    linkStatement: (documentId: number, statementId: number, ruleId: number | null, reportId?: number) =>
+      apiRequest<Report>(`/api/documents/${documentId}/statements/${statementId}/link`, {
+        method: "PATCH",
+        json: { rule_id: ruleId, report_id: reportId ?? null },
+      }),
     /** Calls the model to determine the document type. */
     upload: (file: File, title?: string) => {
       const form = new FormData();
@@ -154,8 +160,12 @@ export const api = {
     },
     update: (id: number, changes: Partial<Pick<LegalActDetail, "code" | "title" | "number" | "source_url" | "article_text" | "document_types">>) =>
       apiRequest<LegalAct>(`/api/legal-acts/${id}`, { method: "PATCH", json: changes }),
-    /** Calls the model again and replaces the generated rules. */
-    reprocess: (id: number) => apiRequest<LegalAct>(`/api/legal-acts/${id}/reprocess`, { method: "POST" }),
+    /** Calls the model again and replaces the generated rules (optionally only failed or one chunk). */
+    reprocess: (id: number, options?: { only_failed?: boolean; chunk_id?: string }) =>
+      apiRequest<LegalAct>(`/api/legal-acts/${id}/reprocess`, {
+        method: "POST",
+        query: options ? { only_failed: options.only_failed, chunk_id: options.chunk_id } : undefined,
+      }),
     remove: (id: number) => apiRequest<void>(`/api/legal-acts/${id}`, { method: "DELETE" }),
   },
 

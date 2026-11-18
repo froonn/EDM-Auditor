@@ -84,7 +84,7 @@ function LegalActScreen({ id }: { id: number }) {
       <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-start gap-4">
         <LegalActForm key={data.id} act={data} />
         <div className="space-y-4">
-          <Diagnostics id={id} />
+          <Diagnostics id={id} busy={busy} />
           <ActRules id={id} />
         </div>
       </div>
@@ -174,54 +174,156 @@ function LegalActForm({ act }: { act: LegalActDetail }) {
   );
 }
 
-function Diagnostics({ id }: { id: number }) {
+function parseSkippedNorms(
+  items: { chunk_id: string; diagnostic_message?: string | null }[],
+): { chunkId: string; quote: string; reason: string }[] {
+  const result: { chunkId: string; quote: string; reason: string }[] = [];
+  for (const item of items) {
+    if (!item.diagnostic_message) continue;
+    for (const part of item.diagnostic_message.split(";")) {
+      const trimmed = part.trim();
+      if (!trimmed.startsWith("skipped:")) continue;
+      const body = trimmed.slice("skipped:".length).trim();
+      const match = body.match(/^«(.+?)»(?:\s*\((.+)\))?$/);
+      if (match) {
+        result.push({ chunkId: item.chunk_id, quote: match[1] ?? body, reason: match[2] ?? "" });
+      } else {
+        result.push({ chunkId: item.chunk_id, quote: body, reason: "" });
+      }
+    }
+  }
+  return result;
+}
+
+function Diagnostics({ id, busy }: { id: number; busy: boolean }) {
   const { t, tOptional } = useI18n();
+  const queryClient = useQueryClient();
   const diagnostics = useQuery({
     queryKey: queryKeys.diagnostics(id),
     queryFn: ({ signal }) => api.legalActs.diagnostics(id, signal),
   });
+  const reprocessSelected = useMutation({
+    mutationFn: (options: { only_failed?: boolean; chunk_id?: string }) => api.legalActs.reprocess(id, options),
+    onSettled: () => invalidateCatalog(queryClient),
+  });
+
+  const rows = diagnostics.data?.diagnostics ?? [];
+  const failedChunks = rows.filter((item) => item.status === "failed" || item.status === "partial");
+  const skippedNorms = parseSkippedNorms(rows);
+  const pending = busy || reprocessSelected.isPending;
+
   return (
-    <Panel title={t("legalActs.diagnostics")}>
-      {diagnostics.isError ? (
-        <ErrorAlert error={diagnostics.error} onRetry={() => void diagnostics.refetch()} />
-      ) : (
-        <DataTable
-          rows={diagnostics.data?.diagnostics}
-          rowKey={(item) => item.id}
-          isLoading={diagnostics.isPending}
-          emptyText={t("legalActs.diagnosticsEmpty")}
-          columns={[
-            { key: "chunk", header: t("legalActs.column.chunk"), cell: (item) => <span className="font-mono text-xs">{item.chunk_id}</span> },
-            {
-              key: "result",
-              header: t("legalActs.column.result"),
-              cell: (item) => (
-                <span className={item.status === "failed" ? "text-destructive" : "text-success"}>
-                  {tOptional(`status.extraction.${item.status}`) ?? item.status}
-                </span>
-              ),
-            },
-            {
-              key: "rules",
-              header: t("legalActs.column.rules"),
-              cell: (item) => t("legalActs.rulesCount", { accepted: item.rules_accepted, rejected: item.rules_rejected }),
-            },
-            {
-              key: "message",
-              header: t("legalActs.column.message"),
-              cell: (item) =>
-                item.error_code || item.diagnostic_message ? (
-                  <span className="text-xs break-words">
-                    {item.error_code && <span className="font-mono">{item.error_code}</span>} {item.diagnostic_message}
-                  </span>
-                ) : (
-                  t("common.none")
-                ),
-            },
-          ]}
-        />
+    <div className="space-y-4">
+      {failedChunks.length > 0 && (
+        <Panel title={t("legalActs.failedChunks", { count: failedChunks.length })}>
+          <div className="flex justify-end">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={pending}
+              onClick={() => reprocessSelected.mutate({ only_failed: true })}
+            >
+              <RefreshCw aria-hidden className="size-3.5" />
+              {t("legalActs.reprocessFailed")}
+            </Button>
+          </div>
+          {reprocessSelected.isError && <ErrorAlert error={reprocessSelected.error} />}
+          <ul className="space-y-2 text-sm">
+            {failedChunks.map((item) => (
+              <li key={item.id} className="flex items-start justify-between gap-2 rounded-md border p-2">
+                <div className="min-w-0 flex-1 space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs">{item.chunk_id}</span>
+                    <span className={item.status === "failed" ? "text-xs text-destructive" : "text-xs text-warning-foreground"}>
+                      {tOptional(`status.extraction.${item.status}`) ?? item.status}
+                    </span>
+                  </div>
+                  {(item.error_code || item.diagnostic_message) && (
+                    <p className="text-xs text-muted-foreground break-words">
+                      {item.error_code && <span className="font-mono">{item.error_code} </span>}
+                      {item.diagnostic_message}
+                    </p>
+                  )}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={pending}
+                  onClick={() => reprocessSelected.mutate({ chunk_id: item.chunk_id })}
+                >
+                  {t("legalActs.reprocessChunk")}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </Panel>
       )}
-    </Panel>
+
+      <Panel title={t("legalActs.skippedNorms", { count: skippedNorms.length })}>
+        {skippedNorms.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{t("legalActs.skippedNormsEmpty")}</p>
+        ) : (
+          <ul className="space-y-2 text-sm">
+            {skippedNorms.map((norm, index) => (
+              <li key={`${norm.chunkId}-${index}`} className="rounded-md bg-muted p-2">
+                <p className="italic">«{norm.quote}»</p>
+                {norm.reason && <p className="text-xs text-muted-foreground">{norm.reason}</p>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Panel>
+
+      <Panel title={t("legalActs.diagnostics")}>
+        {diagnostics.isError ? (
+          <ErrorAlert error={diagnostics.error} onRetry={() => void diagnostics.refetch()} />
+        ) : (
+          <DataTable
+            rows={diagnostics.data?.diagnostics}
+            rowKey={(item) => item.id}
+            isLoading={diagnostics.isPending}
+            emptyText={t("legalActs.diagnosticsEmpty")}
+            columns={[
+              { key: "chunk", header: t("legalActs.column.chunk"), cell: (item) => <span className="font-mono text-xs">{item.chunk_id}</span> },
+              {
+                key: "result",
+                header: t("legalActs.column.result"),
+                cell: (item) => (
+                  <span
+                    className={
+                      item.status === "failed"
+                        ? "text-destructive"
+                        : item.status === "partial"
+                          ? "text-warning-foreground"
+                          : "text-success"
+                    }
+                  >
+                    {tOptional(`status.extraction.${item.status}`) ?? item.status}
+                  </span>
+                ),
+              },
+              {
+                key: "rules",
+                header: t("legalActs.column.rules"),
+                cell: (item) => t("legalActs.rulesCount", { accepted: item.rules_accepted, rejected: item.rules_rejected }),
+              },
+              {
+                key: "message",
+                header: t("legalActs.column.message"),
+                cell: (item) =>
+                  item.error_code || item.diagnostic_message ? (
+                    <span className="text-xs break-words">
+                      {item.error_code && <span className="font-mono">{item.error_code}</span>} {item.diagnostic_message}
+                    </span>
+                  ) : (
+                    t("common.none")
+                  ),
+              },
+            ]}
+          />
+        )}
+      </Panel>
+    </div>
   );
 }
 
