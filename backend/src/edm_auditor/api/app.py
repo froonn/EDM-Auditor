@@ -42,7 +42,6 @@ from edm_auditor.audit_engine.persistence import AuditPersistence, AuditSelectio
 from edm_auditor.audit_engine.matching import RuleMatcher, compare_structured
 from edm_auditor.audit_engine import (
     AuditEngine,
-    ChunkedEntityExtractor,
     ChunkedStatementExtractor,
     LLMInterpreter,
 )
@@ -249,13 +248,6 @@ def create_app(
         raise ValueError("configured model preset must declare an online extractor")
     provider = create_entity_extraction_provider(model_settings.extractor)
     document_processing = model_settings.document_processing
-    entity_extractor = ChunkedEntityExtractor(
-        provider,
-        max_chars=document_processing.entity_chunk_max_chars,
-        overlap_chars=document_processing.entity_chunk_overlap_chars,
-        max_chunks=document_processing.entity_max_chunks,
-        delay_seconds=model_settings.extractor.inter_chunk_delay_seconds,
-    )
     statement_extractor = ChunkedStatementExtractor(
         provider,
         max_chars=document_processing.entity_chunk_max_chars,
@@ -303,17 +295,12 @@ def create_app(
         embedding_provider = create_embedding_provider(model_settings.embedding)
         return AuditPersistence(
             session_factory,
-            engine=AuditEngine(
-                entity_extractor=entity_extractor,
-                statement_extractor=statement_extractor,
-            ),
+            engine=AuditEngine(statement_extractor=statement_extractor),
             neural_interpreter=neural_interpreter,
             rag_recommender=rag_recommendations,
             statement_prompt_version=document_processing.statement_prompt_version,
-            rule_matcher=(
-                RuleMatcher(llm_provider, embedding_provider, model_settings.matching)
-                if model_settings.matching.enabled
-                else None
+            rule_matcher=RuleMatcher(
+                llm_provider, embedding_provider, model_settings.matching
             ),
         )
 

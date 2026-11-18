@@ -183,18 +183,12 @@ class AuditPersistence:
                     session.flush()
                     cached_statements = tuple(_to_statement_spec(row) for row in rows)
 
-            if self._matcher is not None:
-                candidates, neural, rejected, matching = self._match(
-                    resolution.selected_rules, cached_statements, text, document_type
-                )
-                result = candidates
-            else:
-                candidates = self._engine.audit(
-                    text, resolution.selected_rules, statements=cached_statements
-                )
-                neural = self._analyze(candidates.findings, document_type, text)
-                result, neural, rejected = _apply_model_verdicts(candidates, neural)
-                matching = None
+            if self._matcher is None:
+                raise RuntimeError("rule_matcher is required")
+            candidates, neural, rejected, matching = self._match(
+                resolution.selected_rules, cached_statements, text, document_type
+            )
+            result = candidates
             neural = _with_legal_basis(neural, result.findings, applied_acts)
             counts = result.counts
             summary = {
@@ -360,39 +354,6 @@ class AuditPersistence:
         }
         return AuditResult(findings), neural, [], matching
 
-    def _analyze(
-        self,
-        findings: tuple[FindingDraft, ...],
-        document_type: str | None,
-        text: str,
-    ) -> NeuralResult:
-        neural_findings = tuple(
-            NeuralFinding(
-                key=_finding_key(finding),
-                rule_code=finding.rule_code,
-                severity=finding.severity,
-                description=finding.description,
-                quote=finding.quote,
-                context=(
-                    (finding.source_context,)
-                    if finding.source_context is not None
-                    else ()
-                ),
-                norm_quote=finding.norm_quote,
-                surrounding_text=_surrounding_text(text, finding),
-                requires_confirmation=finding.requires_confirmation,
-            )
-            for finding in findings
-        )
-        try:
-            return self._neural_interpreter.analyze(
-                neural_findings,
-                document_type=document_type,
-                output_language=detect_source_language(text),
-            )
-        except (RuntimeError, ValueError, TypeError) as exc:
-            raise AuditModelError("LLM analysis failed") from exc
-
     def _mark_error(self, document_id: int) -> None:
         with self._session_factory.begin() as session:
             document = session.get(Document, document_id)
@@ -407,45 +368,6 @@ def _document_context(document: Document) -> DocumentContext:
         confirmed_document_types=tuple(item.code for item in document.confirmed_types),
         candidate_document_types=tuple(item["code"] for item in candidates),
         confidence=document.classification_confidence or 0.0,
-    )
-
-
-def _surrounding_text(text: str, finding: FindingDraft) -> str | None:
-    """Show the model what the value refers to; a window survives wrapped lines."""
-    if finding.start_char is None or finding.end_char is None:
-        return None
-    start = max(finding.start_char - SURROUNDING_CHARS, 0)
-    return text[start : finding.end_char + SURROUNDING_CHARS].strip()
-
-
-def _apply_model_verdicts(
-    candidates: AuditResult, neural: NeuralResult
-) -> tuple[AuditResult, NeuralResult, list[dict[str, object]]]:
-    """Report only confirmed findings and keep the rejected ones for inspection."""
-    verdicts = {item.finding_key: item for item in neural.analyses}
-    findings: list[FindingDraft] = []
-    rejected: list[dict[str, object]] = []
-    for finding in candidates.findings:
-        verdict = verdicts.get(_finding_key(finding))
-        if verdict is None or verdict.is_violation:
-            findings.append(finding)
-            continue
-        rejected.append(
-            {
-                "rule_code": finding.rule_code,
-                "start_char": finding.start_char,
-                "end_char": finding.end_char,
-                "quote": finding.quote,
-                "reason": verdict.explanation,
-            }
-        )
-    return (
-        replace(candidates, findings=tuple(findings)),
-        replace(
-            neural,
-            analyses=tuple(item for item in neural.analyses if item.is_violation),
-        ),
-        rejected,
     )
 
 

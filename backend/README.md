@@ -25,8 +25,7 @@ professional.
 4. **Audit.** The document is split into statements (`DocumentStatement`) once and cached. `RuleMatcher`
    matches statements to rules using subject embeddings and the LLM: structured constraints are checked
    by code (`compare_structured`, `evaluation_mode="structured"`) and explained by the model, while text
-   constraints are evaluated by the model (`"model"` or `"missing"`). The legacy entity-based mode
-   remains available via `EDM_AUDIT_MATCHING=off`.
+   constraints are evaluated by the model (`"model"` or `"missing"`).
 
 No substitute exists for the models. If a required model call fails, the audit stops, no report is
 saved and the document status becomes `error`. The model cannot change the severity or the source
@@ -50,8 +49,8 @@ uvicorn edm_auditor.api.app:create_app --factory --reload
 OpenAPI documentation is available at <http://127.0.0.1:8000/docs>. The API has no authentication
 and must stay in a trusted development environment.
 
-To try the whole flow, follow [`examples/README.md`](examples/README.md). For debugging and
-`curl` requests, see [`docs/DEBUG.md`](../docs/DEBUG.md).
+For debugging and `curl` requests, see [`docs/DEBUG.md`](../docs/DEBUG.md); synthetic acts and
+documents live in [`evaluation/corpus/`](evaluation/corpus/).
 
 ## Configuration
 
@@ -137,7 +136,7 @@ Check types and their parameters:
 
 A rule whose document types are all deactivated cannot be enabled: change its applicability or reactivate a
 type first. Rules can also store `subject`, `constraint_text`, `condition`, and an optional structured
-`constraint` (`value`, `frequency`, or `day_of_month`) used by statement matching (`EDM_AUDIT_MATCHING=on`).
+`constraint` (`value`, `frequency`, or `day_of_month`) used by statement matching.
 A manually created rule may also have a `recommendation` parameter. Semantic rules are not executed
 in this version, so the model cannot create them and the API refuses them.
 
@@ -266,7 +265,6 @@ the regression test.
 | `src/edm_auditor/rule_validation.py` | Validation of generated and manual rules                 |
 | `migrations/`                        | Alembic migrations                                       |
 | `config/models.toml`                 | Model profiles, presets and limits                       |
-| `examples/`                          | Synthetic legal acts and documents                       |
 
 ## Document parser
 
@@ -307,7 +305,7 @@ rejected.
   and selective chunk reprocessing (`only_failed=true` / `chunk_id=...`) keep completed chunks intact.
 - Condition applicability for rules is assessed by the model during statement matching; if the model
   misses an unstated mandatory requirement, it is not reported as `missing`.
-- The model's verdicts and severity stability were checked only on `examples/` and `evaluation/corpus/`.
+- The model's verdicts and severity stability were checked only on `evaluation/corpus/`.
 - Legal act codes are unique only at the API level, with no database constraint.
 - Reports are exported only as HTML; PDF and an annotated DOCX are planned for the diploma project.
 - The database created by the server itself has no `alembic_version` table; see

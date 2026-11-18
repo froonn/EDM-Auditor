@@ -135,10 +135,8 @@ class DocumentProcessingConfig:
 
 @dataclass(frozen=True, slots=True)
 class AuditMatchingConfig:
-    """Matching of rules with document statements (stage 4)."""
+    """Matching of rules with document statements."""
 
-    # Off keeps the older value comparison over extracted entities.
-    enabled: bool = True
     # A statement is a candidate pair for a rule when the similarity of their texts reaches this.
     candidate_threshold: float = 0.6
     candidate_limit: int = 5
@@ -158,12 +156,7 @@ class AuditMatchingConfig:
 
 def _matching_config(values: dict[str, Any]) -> AuditMatchingConfig:
     defaults = AuditMatchingConfig()
-    enabled = values.get("enabled", defaults.enabled)
-    override = os.getenv("EDM_AUDIT_MATCHING")
-    if override is not None:
-        enabled = override.strip().casefold() not in {"0", "off", "false", "no"}
     return AuditMatchingConfig(
-        enabled=bool(enabled),
         candidate_threshold=float(values.get("candidate_threshold", defaults.candidate_threshold)),
         candidate_limit=int(values.get("candidate_limit", defaults.candidate_limit)),
         rules_per_request=int(values.get("rules_per_request", defaults.rules_per_request)),

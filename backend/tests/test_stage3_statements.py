@@ -28,7 +28,10 @@ from edm_auditor.rule_validation import (
     parse_constraint_from_text,
     validate_generated_statement,
 )
+from edm_auditor.audit_engine.matching import RuleMatcher
+from edm_auditor.model_config import AuditMatchingConfig
 from fakes import (
+    BiasedEmbeddingProvider,
     DeterministicEmbeddingProvider,
     FakeClassificationProvider,
     FakeLLMProvider,
@@ -221,11 +224,14 @@ def test_persistence_caches_statements_across_repeated_audits(tmp_path: Path) ->
         doc_id = doc.id
 
     stmt_extractor = ChunkedStatementExtractor(CountingProvider(), prompt_version="v1")
+    llm = FakeLLMProvider()
+    matcher = RuleMatcher(llm, BiasedEmbeddingProvider(), AuditMatchingConfig())
     persistence = AuditPersistence(
         session_factory,
         engine=AuditEngine(statement_extractor=stmt_extractor),
-        neural_interpreter=LLMInterpreter(FakeLLMProvider()),
+        neural_interpreter=LLMInterpreter(llm),
         statement_prompt_version="v1",
+        rule_matcher=matcher,
     )
 
     first_report = persistence.audit_document(doc_id)
@@ -251,8 +257,9 @@ def test_persistence_caches_statements_across_repeated_audits(tmp_path: Path) ->
     persistence_v2 = AuditPersistence(
         session_factory,
         engine=AuditEngine(statement_extractor=stmt_extractor),
-        neural_interpreter=LLMInterpreter(FakeLLMProvider()),
+        neural_interpreter=LLMInterpreter(llm),
         statement_prompt_version="v2",
+        rule_matcher=matcher,
     )
     persistence_v2.audit_document(doc_id)
     assert extraction_calls == 2

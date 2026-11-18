@@ -88,24 +88,24 @@ curl -s http://127.0.0.1:8000/api/rules | python3 -m json.tool --no-ensure-ascii
 curl -sS -X POST http://127.0.0.1:8000/api/legal-acts/upload \
   -F code=ACT-REMOTE \
   -F title='Положение о дистанционной работе' \
-  -F file=@examples/legal_act_remote_work.txt | jq .
+  -F file=@evaluation/corpus/acts/remote_work.txt | jq .
 
 curl -sS -X POST http://127.0.0.1:8000/api/legal-acts/upload \
   -F code=ACT-TRIP \
   -F title='Положение о служебных командировках' \
-  -F file=@examples/legal_act_business_trip.txt | jq .
+  -F file=@evaluation/corpus/acts/business_trip.txt | jq .
 
 curl -sS -X POST http://127.0.0.1:8000/api/legal-acts/upload \
   -F code=ACT-PAYMENTS \
   -F title='Положение о выплате заработной платы' \
-  -F file=@examples/legal_act_payments.txt | jq .
+  -F file=@evaluation/corpus/acts/payments.txt | jq .
 
 # Посмотреть правила
 curl -s http://127.0.0.1:8000/api/rules | jq .
 
 # Загрузить документ: модель определяет его тип
 curl -sS -X POST http://127.0.0.1:8000/api/documents/upload \
-  -F file=@examples/remote_work_agreement.txt | jq .
+  -F file=@evaluation/corpus/documents/remote_violating.txt | jq .
 
 # Запустить аудит
 curl -sS -X POST http://127.0.0.1:8000/api/documents/<DOCUMENT_ID>/audit | jq .

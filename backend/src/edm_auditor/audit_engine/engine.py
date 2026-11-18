@@ -1,15 +1,13 @@
 """Audit orchestration independent of the database implementation."""
 
 from collections.abc import Callable, Iterable
-from typing import Any
 
 from edm_auditor.rag.exceptions import RAGError
 
 from .exceptions import InvalidRuleConfiguration
-from .extractors import entities_from_provider, extract_entities, statements_from_provider
+from .extractors import extract_entities, statements_from_provider
 from .models import (
     AuditResult,
-    ExtractedEntity,
     FindingDraft,
     RuleDiagnostic,
     RuleSpec,
@@ -25,13 +23,11 @@ class AuditEngine:
 
     def __init__(
         self,
-        entity_extractor: Callable[[str], tuple[Any, ...]] | None = None,
         rag_searcher: ContextSearcher | None = None,
         *,
         statement_extractor: Callable[[str], tuple[StatementSpec, ...]] | None = None,
     ) -> None:
         self._rag_searcher = rag_searcher
-        self._entity_extractor = entity_extractor
         self._statement_extractor = statement_extractor
 
     @property
@@ -39,12 +35,11 @@ class AuditEngine:
         return self._statement_extractor
 
     def extract_statements(self, text: str) -> tuple[StatementSpec, ...]:
-        """Extract document statements using the configured statement or entity extractor."""
-        extractor = self._statement_extractor or self._entity_extractor
-        if extractor is None:
+        """Extract document statements using the configured statement extractor."""
+        if self._statement_extractor is None:
             return ()
         try:
-            raw = extractor(text)
+            raw = self._statement_extractor(text)
             if not raw:
                 return ()
             first = raw[0]
@@ -70,22 +65,7 @@ class AuditEngine:
             tuple(statements) if statements is not None else ()
         )
         if statements is None:
-            try:
-                extractor = self._statement_extractor or self._entity_extractor
-                provider_items = extractor(text) if extractor is not None else ()
-                if provider_items:
-                    first = provider_items[0]
-                    if isinstance(first, StatementSpec):
-                        resolved_statements = tuple(provider_items)
-                    elif isinstance(first, dict) and "statement_text" in first:
-                        resolved_statements = statements_from_provider(text, provider_items)
-                    elif isinstance(first, dict):
-                        provider_entities = entities_from_provider(text, provider_items)
-                        entities = _merge_entities(entities, provider_entities)
-                    elif isinstance(first, ExtractedEntity):
-                        entities = _merge_entities(entities, tuple(provider_items))
-            except (RuntimeError, ValueError, TypeError) as exc:
-                raise AuditModelError("entity extraction model failed") from exc
+            resolved_statements = self.extract_statements(text)
         for rule in rules:
             if not rule.is_active:
                 continue

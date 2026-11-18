@@ -25,8 +25,7 @@
   (повторный аудит использует сохранённые положения без новых запросов на разбор);
 - аудит: правила сопоставляются с положениями документа (эмбеддинги, один запрос к модели на пакет
   правил, сравнение структур кодом, «оценка модели» для текстовых правил, «не указано» для отсутствующих
-  обязательных условий), при сбое модели ответ `503` без отчёта; прежнее сравнение по сущностям включается
-  `EDM_AUDIT_MATCHING=off`;
+  обязательных условий), при сбое модели ответ `503` без отчёта;
 - оценка качества извлечения и аудита на размеченном наборе, см.
   [`backend/evaluation/README.md`](../backend/evaluation/README.md).
 
@@ -70,6 +69,17 @@
 [`docker.md`](docker.md).
 
 ## Журнал
+
+### 2026-11-18: этапы 4–5 переработки тестов — удаление устаревшего кода и `backend/examples`
+
+- Удалены `entity_extractor` из `AuditEngine`, `ChunkedEntityExtractor`, `entities_from_provider`,
+  `_statements_from_legacy_entities`, прежняя ветка аудита (`_analyze`, `_apply_model_verdicts`) из
+  `AuditPersistence`, а также флаг `EDM_AUDIT_MATCHING` и поле `enabled` из `model_config.py`/`models.toml`.
+- Удалён каталог `backend/examples/`; ссылки в `README.md`, `backend/README.md`, `docs/DEBUG.md`,
+  `docs/model-configuration.md` и `docs/TODO.md` обновлены на `backend/evaluation/corpus/` и единый режим
+  сопоставления.
+- Подтверждены `pytest` (`376 passed`), `vitest` (`118 passed`) и `vite build`; ветка готова к слиянию
+  в `feature/rules-audit-rework`.
 
 ### 2026-11-18: этап 3 переработки тестов — перевод оставшихся тестов на новый режим
 

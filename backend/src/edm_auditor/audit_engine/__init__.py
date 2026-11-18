@@ -2,9 +2,7 @@
 
 from .engine import AuditEngine
 from .extractors import (
-    ChunkedEntityExtractor,
     ChunkedStatementExtractor,
-    entities_from_provider,
     extract_entities,
     statements_from_provider,
 )
@@ -25,7 +23,6 @@ from .validators import validate_rule
 
 __all__ = [
     "AuditEngine",
-    "ChunkedEntityExtractor",
     "ChunkedStatementExtractor",
     "LLMInterpreter",
     "NeuralFinding",
@@ -40,7 +37,6 @@ __all__ = [
     "RuleSpec",
     "StatementSpec",
     "extract_entities",
-    "entities_from_provider",
     "statements_from_provider",
     "validate_rule",
     "ContextSearcher",

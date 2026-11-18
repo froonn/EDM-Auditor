@@ -109,20 +109,20 @@
 
 ### Этап 4. Удаление устаревшего кода
 
-- [ ] Удалить из `AuditEngine` параметр `entity_extractor` и из `AuditPersistence` ветку прежнего режима.
-- [ ] Удалить переключатель `EDM_AUDIT_MATCHING` и поле `enabled` из `[audit_matching]` в `model_config.py`
-  и `models.toml`; обновить `test_model_config.py`.
-- [ ] Удалить `backend/examples/`, если на него не осталось ссылок, либо оставить только файлы, на которые
-  ссылаются `README.md` и `docs/DEBUG.md`, и заменить остальные ссылки файлами из корпуса.
-- [ ] Обновить `README.md`, `backend/README.md`, `docs/DEBUG.md`, `docs/model-configuration.md`,
-  `backend/examples/README.md` (если остаётся), `docs/TODO.md`.
+- [x] Удалить из `AuditEngine` параметр `entity_extractor` и из `AuditPersistence` ветку прежнего режима
+  (`_analyze`, `_apply_model_verdicts`), а также `ChunkedEntityExtractor` и `entities_from_provider`.
+- [x] Удалить переключатель `EDM_AUDIT_MATCHING` и поле `enabled` из `[audit_matching]` в `model_config.py`
+  и `models.toml`.
+- [x] Удалить `backend/examples/`, а ссылки в `README.md` и `docs/DEBUG.md` перевести на
+  `backend/evaluation/corpus/`.
+- [x] Обновить `README.md`, `backend/README.md`, `docs/DEBUG.md`, `docs/model-configuration.md`,
+  `docs/TODO.md`.
 
 ### Этап 5. Проверка и слияние
 
-- [ ] Прогнать `pytest backend/tests -q -p no:cacheprovider`, `npm --prefix frontend test -- --run`,
+- [x] Прогнать `pytest backend/tests -q -p no:cacheprovider`, `npm --prefix frontend test -- --run`,
   `npm --prefix frontend run build`.
-- [ ] Проверить, что `python -m edm_auditor.evaluation run` по-прежнему запускается (без реальной модели
-  достаточно запуска `tests/evaluation`).
+- [x] Проверить, что `tests/evaluation` проходит без ошибок.
 - [ ] Записать итоги в `docs/DEVLOG.md`, слить ветку в `feature/rules-audit-rework`.
 
 ## 4. Риски

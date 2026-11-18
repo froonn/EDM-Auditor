@@ -104,13 +104,6 @@ class FailingLLMProvider:
         raise RuntimeError("llm unavailable")
 
 
-class FakeEntityProvider:
-    model_name = "fake-extractor"
-
-    def extract(self, text: str) -> Sequence[dict[str, str]]:
-        return ()
-
-
 _AMOUNT = re.compile(
     r"(\d+)\s*(календарных дней|календарных дня|рабочих дней|дней|дня|days|месяцев|месяца|месяц|рублей|BYN|процентов|%)",
     re.IGNORECASE,
@@ -126,7 +119,7 @@ _UNITS = {
 }
 
 
-class FakeStatementProvider(FakeEntityProvider):
+class FakeStatementProvider:
     """Extract one statement for each amount with a unit; the quote is the amount itself."""
 
     model_name = "fake-statement-extractor"
@@ -221,11 +214,6 @@ class FailingClassificationProvider:
 
     def classify(self, text: str, *, title, filename, document_types):
         raise RuntimeError("classifier unavailable")
-
-
-def no_entities(_: str) -> tuple:
-    """Entity extractor for tests that exercise only the deterministic entities."""
-    return ()
 
 
 def patch_fake_providers(monkeypatch, **overrides) -> None:

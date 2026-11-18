@@ -53,80 +53,6 @@ def extract_entities(text: str, kinds: Iterable[str] | None = None) -> tuple[Ext
     return tuple(sorted(entities, key=lambda entity: (entity.start_char, entity.kind)))
 
 
-def entities_from_provider(
-    text: str, extracted: Iterable[dict[str, str]]
-) -> tuple[ExtractedEntity, ...]:
-    """Convert provider values into source-preserving entities."""
-    entities: list[ExtractedEntity] = []
-    valid_kinds = set(_PATTERNS)
-    for item in extracted:
-        kind = item.get("kind")
-        value = item.get("value")
-        if kind not in valid_kinds or not value:
-            continue
-        if kind == "duration" and _DAY_OF_MONTH.match(value):
-            continue
-        start = text.find(value)
-        if start < 0:
-            continue
-        end = start + len(value)
-        entities.append(ExtractedEntity(kind, value, start, end))
-    unique = {
-        (entity.kind, entity.start_char, entity.end_char): entity for entity in entities
-    }
-    return tuple(
-        sorted(unique.values(), key=lambda entity: (entity.start_char, entity.kind))
-    )
-
-
-class ChunkedEntityExtractor:
-    """Send a long document to the model in parts and restore document offsets."""
-
-    def __init__(
-        self,
-        provider: EntityExtractionProvider,
-        *,
-        max_chars: int = 4000,
-        overlap_chars: int = 200,
-        max_chunks: int = 100,
-        delay_seconds: float = 0.0,
-    ) -> None:
-        self._provider = provider
-        self._max_chars = max_chars
-        self._overlap_chars = overlap_chars
-        self._max_chunks = max_chunks
-        self._delay_seconds = delay_seconds
-
-    def __call__(self, text: str) -> tuple[ExtractedEntity, ...]:
-        chunks = chunk_text(
-            text,
-            legal_act_id=0,
-            max_chars=self._max_chars,
-            overlap_chars=self._overlap_chars,
-        )
-        if len(chunks) > self._max_chunks:
-            raise DocumentTooLargeForAudit(
-                f"Document needs {len(chunks)} entity extraction requests; "
-                f"the limit is {self._max_chunks}"
-            )
-        unique: dict[tuple[str, int, int], ExtractedEntity] = {}
-        for index, chunk in enumerate(chunks):
-            if index and self._delay_seconds:
-                time.sleep(self._delay_seconds)
-            for entity in entities_from_provider(
-                chunk.text, self._provider.extract(chunk.text)
-            ):
-                located = replace(
-                    entity,
-                    start_char=entity.start_char + chunk.start_char,
-                    end_char=entity.end_char + chunk.start_char,
-                )
-                unique[(located.kind, located.start_char, located.end_char)] = located
-        return tuple(
-            sorted(unique.values(), key=lambda entity: (entity.start_char, entity.kind))
-        )
-
-
 def statements_from_provider(
     text: str,
     extracted: Iterable[dict[str, Any]],
@@ -215,21 +141,15 @@ class ChunkedStatementExtractor:
         for index, chunk in enumerate(chunks):
             if index and self._delay_seconds:
                 time.sleep(self._delay_seconds)
-            if hasattr(self._provider, "extract_statements"):
-                raw_items = self._provider.extract_statements(
-                    chunk.text, source_language=lang
-                )
-                chunk_statements = statements_from_provider(
-                    chunk.text,
-                    raw_items,
-                    source_language=lang,
-                    prompt_version=self._prompt_version,
-                )
-            else:
-                raw_entities = self._provider.extract(chunk.text)
-                chunk_statements = _statements_from_legacy_entities(
-                    chunk.text, raw_entities, prompt_version=self._prompt_version
-                )
+            raw_items = self._provider.extract_statements(
+                chunk.text, source_language=lang
+            )
+            chunk_statements = statements_from_provider(
+                chunk.text,
+                raw_items,
+                source_language=lang,
+                prompt_version=self._prompt_version,
+            )
             for statement in chunk_statements:
                 located = replace(
                     statement,
@@ -243,27 +163,3 @@ class ChunkedStatementExtractor:
                 key=lambda item: (item.start_char, item.end_char, item.subject),
             )
         )
-
-
-def _statements_from_legacy_entities(
-    text: str,
-    extracted: Sequence[dict[str, str]],
-    *,
-    prompt_version: str = "1",
-) -> tuple[StatementSpec, ...]:
-    """Convert legacy entity extraction output into document statements when using a legacy fake."""
-    statements: list[StatementSpec] = []
-    for entity in entities_from_provider(text, extracted):
-        constraint = parse_constraint_from_text(entity.value)
-        statements.append(
-            StatementSpec(
-                subject=entity.kind,
-                statement_text=entity.value,
-                source_quote=entity.value,
-                start_char=entity.start_char,
-                end_char=entity.end_char,
-                constraint_json=constraint,
-                prompt_version=prompt_version,
-            )
-        )
-    return tuple(statements)
