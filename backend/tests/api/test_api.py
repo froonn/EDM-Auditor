@@ -29,23 +29,14 @@ from fakes import (
     FakeEntityProvider,
     FakeLLMProvider,
     FakeRuleExtractor,
+    FakeStatementProvider,
+    patch_fake_providers,
 )
 
 
 @pytest.fixture(autouse=True)
 def fake_model_providers(monkeypatch) -> None:
-    monkeypatch.setenv("EDM_MODEL_PRESET", "lm-studio")
-    for factory, provider in (
-        ("create_llm_provider", FakeLLMProvider),
-        ("create_document_classification_provider", FakeClassificationProvider),
-        ("create_entity_extraction_provider", FakeEntityProvider),
-        ("create_rule_extraction_provider", FakeRuleExtractor),
-        ("create_embedding_provider", DeterministicEmbeddingProvider),
-    ):
-        monkeypatch.setattr(
-            f"edm_auditor.api.app.{factory}",
-            lambda config, provider=provider: provider(),
-        )
+    patch_fake_providers(monkeypatch)
 
 
 def test_api_settings_use_defaults_without_environment(monkeypatch) -> None:
@@ -224,7 +215,7 @@ def test_create_rule_audit_and_get_report(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "factory, provider, message",
     [
-        ("create_llm_provider", FailingLLMProvider, "LLM analysis failed"),
+        ("create_llm_provider", FailingLLMProvider, "LLM matching failed"),
         (
             "create_entity_extraction_provider",
             FailingEntityProvider,
@@ -1543,7 +1534,7 @@ def test_llm_analysis_reports_model_limits_and_timeouts(
     tmp_path: Path, monkeypatch, error, status, code
 ) -> None:
     class Llm(FakeLLMProvider):
-        def generate(self, *, system_prompt, user_prompt, context=()):
+        def generate(self, *, system_prompt, user_prompt, context=(), response_schema=None):
             raise error
 
     monkeypatch.setattr("edm_auditor.api.app.create_llm_provider", lambda config: Llm())
@@ -1688,10 +1679,10 @@ def test_rule_deleted_during_the_audit_does_not_break_the_report(
 ) -> None:
     holder: dict[str, object] = {}
 
-    class Entities(FakeEntityProvider):
-        def extract(self, text: str):
+    class Entities(FakeStatementProvider):
+        def extract_statements(self, chunk: str, *, source_language: str = "auto"):
             holder["client"].delete(f"/api/rules/{holder['rule_id']}")
-            return ()
+            return super().extract_statements(chunk, source_language=source_language)
 
     monkeypatch.setattr(
         "edm_auditor.api.app.create_entity_extraction_provider", lambda config: Entities()

@@ -33,16 +33,52 @@ class DeterministicEmbeddingProvider:
         return self._embed(text)
 
 
+def _match_rule(rule: dict) -> dict:
+    """Pick the candidate the code can compare, else the closest one; leave the verdict to code."""
+    candidates = rule.get("candidates", [])
+    comparable = [item for item in candidates if item.get("structured_comparison") is not None]
+    chosen = max(comparable or candidates, key=lambda item: item["similarity"], default=None)
+    return {
+        "finding_key": rule["finding_key"],
+        "matched_statement_id": chosen["statement_id"] if chosen else None,
+        "condition_applicable": True,
+        "is_mandatory_condition": False,
+        "is_violation": False,
+        "explanation": "Пояснение.",
+        "recommendation": "",
+        "confidence": 0.9,
+    }
+
+
+class BiasedEmbeddingProvider(DeterministicEmbeddingProvider):
+    """Keep the ordering of the hash embedding but raise every similarity above the threshold."""
+
+    def _embed(self, text: str) -> tuple[float, ...]:
+        base = super()._embed(text)
+        values = [value + 3.0 / sqrt(self.dimension) for value in base]
+        norm = sqrt(sum(value * value for value in values))
+        return tuple(value / norm for value in values)
+
+
 class FakeLLMProvider:
-    """Record prompts and confirm every finding."""
+    """Record prompts, match each rule to its best candidate, and confirm every finding."""
 
     model_name = "fake-llm"
 
     def __init__(self) -> None:
         self.prompts: list[str] = []
 
-    def generate(self, *, system_prompt, user_prompt, context=()) -> str:
+    def generate(self, *, system_prompt, user_prompt, context=(), response_schema=None) -> str:
         self.prompts.append(user_prompt)
+        prompt = json.loads(user_prompt)
+        if "rules" in prompt:
+            return json.dumps(
+                {
+                    "schema_version": "4",
+                    "analyses": [_match_rule(rule) for rule in prompt["rules"]],
+                    "general_summary": "Reviewed.",
+                }
+            )
         return json.dumps(
             {
                 "schema_version": "3",
@@ -54,7 +90,7 @@ class FakeLLMProvider:
                         "confidence": 0.9,
                         "is_violation": True,
                     }
-                    for item in json.loads(user_prompt).get("findings", [])
+                    for item in prompt.get("findings", [])
                 ],
                 "general_summary": "Reviewed.",
             }
@@ -64,7 +100,7 @@ class FakeLLMProvider:
 class FailingLLMProvider:
     model_name = "failing-llm"
 
-    def generate(self, *, system_prompt, user_prompt, context=()) -> str:
+    def generate(self, *, system_prompt, user_prompt, context=(), response_schema=None) -> str:
         raise RuntimeError("llm unavailable")
 
 
@@ -75,10 +111,55 @@ class FakeEntityProvider:
         return ()
 
 
+_AMOUNT = re.compile(
+    r"(\d+)\s*(календарных дней|календарных дня|рабочих дней|дней|days|рублей|BYN|процентов|%)",
+    re.IGNORECASE,
+)
+_UNITS = {"дн": "day", "day": "day", "руб": "byn", "byn": "byn", "про": "%", "%": "%"}
+
+
+class FakeStatementProvider(FakeEntityProvider):
+    """Extract one statement for each amount with a unit; the quote is the amount itself."""
+
+    model_name = "fake-statement-extractor"
+
+    def extract_statements(self, chunk: str, *, source_language: str = "auto"):
+        statements = []
+        for match in _AMOUNT.finditer(chunk):
+            unit = next(
+                (code for prefix, code in _UNITS.items() if match.group(2).casefold().startswith(prefix)),
+                None,
+            )
+            sentence = next(
+                (
+                    part.strip()
+                    for part in re.split(r"(?<=[.!?])\s+", chunk)
+                    if match.group(0) in part
+                ),
+                match.group(0),
+            )
+            statements.append(
+                {
+                    "subject": sentence,
+                    "statement_text": sentence,
+                    "constraint_json": (
+                        {"kind": "value", "operator": "eq", "value": int(match.group(1)), "unit": unit}
+                        if unit
+                        else None
+                    ),
+                    "source_quote": match.group(0),
+                }
+            )
+        return tuple(statements)
+
+
 class FailingEntityProvider:
     model_name = "failing-extractor"
 
     def extract(self, text: str) -> Sequence[dict[str, str]]:
+        raise RuntimeError("extractor unavailable")
+
+    def extract_statements(self, chunk: str, *, source_language: str = "auto"):
         raise RuntimeError("extractor unavailable")
 
 
@@ -132,3 +213,21 @@ class FailingClassificationProvider:
 def no_entities(_: str) -> tuple:
     """Entity extractor for tests that exercise only the deterministic entities."""
     return ()
+
+
+def patch_fake_providers(monkeypatch, **overrides) -> None:
+    """Patch all model provider factories in edm_auditor.api.app with test doubles."""
+    monkeypatch.setenv("EDM_MODEL_PRESET", "lm-studio")
+    defaults = {
+        "create_llm_provider": FakeLLMProvider,
+        "create_document_classification_provider": FakeClassificationProvider,
+        "create_entity_extraction_provider": FakeStatementProvider,
+        "create_rule_extraction_provider": FakeRuleExtractor,
+        "create_embedding_provider": BiasedEmbeddingProvider,
+    }
+    defaults.update(overrides)
+    for factory, provider in defaults.items():
+        monkeypatch.setattr(
+            f"edm_auditor.api.app.{factory}",
+            lambda config, provider=provider: provider(),
+        )

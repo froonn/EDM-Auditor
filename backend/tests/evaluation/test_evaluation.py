@@ -130,12 +130,7 @@ def test_failed_audit_counts_every_violation_as_missed(tmp_path: Path) -> None:
 
 
 def test_runner_records_rules_findings_and_requests(tmp_path: Path, monkeypatch) -> None:
-    from fakes import (
-        DeterministicEmbeddingProvider,
-        FakeClassificationProvider,
-        FakeEntityProvider,
-        FakeLLMProvider,
-    )
+    from fakes import patch_fake_providers
     from edm_auditor.api.config import ApiSettings
     from edm_auditor.evaluation.runner import run_corpus
 
@@ -157,17 +152,7 @@ def test_runner_records_rules_findings_and_requests(tmp_path: Path, monkeypatch)
                 "suggested_type_reason": "",
             },)
 
-    monkeypatch.setenv("EDM_MODEL_PRESET", "lm-studio")
-    for factory, provider in (
-        ("create_llm_provider", FakeLLMProvider),
-        ("create_document_classification_provider", FakeClassificationProvider),
-        ("create_entity_extraction_provider", FakeEntityProvider),
-        ("create_rule_extraction_provider", RuleExtractor),
-        ("create_embedding_provider", DeterministicEmbeddingProvider),
-    ):
-        monkeypatch.setattr(
-            f"edm_auditor.api.app.{factory}", lambda config, provider=provider: provider()
-        )
+    patch_fake_providers(monkeypatch, create_rule_extraction_provider=RuleExtractor)
     write_corpus(tmp_path)
     corpus = load_corpus(tmp_path)
 
@@ -183,4 +168,5 @@ def test_runner_records_rules_findings_and_requests(tmp_path: Path, monkeypatch)
     assert run["requests"]["by_kind"]["llm"] >= 1
     audit = score_run(corpus, run)["audit"]
     assert audit["true"] == 1
-    assert audit["false_reasons"] == {"wrong_place": 1}
+    assert audit["false"] == 0
+    assert audit["false_reasons"] == {}

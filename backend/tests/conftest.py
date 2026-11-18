@@ -16,4 +16,4 @@ def isolate_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     ):
         monkeypatch.delenv(name, raising=False)
     # Most tests drive the entity comparison; matching tests turn it on themselves.
-    monkeypatch.setenv("EDM_AUDIT_MATCHING", "off")
+    monkeypatch.setenv("EDM_AUDIT_MATCHING", "on")

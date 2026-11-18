@@ -161,8 +161,8 @@ def test_engine_unions_provider_entities_with_deterministic_entities() -> None:
 
 
 def test_remote_work_gold_documents_report_findings_without_external_models() -> None:
-    examples = Path(__file__).parents[2] / "examples"
-    agreement = (examples / "remote_work_agreement.txt").read_text(encoding="utf-8")
+    corpus_docs = Path(__file__).parents[2] / "evaluation" / "corpus" / "documents"
+    agreement = (corpus_docs / "remote_violating.txt").read_text(encoding="utf-8")
     rules = (
         RuleSpec(
             rule_id=1,

@@ -71,6 +71,20 @@
 
 ## Журнал
 
+### 2026-11-18: этап 2 переработки тестов — регрессионный тест на корпусе
+
+- `test_multi_legal_act_regression.py` и `recorded_gemini_audit.json` переписаны на
+  `backend/evaluation/corpus/` и режим сопоставления (правила из прогона `20261118-1446-stage4-v2`,
+  положения и вердикты по `labels.toml`).
+- В `test_engine.py` убрана последняя зависимость тестов от `backend/examples/`.
+- Полный прогон `pytest` при `EDM_AUDIT_MATCHING=on` зелёный (`377 passed`).
+
+### 2026-11-18: этап 1 переработки тестов — дублёры нового режима
+
+- В `backend/tests/fakes.py` добавлены `FakeStatementProvider`, `BiasedEmbeddingProvider` и
+  `patch_fake_providers`; `FakeLLMProvider` и `FailingLLMProvider` адаптированы под схему сопоставления.
+- На новые дублёры переведены `test_api.py` и `test_evaluation.py`.
+
 ### 2026-11-18: этап 0 переработки тестов — инвентаризация
 
 - Тесты прогнаны с `EDM_AUDIT_MATCHING=on`: из 31 файла упали три (`test_api.py` 18 из 93,
