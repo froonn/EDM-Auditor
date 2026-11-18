@@ -71,6 +71,13 @@
 
 ## Журнал
 
+### 2026-11-18: этап 0 переработки тестов — инвентаризация
+
+- Тесты прогнаны с `EDM_AUDIT_MATCHING=on`: из 31 файла упали три (`test_api.py` 18 из 93,
+  `test_multi_legal_act_regression.py` 9 из 9, `test_evaluation.py` 1 из 8), все из-за того, что фейковая
+  модель не отвечает на запрос сопоставления. Зависаний нет. Подробности в
+  [`feature-tests-rework.md`](feature-tests-rework.md).
+
 ### 2026-11-18: ветка `feature/tests-rework` и план переработки тестов
 
 - Создана ветка `feature/tests-rework` от `feature/rules-audit-rework`; план в
