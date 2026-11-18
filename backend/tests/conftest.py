@@ -15,3 +15,5 @@ def isolate_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         "OPENROUTER_API_KEY",
     ):
         monkeypatch.delenv(name, raising=False)
+    # Most tests drive the entity comparison; matching tests turn it on themselves.
+    monkeypatch.setenv("EDM_AUDIT_MATCHING", "off")

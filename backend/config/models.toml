@@ -27,6 +27,16 @@ entity_chunk_overlap_chars = 200
 entity_max_chunks = 100
 statement_prompt_version = "1"
 
+[audit_matching]
+# Rules are matched with document statements; EDM_AUDIT_MATCHING=off returns the entity comparison.
+enabled = true
+# Measured on the evaluation corpus: true pairs reached 0.70 and above, other statements stayed below 0.66.
+candidate_threshold = 0.6
+candidate_limit = 5
+# One model request checks this many rules of a document.
+rules_per_request = 15
+max_statements_in_prompt = 60
+
 [profiles.embedding.local-multilingual]
 provider = "openai-compatible"
 model = "text-embedding-nomic-embed-text-v1.5"

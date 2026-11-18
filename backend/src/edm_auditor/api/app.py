@@ -39,6 +39,7 @@ from edm_auditor.applicability.rule_scope import (
     split_generated_rule,
 )
 from edm_auditor.audit_engine.persistence import AuditPersistence, AuditSelectionRequired
+from edm_auditor.audit_engine.matching import RuleMatcher
 from edm_auditor.audit_engine import (
     AuditEngine,
     ChunkedEntityExtractor,
@@ -241,7 +242,8 @@ def create_app(
         config.model_config,
         source_language=config.source_language,
     )
-    neural_interpreter = LLMInterpreter(create_llm_provider(model_settings.llm))
+    llm_provider = create_llm_provider(model_settings.llm)
+    neural_interpreter = LLMInterpreter(llm_provider)
     if model_settings.extractor is None:
         raise ValueError("configured model preset must declare an online extractor")
     provider = create_entity_extraction_provider(model_settings.extractor)
@@ -297,6 +299,7 @@ def create_app(
         ]
 
     def audit_persistence() -> AuditPersistence:
+        embedding_provider = create_embedding_provider(model_settings.embedding)
         return AuditPersistence(
             session_factory,
             engine=AuditEngine(
@@ -306,6 +309,11 @@ def create_app(
             neural_interpreter=neural_interpreter,
             rag_recommender=rag_recommendations,
             statement_prompt_version=document_processing.statement_prompt_version,
+            rule_matcher=(
+                RuleMatcher(llm_provider, embedding_provider, model_settings.matching)
+                if model_settings.matching.enabled
+                else None
+            ),
         )
 
     def ensure_classified(document_id: int) -> None:
@@ -1671,6 +1679,8 @@ def _report_response(report: AuditReport) -> ReportResponse:
                 legal_act_code=finding.legal_act_code,
                 legal_act_title=finding.legal_act_title,
                 norm_quote=finding.norm_quote,
+                statement_text=finding.statement_text,
+                evaluation_mode=finding.evaluation_mode,
             )
             for index, finding in enumerate(report.findings)
         ],
@@ -1858,6 +1868,7 @@ def _require_current_schema(engine) -> None:
         "subject" not in columns
         or "applicability_auto" not in columns
         or "finding_key" not in finding_columns
+        or "evaluation_mode" not in finding_columns
         or "statements_version" not in document_columns
         or not inspector.has_table("document_statements")
     ):

@@ -204,6 +204,10 @@ class FindingResponse(BaseModel):
     legal_act_code: str | None = None
     legal_act_title: str | None = None
     norm_quote: str | None = None
+    # The statement of the document the finding is about; null when the condition is not stated.
+    statement_text: str | None = None
+    # structured: compared by code; model: model estimate; missing: not stated in the document.
+    evaluation_mode: str | None = None
 
 
 class NeuralAnalysisResponse(BaseModel):

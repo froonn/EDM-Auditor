@@ -29,6 +29,10 @@ class ModelRequestTimeout(RuntimeError):
     """The provider did not answer within the configured timeout."""
 
 
+# The Google embedding request accepts at most 100 texts.
+EMBEDDING_BATCH_SIZE = 100
+
+
 NEURAL_RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -50,6 +54,44 @@ NEURAL_RESPONSE_SCHEMA = {
                     "recommendation",
                     "confidence",
                     "is_violation",
+                ],
+                "additionalProperties": False,
+            },
+        },
+        "general_summary": {"type": "string"},
+    },
+    "required": ["schema_version", "analyses", "general_summary"],
+    "additionalProperties": False,
+}
+
+# Answer to the matching of rules with the statements of one document (stage 4).
+MATCHING_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "schema_version": {"type": "string"},
+        "analyses": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "finding_key": {"type": "string"},
+                    "matched_statement_id": {"type": ["integer", "null"]},
+                    "condition_applicable": {"type": "boolean"},
+                    "is_mandatory_condition": {"type": "boolean"},
+                    "is_violation": {"type": "boolean"},
+                    "explanation": {"type": "string"},
+                    "recommendation": {"type": "string"},
+                    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                },
+                "required": [
+                    "finding_key",
+                    "matched_statement_id",
+                    "condition_applicable",
+                    "is_mandatory_condition",
+                    "is_violation",
+                    "explanation",
+                    "recommendation",
+                    "confidence",
                 ],
                 "additionalProperties": False,
             },
@@ -320,8 +362,9 @@ class LLMProvider(Protocol):
         system_prompt: str,
         user_prompt: str,
         context: Sequence[str] = (),
+        response_schema: dict[str, object] | None = None,
     ) -> str:
-        """Return the model response text."""
+        """Return the model response text; the schema defaults to the finding explanation."""
 
 
 class DocumentClassificationProvider(Protocol):
@@ -431,6 +474,7 @@ class OpenAICompatibleLLMProvider:
         system_prompt: str,
         user_prompt: str,
         context: Sequence[str] = (),
+        response_schema: dict[str, object] | None = None,
     ) -> str:
         prompt = user_prompt
         if context:
@@ -452,7 +496,7 @@ class OpenAICompatibleLLMProvider:
                 "json_schema": {
                     "name": "audit_analysis",
                     "strict": True,
-                    "schema": NEURAL_RESPONSE_SCHEMA,
+                    "schema": response_schema or NEURAL_RESPONSE_SCHEMA,
                 },
             }
         payload = self._request("chat/completions", request_payload)
@@ -749,6 +793,7 @@ class GoogleAIStudioLLMProvider:
         system_prompt: str,
         user_prompt: str,
         context: Sequence[str] = (),
+        response_schema: dict[str, object] | None = None,
     ) -> str:
         prompt = user_prompt
         if context:
@@ -762,7 +807,7 @@ class GoogleAIStudioLLMProvider:
                     self._config,
                     system_instruction=system_prompt,
                     schema=(
-                        NEURAL_RESPONSE_SCHEMA
+                        (response_schema or NEURAL_RESPONSE_SCHEMA)
                         if self._config.structured_output == "json_schema"
                         else None
                     ),
@@ -1004,21 +1049,32 @@ class GoogleAIStudioEmbeddingProvider:
         if not texts:
             return ()
         try:
-            vectors = []
-            for text in texts:
+            from google.genai import types
+
+            vectors: list[tuple[float, ...]] = []
+            # One request carries up to 100 texts; one Content per text keeps them apart.
+            for offset in range(0, len(texts), EMBEDDING_BATCH_SIZE):
+                batch = texts[offset : offset + EMBEDDING_BATCH_SIZE]
                 response = _retry_google(
-                    lambda: self._client.models.embed_content(
+                    lambda batch=batch: self._client.models.embed_content(
                         model=self.model_name,
-                        contents=text,
+                        contents=[
+                            types.Content(parts=[types.Part.from_text(text=text)])
+                            for text in batch
+                        ],
                         config={"output_dimensionality": self.dimension},
                     ),
                     attempts=self._config.retry_attempts + 1,
                     backoff_factor=self._config.retry_backoff_factor,
                 )
-                values = getattr(getattr(response, "embeddings", [None])[0], "values", None)
-                if not isinstance(values, (list, tuple)):
+                embeddings = getattr(response, "embeddings", None)
+                if not isinstance(embeddings, (list, tuple)) or len(embeddings) != len(batch):
                     raise EmbeddingError("Google AI Studio returned an invalid embedding")
-                vectors.append(tuple(float(value) for value in values))
+                for item in embeddings:
+                    values = getattr(item, "values", None)
+                    if not isinstance(values, (list, tuple)):
+                        raise EmbeddingError("Google AI Studio returned an invalid embedding")
+                    vectors.append(tuple(float(value) for value in values))
             validate_vectors(vectors, len(texts), self.dimension)
             return tuple(vectors)
         except Exception as exc:

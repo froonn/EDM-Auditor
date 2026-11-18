@@ -401,6 +401,9 @@ class AuditFinding(Base):
     legal_act_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
     legal_act_title: Mapped[str | None] = mapped_column(String(500), nullable=True)
     norm_quote: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # What the document says and how the pair was judged: structured, model, or missing.
+    statement_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evaluation_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     report: Mapped[AuditReport] = relationship(back_populates="findings")
     rule: Mapped[AuditRule | None] = relationship(back_populates="findings")

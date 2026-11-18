@@ -72,6 +72,10 @@ class FindingDraft:
     norm_quote: str | None = None
     rule_name: str = ""
     requires_confirmation: bool = False
+    # What the document says; None when the rule found no statement ("not stated").
+    statement_text: str | None = None
+    # structured: compared by code; model: judged by the model; missing: condition not stated.
+    evaluation_mode: str = "structured"
 
 
 @dataclass(frozen=True, slots=True)

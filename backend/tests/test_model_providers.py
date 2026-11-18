@@ -21,6 +21,7 @@ from edm_auditor.model_providers import (
     OpenAICompatibleEntityExtractionProvider,
     OpenAICompatibleLLMProvider,
     OpenAICompatibleRuleExtractionProvider,
+    MATCHING_RESPONSE_SCHEMA,
     RULE_EXTRACTION_SCHEMA,
     _google_client,
     _google_generation_config,
@@ -617,3 +618,34 @@ def test_openai_request_reports_rate_limit_and_timeout(monkeypatch) -> None:
     with pytest.raises(RuntimeError) as failure:
         _post_json(OPENAI_CONFIG, "chat/completions", {}, 1)
     assert not isinstance(failure.value, ModelRequestTimeout)
+
+
+def test_google_embeddings_go_in_batches_of_one_content_per_text() -> None:
+    calls: list[list[str]] = []
+
+    class Models:
+        def embed_content(self, *, model, contents, config):
+            calls.append([content.parts[0].text for content in contents])
+            return SimpleNamespace(
+                embeddings=[SimpleNamespace(values=[1.0, 0.0]) for _ in contents]
+            )
+
+    provider = GoogleAIStudioEmbeddingProvider(
+        _google_config(), client=SimpleNamespace(models=Models())
+    )
+
+    vectors = provider.embed_documents([f"текст {index}" for index in range(250)])
+
+    assert len(vectors) == 250
+    assert [len(batch) for batch in calls] == [100, 100, 50]
+    assert calls[0][0] == "текст 0"
+
+
+def test_google_llm_uses_the_schema_it_is_given() -> None:
+    client = _GoogleClient(_GoogleResponse("{}"))
+    provider = GoogleAIStudioLLMProvider(_google_config(), client=client)
+
+    provider.generate(system_prompt="s", user_prompt="u", response_schema=MATCHING_RESPONSE_SCHEMA)
+
+    schema = client.models.calls[0]["config"].response_schema
+    assert "matched_statement_id" in schema["properties"]["analyses"]["items"]["properties"]

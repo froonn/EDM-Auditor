@@ -34,9 +34,10 @@ from edm_auditor.rag.exceptions import RAGError
 
 from .engine import AuditEngine
 from .llm_interpreter import LLMInterpreter
+from .matching import MATCH_PROMPT_VERSION, RuleMatcher
 from .models import AuditResult, FindingDraft, RuleSpec, StatementSpec
 from .neural_errors import AuditModelError, DocumentTooLargeForAudit
-from .neural_models import NeuralFinding, NeuralResult
+from .neural_models import NeuralAnalysis, NeuralFinding, NeuralResult
 
 
 logger = logging.getLogger(__name__)
@@ -64,12 +65,14 @@ class AuditPersistence:
         *,
         rag_recommender: Callable[[str], Sequence[RagCandidate]] | None = None,
         statement_prompt_version: str = "1",
+        rule_matcher: RuleMatcher | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._engine = engine
         self._neural_interpreter = neural_interpreter
         self._rag_recommender = rag_recommender
         self._statement_prompt_version = statement_prompt_version
+        self._matcher = rule_matcher
         self._resolver = RuleApplicabilityResolver()
 
     def preview(
@@ -180,11 +183,18 @@ class AuditPersistence:
                     session.flush()
                     cached_statements = tuple(_to_statement_spec(row) for row in rows)
 
-            candidates = self._engine.audit(
-                text, resolution.selected_rules, statements=cached_statements
-            )
-            neural = self._analyze(candidates.findings, document_type, text)
-            result, neural, rejected = _apply_model_verdicts(candidates, neural)
+            if self._matcher is not None:
+                candidates, neural, rejected, matching = self._match(
+                    resolution.selected_rules, cached_statements, text, document_type
+                )
+                result = candidates
+            else:
+                candidates = self._engine.audit(
+                    text, resolution.selected_rules, statements=cached_statements
+                )
+                neural = self._analyze(candidates.findings, document_type, text)
+                result, neural, rejected = _apply_model_verdicts(candidates, neural)
+                matching = None
             neural = _with_legal_basis(neural, result.findings, applied_acts)
             counts = result.counts
             summary = {
@@ -199,6 +209,7 @@ class AuditPersistence:
                 ],
                 "neural": neural.as_dict(),
                 "rejected_candidates": rejected,
+                "matching": matching,
                 "selection": selection_snapshot(
                     selection or SelectionConfig(), context, resolution, applied_acts
                 ),
@@ -239,6 +250,8 @@ class AuditPersistence:
                         legal_act_code=acts.get(finding.legal_act_id, {}).get("code"),
                         legal_act_title=acts.get(finding.legal_act_id, {}).get("title"),
                         norm_quote=finding.norm_quote,
+                        statement_text=finding.statement_text,
+                        evaluation_mode=finding.evaluation_mode,
                     )
                     for finding in result.findings
                 ]
@@ -302,6 +315,50 @@ class AuditPersistence:
         except (RuntimeError, ValueError, TypeError, RAGError, sqlite3.Error) as exc:
             logger.warning("RAG recommendations are unavailable: %s", type(exc).__name__)
             return (), True
+
+    def _match(
+        self,
+        rules: Sequence[RuleSpec],
+        statements: Sequence[StatementSpec],
+        text: str,
+        document_type: str | None,
+    ) -> tuple[AuditResult, NeuralResult, list[dict[str, object]], dict[str, object]]:
+        """Compare the rules with the document statements; the verdicts double as explanations."""
+        try:
+            outcome = self._matcher.match(
+                rules,
+                statements,
+                text,
+                document_type=document_type,
+                output_language=detect_source_language(text),
+            )
+        except AuditModelError:
+            raise
+        except (RuntimeError, ValueError, TypeError) as exc:
+            raise AuditModelError("LLM matching failed") from exc
+        findings = tuple(item.finding for item in outcome.findings)
+        neural = NeuralResult(
+            status="completed",
+            model=outcome.model,
+            prompt_version=MATCH_PROMPT_VERSION,
+            analyses=tuple(
+                NeuralAnalysis(
+                    finding_key=_finding_key(item.finding),
+                    explanation=item.explanation,
+                    recommendation=item.recommendation,
+                    confidence=item.confidence,
+                )
+                for item in outcome.findings
+            ),
+            general_summary=outcome.general_summary,
+        )
+        matching = {
+            "pairs": list(outcome.pairs),
+            "unchecked_rules": list(outcome.unchecked),
+            "inapplicable_rules": list(outcome.inapplicable),
+            "requests": outcome.requests,
+        }
+        return AuditResult(findings), neural, [], matching
 
     def _analyze(
         self,

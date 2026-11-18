@@ -133,6 +133,46 @@ class DocumentProcessingConfig:
             raise ValueError("statement_prompt_version must not be empty")
 
 
+@dataclass(frozen=True, slots=True)
+class AuditMatchingConfig:
+    """Matching of rules with document statements (stage 4)."""
+
+    # Off keeps the older value comparison over extracted entities.
+    enabled: bool = True
+    # A statement is a candidate pair for a rule when the similarity of their texts reaches this.
+    candidate_threshold: float = 0.6
+    candidate_limit: int = 5
+    # Rules sent to the model in one request.
+    rules_per_request: int = 15
+    # All statements go to the model with the candidates while there are not more than this many;
+    # beyond it only the candidates are sent, to keep the request short.
+    max_statements_in_prompt: int = 60
+
+    def __post_init__(self) -> None:
+        if not 0 <= self.candidate_threshold <= 1:
+            raise ValueError("candidate_threshold must be in [0, 1]")
+        for name in ("candidate_limit", "rules_per_request", "max_statements_in_prompt"):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"{name} must be positive")
+
+
+def _matching_config(values: dict[str, Any]) -> AuditMatchingConfig:
+    defaults = AuditMatchingConfig()
+    enabled = values.get("enabled", defaults.enabled)
+    override = os.getenv("EDM_AUDIT_MATCHING")
+    if override is not None:
+        enabled = override.strip().casefold() not in {"0", "off", "false", "no"}
+    return AuditMatchingConfig(
+        enabled=bool(enabled),
+        candidate_threshold=float(values.get("candidate_threshold", defaults.candidate_threshold)),
+        candidate_limit=int(values.get("candidate_limit", defaults.candidate_limit)),
+        rules_per_request=int(values.get("rules_per_request", defaults.rules_per_request)),
+        max_statements_in_prompt=int(
+            values.get("max_statements_in_prompt", defaults.max_statements_in_prompt)
+        ),
+    )
+
+
 def detect_source_language(text: str) -> str:
     """Detect the supported source language using a conservative script ratio."""
     letters = re.findall(r"[^\W\d_]", text, flags=re.UNICODE)
@@ -151,6 +191,7 @@ class ModelSettings:
     extractor: ModelConfig | None = None
     processing: LegalActProcessingConfig = LegalActProcessingConfig()
     document_processing: DocumentProcessingConfig = DocumentProcessingConfig()
+    matching: AuditMatchingConfig = AuditMatchingConfig()
     preset_name: str | None = None
 
     @classmethod
@@ -205,6 +246,7 @@ class ModelSettings:
             document_processing=_document_processing_config(
                 data.get("document_processing", {})
             ),
+            matching=_matching_config(data.get("audit_matching", {})),
             preset_name=selected_name,
         )
 
