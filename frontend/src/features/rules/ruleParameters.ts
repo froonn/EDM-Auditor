@@ -1,4 +1,4 @@
-import type { CheckType } from "@/api/types";
+type CheckType = "keyword" | "regex" | "numeric" | "date" | "duration";
 
 /** Form values of the rule parameters; every field is text, as the inputs hold it. */
 export interface ParameterForm {

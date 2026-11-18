@@ -144,11 +144,17 @@ def test_runner_records_rules_findings_and_requests(tmp_path: Path, monkeypatch)
 
         def extract_rules(self, text, *, source_language, source_location, **_):
             return ({
-                "rule_code": "money", "name": "Компенсация", "severity": "high",
-                "description": "Компенсация не меньше 50 рублей.", "check_type": "numeric",
-                "parameters": {"entity": "money", "min": 50},
+                "subject": "Компенсация",
+                "constraint_text": "Компенсация не меньше 50 рублей.",
+                "constraint_json": {"kind": "value", "operator": "gte", "value": 50, "unit": "byn"},
+                "condition": "",
+                "severity": "high",
                 "source_quote": "Компенсация не может быть\nменьше 50 рублей.",
-                "source_location": source_location,
+                "applicability_scope": "universal",
+                "document_types": [],
+                "applicability_confidence": 0.9,
+                "suggested_type_name": "",
+                "suggested_type_reason": "",
             },)
 
     monkeypatch.setenv("EDM_MODEL_PRESET", "lm-studio")

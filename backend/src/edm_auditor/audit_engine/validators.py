@@ -1,12 +1,40 @@
-"""Deterministic validators for audit rules."""
+"""Deterministic validators for structured stage 2 rule constraints."""
 
-import re
-from datetime import date
+from __future__ import annotations
+
 from collections.abc import Iterable
+from datetime import date
+import math
+import re
 from typing import Any
+
+from edm_auditor.rule_validation import RuleValidationError, validate_manual_constraint
 
 from .exceptions import InvalidRuleConfiguration
 from .models import ExtractedEntity, FindingDraft, RuleSpec
+
+_FREQUENCY_WORDS = {
+    "один": 1,
+    "одного": 1,
+    "1": 1,
+    "два": 2,
+    "двух": 2,
+    "2": 2,
+    "три": 3,
+    "трех": 3,
+    "трёх": 3,
+    "3": 3,
+    "четыре": 4,
+    "4": 4,
+}
+_FREQUENCY_PATTERN = re.compile(
+    r"\b(один|одного|два|двух|три|трех|трёх|четыре|\d+)\s+раз(?:а)?\s+в\s+(месяц|год)",
+    re.IGNORECASE,
+)
+_DAY_OF_MONTH_PATTERN = re.compile(
+    r"\b(\d{1,2})\s*(?:-го)?\s+числа(?:\s+следующего\s+месяца)?",
+    re.IGNORECASE,
+)
 
 
 def validate_rule(
@@ -14,141 +42,96 @@ def validate_rule(
     text: str,
     entities: Iterable[ExtractedEntity] = (),
 ) -> tuple[FindingDraft, ...]:
-    """Evaluate one rule and return source-preserving findings."""
-    if not rule.is_active:
+    """Evaluate a rule's structured constraint against document entities and text."""
+    if not rule.is_active or rule.constraint_json is None:
         return ()
-    if rule.check_type == "keyword":
-        return _keyword_findings(rule, text)
-    if rule.check_type == "regex":
-        return _regex_findings(rule, text)
-    if rule.check_type == "semantic":
-        return ()
-    if rule.check_type == "numeric":
-        return _numeric_findings(rule, text, tuple(entities))
-    if rule.check_type == "date":
-        return _date_findings(rule, text, tuple(entities))
-    if rule.check_type == "duration":
-        return _duration_findings(rule, text, tuple(entities))
-    raise InvalidRuleConfiguration(f"unsupported check type: {rule.check_type}")
-
-
-def _keyword_findings(rule: RuleSpec, text: str) -> tuple[FindingDraft, ...]:
-    keywords = rule.parameters.get("keywords", [])
-    if isinstance(keywords, str):
-        keywords = [keywords]
-    if not isinstance(keywords, list) or not all(isinstance(item, str) and item for item in keywords):
-        raise InvalidRuleConfiguration("keyword rule requires a non-empty 'keywords' list")
-    mode = rule.parameters.get("mode", "forbidden")
-    if mode not in {"forbidden", "required"}:
-        raise InvalidRuleConfiguration("keyword 'mode' must be 'forbidden' or 'required'")
-    match_mode = rule.parameters.get("match", "literal")
-    if match_mode not in {"literal", "stem", "regex"}:
-        raise InvalidRuleConfiguration("keyword 'match' must be 'literal', 'stem', or 'regex'")
-    findings = []
-    for keyword in keywords:
-        pattern = _keyword_pattern(keyword, mode, match_mode)
-        try:
-            matches = tuple(re.finditer(pattern, text, re.IGNORECASE))
-        except re.error as exc:
-            raise InvalidRuleConfiguration(f"invalid keyword pattern: {exc}") from exc
-        if mode == "required":
-            if not matches:
-                findings.append(_draft(rule, text, None, None))
-            continue
-        for match in matches:
-            findings.append(_draft(rule, text, match.start(), match.end()))
-    return tuple(findings)
-
-
-def _keyword_pattern(keyword: str, mode: str, match_mode: str) -> str:
-    if match_mode == "regex":
-        return keyword
-    if match_mode == "stem" or mode == "required":
-        stem = keyword.rstrip("аяоеыиьъ")
-        return rf"\b{re.escape(stem)}[а-я-]*\b"
-    return re.escape(keyword)
-
-
-def _regex_findings(rule: RuleSpec, text: str) -> tuple[FindingDraft, ...]:
-    pattern = rule.parameters.get("pattern")
-    if not isinstance(pattern, str) or not pattern:
-        raise InvalidRuleConfiguration("regex rule requires a non-empty 'pattern'")
     try:
-        matches = re.finditer(pattern, text, re.IGNORECASE)
-    except re.error as exc:
-        raise InvalidRuleConfiguration(f"invalid regex: {exc}") from exc
-    return tuple(_draft(rule, text, match.start(), match.end()) for match in matches)
+        constraint = validate_manual_constraint(rule.constraint_json)
+    except RuleValidationError as exc:
+        raise InvalidRuleConfiguration(str(exc)) from exc
+    if constraint is None:
+        return ()
+
+    kind = str(constraint["kind"])
+    operator = str(constraint["operator"])
+    entity_tuple = tuple(entities)
+
+    if kind == "value":
+        target = float(constraint["value"])
+        unit = str(constraint["unit"])
+        if unit == "day":
+            return _day_value_findings(rule, text, entity_tuple, operator, target)
+        entity_kind = {"byn": "money", "%": "percent", "hour": "number"}[unit]
+        return _numeric_entity_findings(
+            rule, text, entity_tuple, entity_kind, operator, target
+        )
+    if kind == "frequency":
+        return _frequency_findings(
+            rule,
+            text,
+            operator=operator,
+            target=float(constraint["count"]),
+            period=str(constraint["period"]),
+        )
+    if kind == "day_of_month":
+        return _day_of_month_findings(
+            rule,
+            text,
+            operator=operator,
+            target=float(constraint["day"]),
+        )
+    raise InvalidRuleConfiguration(f"unsupported constraint kind: {kind}")
 
 
-def _numeric_findings(
+def _satisfies(actual: float, operator: str, target: float) -> bool:
+    if operator == "gte":
+        return actual >= target
+    if operator == "gt":
+        return actual > target
+    if operator == "lte":
+        return actual <= target
+    if operator == "lt":
+        return actual < target
+    if operator == "eq":
+        return math.isclose(actual, target, rel_tol=0.0, abs_tol=1e-6)
+    raise InvalidRuleConfiguration(f"unsupported operator: {operator}")
+
+
+def _numeric_entity_findings(
     rule: RuleSpec,
     text: str,
     entities: tuple[ExtractedEntity, ...],
+    entity_kind: str,
+    operator: str,
+    target: float,
 ) -> tuple[FindingDraft, ...]:
-    kind = rule.parameters.get("entity", "number")
-    minimum = rule.parameters.get("min")
-    maximum = rule.parameters.get("max")
-    if kind not in {"number", "duration", "money", "percent"}:
-        raise InvalidRuleConfiguration(f"unsupported numeric entity: {kind}")
-    if minimum is None and maximum is None:
-        raise InvalidRuleConfiguration("numeric rule requires 'min' or 'max'")
-    findings = []
+    findings: list[FindingDraft] = []
     for entity in entities:
-        if entity.kind != kind:
+        if entity.kind != entity_kind:
             continue
         value_match = re.search(r"\d+(?:[.,]\d+)?", entity.value)
         if value_match is None:
             continue
         value = float(value_match.group().replace(",", "."))
-        violates = (minimum is not None and value < _number(minimum)) or (
-            maximum is not None and value > _number(maximum)
-        )
-        if violates:
+        if not _satisfies(value, operator, target):
             findings.append(_draft(rule, text, entity.start_char, entity.end_char))
     return tuple(findings)
 
 
-def _date_findings(
+def _day_value_findings(
     rule: RuleSpec,
     text: str,
     entities: tuple[ExtractedEntity, ...],
+    operator: str,
+    target: float,
 ) -> tuple[FindingDraft, ...]:
-    before = _date_parameter(rule.parameters.get("before"), "before")
-    after = _date_parameter(rule.parameters.get("after"), "after")
-    if before is None and after is None:
-        raise InvalidRuleConfiguration("date rule requires 'before' or 'after' in ISO format")
-    findings = []
-    for entity in entities:
-        if entity.kind != "date":
-            continue
-        value = _parse_date(entity.value)
-        if (before is not None and value >= before) or (after is not None and value <= after):
-            findings.append(_draft(rule, text, entity.start_char, entity.end_char))
-    return tuple(findings)
-
-
-def _duration_findings(
-    rule: RuleSpec,
-    text: str,
-    entities: tuple[ExtractedEntity, ...],
-) -> tuple[FindingDraft, ...]:
-    minimum = rule.parameters.get("min_days")
-    maximum = rule.parameters.get("max_days")
-    if minimum is None and maximum is None:
-        raise InvalidRuleConfiguration("duration rule requires 'min_days' or 'max_days'")
-    minimum_value = _number(minimum) if minimum is not None else None
-    maximum_value = _number(maximum) if maximum is not None else None
-    findings = []
+    findings: list[FindingDraft] = []
     duration_entities = [entity for entity in entities if entity.kind == "duration"]
     if not duration_entities:
-        findings.extend(_date_interval_findings(rule, text, entities, minimum_value, maximum_value))
+        findings.extend(_date_interval_findings(rule, text, entities, operator, target))
     for entity in duration_entities:
-        if entity.kind != "duration":
-            continue
         value = _duration_days(entity.value)
-        if (minimum_value is not None and value < minimum_value) or (
-            maximum_value is not None and value > maximum_value
-        ):
+        if not _satisfies(value, operator, target):
             findings.append(_draft(rule, text, entity.start_char, entity.end_char))
     return tuple(findings)
 
@@ -157,31 +140,55 @@ def _date_interval_findings(
     rule: RuleSpec,
     text: str,
     entities: tuple[ExtractedEntity, ...],
-    minimum: float | None,
-    maximum: float | None,
+    operator: str,
+    target: float,
 ) -> tuple[FindingDraft, ...]:
     dates = [entity for entity in entities if entity.kind == "date"]
-    findings = []
+    findings: list[FindingDraft] = []
     for start_entity, end_entity in zip(dates, dates[1:]):
-        delta = abs((_parse_date(end_entity.value) - _parse_date(start_entity.value)).days)
-        if (minimum is not None and delta < minimum) or (
-            maximum is not None and delta > maximum
-        ):
+        delta = float(abs((_parse_date(end_entity.value) - _parse_date(start_entity.value)).days))
+        if not _satisfies(delta, operator, target):
             start = min(start_entity.start_char, end_entity.start_char)
             end = max(start_entity.end_char, end_entity.end_char)
             findings.append(_draft(rule, text, start, end))
     return tuple(findings)
 
 
-def _date_parameter(value: Any, name: str) -> date | None:
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise InvalidRuleConfiguration(f"{name} must be an ISO date")
-    try:
-        return date.fromisoformat(value)
-    except ValueError as exc:
-        raise InvalidRuleConfiguration(f"{name} must be an ISO date") from exc
+def _frequency_findings(
+    rule: RuleSpec,
+    text: str,
+    *,
+    operator: str,
+    target: float,
+    period: str,
+) -> tuple[FindingDraft, ...]:
+    expected_period = "месяц" if period == "month" else "год"
+    findings: list[FindingDraft] = []
+    for match in _FREQUENCY_PATTERN.finditer(text):
+        raw_count, raw_period = match.group(1).casefold(), match.group(2).casefold()
+        if raw_period != expected_period:
+            continue
+        actual = float(
+            _FREQUENCY_WORDS[raw_count] if raw_count in _FREQUENCY_WORDS else int(raw_count)
+        )
+        if not _satisfies(actual, operator, target):
+            findings.append(_draft(rule, text, match.start(), match.end()))
+    return tuple(findings)
+
+
+def _day_of_month_findings(
+    rule: RuleSpec,
+    text: str,
+    *,
+    operator: str,
+    target: float,
+) -> tuple[FindingDraft, ...]:
+    findings: list[FindingDraft] = []
+    for match in _DAY_OF_MONTH_PATTERN.finditer(text):
+        actual = float(int(match.group(1)))
+        if not _satisfies(actual, operator, target):
+            findings.append(_draft(rule, text, match.start(), match.end()))
+    return tuple(findings)
 
 
 def _parse_date(value: str) -> date:
@@ -201,8 +208,8 @@ def _parse_date(value: str) -> date:
 
 def _duration_days(value: str) -> float:
     match = re.search(
-        r"(\d+(?:[.,]\d+)?)\s*(?:[а-я-]+\s+){0,3}"
-        r"(дн(?:я|ей)?|месяц(?:а|ев)?|лет?|год(?:а|ов)?)",
+        r"(\d+(?:[.,]\d+)?)\s*(?:[а-яa-z-]+\s+){0,3}"
+        r"(дн(?:я|ей)?|день|месяц(?:а|ев)?|лет?|год(?:а|ов)?|days?)",
         value.casefold(),
     )
     if match is None:
@@ -216,20 +223,11 @@ def _duration_days(value: str) -> float:
     return amount
 
 
-def _number(value: Any) -> float:
-    if isinstance(value, bool):
-        raise InvalidRuleConfiguration("numeric limits must be numbers")
-    try:
-        return float(value)
-    except (TypeError, ValueError) as exc:
-        raise InvalidRuleConfiguration("numeric limits must be numbers") from exc
-
-
 def _draft(
     rule: RuleSpec, text: str, start: int | None, end: int | None
 ) -> FindingDraft:
     quote = text[start:end] if start is not None and end is not None else None
-    description = rule.description or rule.name
+    description = rule.constraint_text or rule.subject
     return FindingDraft(
         rule_id=rule.rule_id,
         rule_code=rule.rule_code,
@@ -238,10 +236,10 @@ def _draft(
         start_char=start,
         end_char=end,
         quote=quote,
-        recommendation=rule.parameters.get("recommendation"),
+        recommendation=None,
         legal_act_id=rule.legal_act_id,
         deduplication_key=f"{rule.rule_code}:{start}:{end}:{description}",
-        check_type=rule.check_type,
         norm_quote=rule.source_quote,
-        rule_name=rule.name,
+        rule_name=rule.subject,
+        requires_confirmation=True,
     )

@@ -200,14 +200,14 @@ def test_create_rule_audit_and_get_report(tmp_path: Path) -> None:
         "/api/rules",
         json={
             "rule_code": "leave-short",
-            "name": "Short leave",
+            "subject": "Short leave",
+            "constraint_text": "Leave must be at least 24 days",
+            "constraint_json": {"kind": "value", "operator": "gte", "value": 24, "unit": "day"},
             "severity": "high",
-            "check_type": "keyword",
-            "parameters": {"keywords": ["14 days"]},
         },
     )
     assert rule.status_code == 201
-    assert client.get("/api/rules?check_type=keyword").json()[0]["rule_code"] == "leave-short"
+    assert client.get("/api/rules").json()[0]["rule_code"] == "leave-short"
 
     audit = client.post(
         f"/api/documents/{document_id}/audit",
@@ -246,10 +246,10 @@ def test_audit_fails_without_report_when_model_is_unavailable(
         "/api/rules",
         json={
             "rule_code": "leave-check",
-            "name": "Leave check",
+            "subject": "Leave check",
+            "constraint_text": "Leave must be at least 24 days",
+            "constraint_json": {"kind": "value", "operator": "gte", "value": 24, "unit": "day"},
             "severity": "high",
-            "check_type": "keyword",
-            "parameters": {"keywords": ["14 days"]},
         },
     )
 
@@ -341,11 +341,9 @@ def test_delete_legal_act_removes_rules_and_preserves_findings(tmp_path: Path) -
         "/api/rules",
         json={
             "rule_code": "linked-rule",
-            "name": "Linked rule",
-            "description": "Linked to the legal act",
+            "subject": "Linked rule",
+            "constraint_text": "Linked to the legal act",
             "severity": "low",
-            "check_type": "keyword",
-            "parameters": {"keywords": ["leave"]},
             "legal_act_id": legal_act_id,
         },
     )
@@ -399,10 +397,10 @@ def test_report_document_endpoints(tmp_path: Path) -> None:
         "/api/rules",
         json={
             "rule_code": "web-ui-leave-check",
-            "name": "Leave check",
+            "subject": "Leave check",
+            "constraint_text": "Leave must be at least 24 days",
+            "constraint_json": {"kind": "value", "operator": "gte", "value": 24, "unit": "day"},
             "severity": "high",
-            "check_type": "keyword",
-            "parameters": {"keywords": ["14 days"]},
         },
     )
     audit = client.post(
@@ -471,17 +469,15 @@ def test_upload_legal_act_generates_neural_rule(
             assert "24" in text
             return (
                 {
-                    "rule_code": "leave-minimum",
-                    "name": "Минимальная продолжительность отпуска",
-                    "description": "Отпуск предоставляется продолжительностью не менее 24 календарных дня.",
+                    "subject": "Минимальная продолжительность отпуска",
+                    "constraint_text": "Отпуск предоставляется продолжительностью не менее 24 календарных дня.",
+                    "constraint_json": {"kind": "value", "operator": "gte", "value": 24, "unit": "day"},
+                    "condition": "",
                     "severity": "high",
-                    "check_type": "duration",
-                    "parameters": {"min_days": 24},
                     "source_quote": (
                         "Отпуск предоставляется продолжительностью не менее "
                         "24 календарных дня."
                     ),
-                    "source_location": source_location,
                 },
             )
 
@@ -521,7 +517,12 @@ def test_upload_legal_act_generates_neural_rule(
     assert rules[0]["is_generated"] is True
     assert rules[0]["source_quote"].startswith("Отпуск предоставляется")
     assert rules[0]["legal_act_id"] == response.json()["id"]
-    assert rules[0]["parameters"]["min_days"] == 24
+    assert rules[0]["constraint_json"] == {
+        "kind": "value",
+        "operator": "gte",
+        "value": 24,
+        "unit": "day",
+    }
     assert response.json()["processing_status"] == "completed"
     assert response.json()["chunks_total"] == 1
     assert response.json()["rules_accepted"] == 1
@@ -545,14 +546,12 @@ def test_generated_rule_gets_structural_location_and_chunk_context(
         def extract_rules(self, text: str, *, source_location: str, context: str = "", **_):
             contexts.append(context)
             return ({
-                "rule_code": "pay-method",
-                "name": "Способ выплаты",
-                "description": "В приказе указывается способ выплаты.",
+                "subject": "Способ выплаты",
+                "constraint_text": "В приказе указывается способ выплаты.",
+                "constraint_json": None,
+                "condition": "",
                 "severity": "medium",
-                "check_type": "keyword",
-                "parameters": {"keywords": ["способ выплаты"], "mode": "required"},
                 "source_quote": "2) способ выплаты.",
-                "source_location": source_location,
             },)
 
     monkeypatch.setattr(
@@ -575,7 +574,7 @@ def test_generated_rule_gets_structural_location_and_chunk_context(
     assert stored[rule["source_start"]:rule["source_end"]] == "2) способ выплаты."
 
 
-def test_reprocess_replaces_generated_rules_atomically(tmp_path: Path, monkeypatch) -> None:
+def test_reprocess_preserves_rule_identity_and_manual_edits(tmp_path: Path, monkeypatch) -> None:
     calls = {"count": 0}
 
     class FakeRuleExtractor:
@@ -583,14 +582,12 @@ def test_reprocess_replaces_generated_rules_atomically(tmp_path: Path, monkeypat
             calls["count"] += 1
             return (
                 {
-                    "rule_code": "model-code",
-                    "name": "Минимальный срок",
-                    "description": "Срок не менее 24 дней.",
+                    "subject": "Минимальный срок",
+                    "constraint_text": "Срок не менее 24 дней.",
+                    "constraint_json": {"kind": "value", "operator": "gte", "value": 24, "unit": "day"},
+                    "condition": "",
                     "severity": "high",
-                    "check_type": "duration",
-                    "parameters": {"min_days": 24},
                     "source_quote": "Срок не менее 24 дней.",
-                    "source_location": source_location,
                 },
             )
 
@@ -606,15 +603,32 @@ def test_reprocess_replaces_generated_rules_atomically(tmp_path: Path, monkeypat
     )
     assert response.status_code == 201
     legal_act_id = response.json()["id"]
-    first_code = client.get("/api/rules").json()[0]["rule_code"]
+    first_rule = client.get("/api/rules").json()[0]
+    first_code = first_rule["rule_code"]
+
+    # Human edits severity on the generated rule and adds a manual rule to the act.
+    client.patch(f"/api/rules/{first_rule['id']}", json={"severity": "critical"})
+    manual = client.post(
+        "/api/rules",
+        json={
+            "rule_code": "MANUAL-KEEP",
+            "subject": "Ручное правило",
+            "constraint_text": "Должно сохраниться",
+            "severity": "low",
+            "legal_act_id": legal_act_id,
+        },
+    ).json()
 
     response = client.post(f"/api/legal-acts/{legal_act_id}/reprocess")
 
     assert response.status_code == 200
     assert calls["count"] == 2
     rules = client.get("/api/rules").json()
-    assert len(rules) == 1
-    assert rules[0]["rule_code"] == first_code
+    assert len(rules) == 2
+    by_code = {item["rule_code"]: item for item in rules}
+    assert by_code[first_code]["id"] == first_rule["id"]
+    assert by_code[first_code]["severity"] == "critical"
+    assert by_code["MANUAL-KEEP"]["id"] == manual["id"]
     with client.app.state.session_factory() as session:
         result = session.scalar(
             select(RuleExtractionResult).where(
@@ -624,26 +638,47 @@ def test_reprocess_replaces_generated_rules_atomically(tmp_path: Path, monkeypat
         assert result.status == "accepted"
 
 
-def test_failed_chunk_is_persisted_without_publishing_partial_rules(
+def test_failed_chunk_publishes_rules_from_good_chunks_and_can_be_retried_alone(
     tmp_path: Path, monkeypatch
 ) -> None:
-    calls = []
+    calls: list[str] = []
+    fail_second = {"value": True}
 
     class FakeRuleExtractor:
         def extract_rules(self, text: str, *, source_language: str, source_location: str, **_):
             calls.append(source_location)
-            if source_location.endswith("chunk-1"):
+            if source_location.endswith("chunk-1") and fail_second["value"]:
                 raise RuntimeError("provider unavailable")
-            return ()
+            if source_location.endswith("chunk-1"):
+                return (
+                    {
+                        "subject": "Второе правило",
+                        "constraint_text": "Вторая статья.",
+                        "constraint_json": None,
+                        "condition": "",
+                        "severity": "medium",
+                        "source_quote": "Вторая статья.",
+                    },
+                )
+            return (
+                {
+                    "subject": "Первое правило",
+                    "constraint_text": "Первая статья.",
+                    "constraint_json": None,
+                    "condition": "",
+                    "severity": "low",
+                    "source_quote": "Первая статья.",
+                },
+            )
 
     def fake_chunks(structure, *, legal_act_id, **kwargs):
         return [
             LegalActChunk(
-                f"legal-act-{legal_act_id}:chunk-{index}", index, start, start + len(part), part
-            )
-            for index, (part, start) in enumerate(
-                (("First article", 0), ("Second article", 14))
-            )
+                f"legal-act-{legal_act_id}:chunk-0", 0, 0, 14, "Первая статья."
+            ),
+            LegalActChunk(
+                f"legal-act-{legal_act_id}:chunk-1", 1, 15, 29, "Вторая статья."
+            ),
         ]
 
     monkeypatch.setattr("edm_auditor.api.app.chunk_legal_act", fake_chunks)
@@ -655,21 +690,39 @@ def test_failed_chunk_is_persisted_without_publishing_partial_rules(
 
     response = client.post(
         "/api/legal-acts/upload",
-        data={"code": "ACT-FAILED-CHUNK", "title": "Act"},
-        files={"file": ("act.txt", b"First article Second article", "text/plain")},
+        data={"code": "ACT-PARTIAL-CHUNK", "title": "Act"},
+        files={"file": ("act.txt", "Первая статья. Вторая статья.".encode(), "text/plain")},
     )
 
-    assert response.status_code == 503
-    legal_act_id = client.get("/api/legal-acts").json()[0]["id"]
+    assert response.status_code == 201
+    legal_act_id = response.json()["id"]
     assert calls == [
         f"legal-act-{legal_act_id}:chunk-0",
         f"legal-act-{legal_act_id}:chunk-1",
     ]
+    assert [item["subject"] for item in client.get("/api/rules").json()] == ["Первое правило"]
     diagnostics = client.get(f"/api/legal-acts/{legal_act_id}/diagnostics").json()
-    assert diagnostics["processing_status"] == "failed"
+    assert diagnostics["processing_status"] == "partial"
     assert [item["status"] for item in diagnostics["diagnostics"]] == [
         "accepted",
         "failed",
+    ]
+
+    # Retry only the failed chunk without touching chunk-0.
+    fail_second["value"] = False
+    retried = client.post(
+        f"/api/legal-acts/{legal_act_id}/reprocess", params={"only_failed": "true"}
+    )
+    assert retried.status_code == 200
+    assert retried.json()["processing_status"] == "completed"
+    assert calls == [
+        f"legal-act-{legal_act_id}:chunk-0",
+        f"legal-act-{legal_act_id}:chunk-1",
+        f"legal-act-{legal_act_id}:chunk-1",
+    ]
+    assert [item["subject"] for item in client.get("/api/rules").json()] == [
+        "Первое правило",
+        "Второе правило",
     ]
 
 
@@ -679,11 +732,9 @@ def test_delete_rule_preserves_existing_findings_and_rebuilds_index(tmp_path: Pa
         "/api/rules",
         json={
             "rule_code": "temporary-rule",
-            "name": "Temporary rule",
-            "description": "Temporary check",
+            "subject": "Temporary rule",
+            "constraint_text": "Temporary check",
             "severity": "low",
-            "check_type": "keyword",
-            "parameters": {"keywords": ["temporary"]},
         },
     )
     assert response.status_code == 201
@@ -696,13 +747,14 @@ def test_delete_rule_preserves_existing_findings_and_rebuilds_index(tmp_path: Pa
     assert client.delete(f"/api/rules/{rule_id}").status_code == 404
 
 
-def _rule_payload(code: str, keyword: str, **extra) -> dict:
+def _rule_payload(code: str, keyword: str = "", **extra) -> dict:
     return {
         "rule_code": code,
-        "name": code,
+        "subject": code,
+        "constraint_text": f"Требование {code} ({keyword})",
+        "constraint_json": {"kind": "value", "operator": "lte", "value": 3, "unit": "day"},
+        "condition": "",
         "severity": "high",
-        "check_type": "keyword",
-        "parameters": {"keywords": [keyword]},
         **extra,
     }
 
@@ -1043,14 +1095,12 @@ def test_generated_rules_follow_legal_act_types_and_stay_unknown_otherwise(
             assert {item.code for item in options["document_types"]} >= {"vacation_order"}
             return (
                 {
-                    "rule_code": "model",
-                    "name": "Срок",
-                    "description": "Срок не менее 24 дней.",
+                    "subject": "Срок",
+                    "constraint_text": "Срок не менее 24 дней.",
+                    "constraint_json": {"kind": "value", "operator": "gte", "value": 24, "unit": "day"},
+                    "condition": "",
                     "severity": "high",
-                    "check_type": "duration",
-                    "parameters": {"min_days": 24},
                     "source_quote": "Срок не менее 24 дней.",
-                    "source_location": source_location,
                     **answers[options["legal_act_title"]],
                 },
             )
@@ -1204,14 +1254,12 @@ def _legal_act_extractor(*answers: dict):
         def extract_rules(self, text: str, *, source_language: str, source_location: str, **_):
             return tuple(
                 {
-                    "rule_code": f"model-{index}",
-                    "name": "Срок",
-                    "description": "Срок не менее 24 дней.",
+                    "subject": f"Срок {index}" if len(answers) > 1 else "Срок",
+                    "constraint_text": "Срок не менее 24 дней.",
+                    "constraint_json": {"kind": "value", "operator": "gte", "value": 24, "unit": "day"},
+                    "condition": "",
                     "severity": "high",
-                    "check_type": "duration",
-                    "parameters": {"min_days": 24 + index},
                     "source_quote": f"Пункт {index}: срок не менее 24 дней.",
-                    "source_location": source_location,
                     **answer,
                 }
                 for index, answer in enumerate(answers)
@@ -1415,11 +1463,9 @@ def test_audit_refuses_a_document_needing_too_many_model_requests(
         "/api/rules",
         json={
             "rule_code": "universal-rule",
-            "name": "Правило",
+            "subject": "Правило",
+            "constraint_text": "Ключевое слово",
             "severity": "low",
-            "check_type": "keyword",
-            "description": "Ключевое слово",
-            "parameters": {"keywords": ["запрет"], "mode": "forbidden"},
         },
     )
     with client.app.state.session_factory.begin() as session:
@@ -1452,10 +1498,10 @@ def _add_universal_rule(client: TestClient) -> None:
         "/api/rules",
         json={
             "rule_code": "universal-rule",
-            "name": "Правило",
+            "subject": "Правило",
+            "constraint_text": "Срок не более 3 дней.",
+            "constraint_json": {"kind": "value", "operator": "lte", "value": 3, "unit": "day"},
             "severity": "low",
-            "check_type": "keyword",
-            "parameters": {"keywords": ["запрет"], "mode": "forbidden"},
         },
     )
     assert created.status_code == 201
@@ -1652,15 +1698,15 @@ def test_rule_deleted_during_the_audit_does_not_break_the_report(
     )
     client = make_client(tmp_path)
     holder["client"] = client
-    document = _upload(client, "Приказ о командировке. Запрет.")
+    document = _upload(client, "Приказ о командировке. Отпуск 14 дней.")
     created = client.post(
         "/api/rules",
         json={
             "rule_code": "deleted-rule",
-            "name": "Правило",
+            "subject": "Правило",
+            "constraint_text": "Отпуск не менее 24 дней.",
+            "constraint_json": {"kind": "value", "operator": "gte", "value": 24, "unit": "day"},
             "severity": "low",
-            "check_type": "keyword",
-            "parameters": {"keywords": ["запрет"], "mode": "forbidden"},
         },
     )
     holder["rule_id"] = created.json()["id"]
@@ -1722,29 +1768,26 @@ def test_text_change_of_an_unprocessed_act_needs_no_reprocessing(tmp_path: Path)
 
 
 @pytest.mark.parametrize(
-    "check_type, parameters",
+    "constraint_json",
     [
-        ("regex", {"pattern": "("}),
-        ("regex", {}),
-        ("keyword", {}),
-        ("keyword", {"keywords": []}),
-        ("duration", {}),
-        ("numeric", {"field": "x"}),
-        ("numeric", {"entity": "money"}),
-        ("date", {"before": "завтра"}),
+        {"kind": "regex", "pattern": "("},
+        {"kind": "value", "operator": "gte", "value": -5, "unit": "day"},
+        {"kind": "value", "operator": "gte", "value": 10, "unit": "weeks"},
+        {"kind": "frequency", "operator": "gte", "count": 0, "period": "month"},
+        {"kind": "day_of_month", "operator": "lte", "day": 35},
     ],
 )
-def test_rule_with_invalid_parameters_is_rejected(tmp_path, check_type, parameters) -> None:
+def test_rule_with_invalid_parameters_is_rejected(tmp_path, constraint_json) -> None:
     client = make_client(tmp_path)
 
     response = client.post(
         "/api/rules",
         json={
             "rule_code": "broken",
-            "name": "Правило",
+            "subject": "Правило",
+            "constraint_text": "Текст ограничения",
+            "constraint_json": constraint_json,
             "severity": "low",
-            "check_type": check_type,
-            "parameters": parameters,
         },
     )
 
@@ -1753,21 +1796,23 @@ def test_rule_with_invalid_parameters_is_rejected(tmp_path, check_type, paramete
     assert client.get("/api/rules").json() == []
 
 
-def test_manual_rule_may_carry_a_recommendation(tmp_path: Path) -> None:
+def test_manual_rule_may_carry_a_condition_and_null_structure(tmp_path: Path) -> None:
     client = make_client(tmp_path)
 
     response = client.post(
         "/api/rules",
         json={
-            "rule_code": "with-advice",
-            "name": "Правило",
+            "rule_code": "with-condition",
+            "subject": "Правило",
+            "constraint_text": "Не допускается штраф.",
+            "condition": "для дистанционных работников",
+            "constraint_json": None,
             "severity": "low",
-            "check_type": "keyword",
-            "parameters": {"keywords": ["штраф"], "recommendation": "Убрать."},
         },
     )
 
     assert response.status_code == 201
+    assert response.json()["condition"] == "для дистанционных работников"
 
 
 def test_legal_act_code_must_be_unique(tmp_path: Path) -> None:
@@ -1950,15 +1995,21 @@ def test_rule_can_be_edited_and_switched_off(tmp_path: Path) -> None:
 
     updated = client.patch(
         url,
-        json={"name": "Новое", "severity": "low", "description": "Текст",
-              "parameters": {"keywords": ["другое"]}},
+        json={
+            "subject": "Новое",
+            "severity": "low",
+            "constraint_text": "Текст",
+            "constraint_json": {"kind": "value", "operator": "gte", "value": 10, "unit": "day"},
+        },
     )
 
     assert updated.status_code == 200
-    assert {key: updated.json()[key] for key in ("name", "severity", "description")} == {
-        "name": "Новое", "severity": "low", "description": "Текст",
+    assert {key: updated.json()[key] for key in ("subject", "severity", "constraint_text")} == {
+        "subject": "Новое", "severity": "low", "constraint_text": "Текст",
     }
-    assert updated.json()["parameters"] == {"keywords": ["другое"]}
+    assert updated.json()["constraint_json"] == {
+        "kind": "value", "operator": "gte", "value": 10, "unit": "day"
+    }
     assert updated.json()["is_active"] is True
 
     preview = f"/api/documents/{document['id']}/audit/preview"
@@ -1972,14 +2023,11 @@ def test_rule_can_be_edited_and_switched_off(tmp_path: Path) -> None:
     ("payload", "status", "code"),
     [
         ({"severity": "urgent"}, 422, "invalid_severity"),
-        ({"check_type": "unknown"}, 422, "invalid_check_type"),
-        ({"check_type": "semantic", "parameters": {"query": "x"}}, 422, "unsupported_check_type"),
-        ({"parameters": {"keywords": []}}, 422, "invalid_rule_parameters"),
-        # The new type does not fit the parameters the rule already has.
-        ({"check_type": "duration"}, 422, "invalid_rule_parameters"),
-        ({"name": None}, 422, "validation_error"),
+        ({"constraint_json": {"kind": "unknown"}}, 422, "invalid_rule_parameters"),
+        ({"constraint_json": {"kind": "value", "operator": "gte", "value": -1, "unit": "day"}}, 422, "invalid_rule_parameters"),
+        ({"subject": None}, 422, "validation_error"),
+        ({"constraint_text": None}, 422, "validation_error"),
         ({"is_active": None}, 422, "validation_error"),
-        ({"parameters": None}, 422, "validation_error"),
     ],
 )
 def test_rule_update_rejects_invalid_values(
@@ -1995,17 +2043,10 @@ def test_rule_update_rejects_invalid_values(
     assert client.get("/api/rules").json()[0] == rule
 
 
-def test_rule_update_of_a_missing_rule_and_semantic_creation_are_refused(tmp_path: Path) -> None:
+def test_rule_update_of_a_missing_rule_is_refused(tmp_path: Path) -> None:
     client = make_client(tmp_path)
 
-    assert client.patch("/api/rules/404", json={"name": "x"}).status_code == 404
-    created = client.post(
-        "/api/rules",
-        json={**_rule_payload("semantic", "x"), "check_type": "semantic",
-              "parameters": {"query": "срок"}},
-    )
-    assert created.status_code == 422
-    assert created.json()["error"]["code"] == "unsupported_check_type"
+    assert client.patch("/api/rules/404", json={"subject": "x"}).status_code == 404
 
 
 def test_only_indexed_fields_of_an_act_rule_rebuild_the_index(
@@ -2022,7 +2063,7 @@ def test_only_indexed_fields_of_an_act_rule_rebuild_the_index(
 
     assert client.patch(f"/api/rules/{rule_id}", json={"severity": "low"}).status_code == 200
     assert rebuilds == []
-    assert client.patch(f"/api/rules/{rule_id}", json={"name": "Другое"}).status_code == 200
+    assert client.patch(f"/api/rules/{rule_id}", json={"subject": "Другое"}).status_code == 200
     assert rebuilds == [1]
 
 
@@ -2131,7 +2172,7 @@ def test_rule_cannot_be_enabled_when_all_its_types_are_deactivated(tmp_path: Pat
     refused = client.patch(f"/api/rules/{rule['id']}", json={"is_active": True})
     assert refused.status_code == 409
     assert refused.json()["error"]["code"] == "rule_document_types_inactive"
-    assert client.patch(f"/api/rules/{rule['id']}", json={"name": "renamed"}).status_code == 200
+    assert client.patch(f"/api/rules/{rule['id']}", json={"subject": "renamed"}).status_code == 200
     # A rule that still has an active type can be enabled.
     assert client.patch(f"/api/rules/{mixed['id']}", json={"is_active": True}).status_code == 200
 
@@ -2151,10 +2192,10 @@ def test_report_export_downloads_html_and_validates_parameters(tmp_path: Path) -
         "/api/rules",
         json={
             "rule_code": "export-leave-check",
-            "name": "Leave check",
+            "subject": "Leave check",
+            "constraint_text": "Leave must be at least 24 days",
+            "constraint_json": {"kind": "value", "operator": "gte", "value": 24, "unit": "day"},
             "severity": "high",
-            "check_type": "keyword",
-            "parameters": {"keywords": ["14 days"]},
         },
     )
     audit = client.post(

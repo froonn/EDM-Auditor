@@ -23,9 +23,9 @@ def rule(rule_id, scope="unknown", types=(), act=None, active=True) -> RuleSpec:
     return RuleSpec(
         rule_id=rule_id,
         rule_code=f"rule-{rule_id}",
-        name=f"Rule {rule_id}",
+        subject=f"Rule {rule_id}",
+        constraint_text=f"Constraint {rule_id}",
         severity="high",
-        check_type="keyword",
         applicability_scope=scope,
         document_types=types,
         legal_act_id=act,

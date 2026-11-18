@@ -257,7 +257,7 @@ function RulesChoice({
                   <SeverityBadge severity={rule.severity} />
                 </td>
                 <td className="py-2 pr-3">
-                  <p className="font-medium">{rule.name}</p>
+                  <p className="font-medium">{rule.subject}</p>
                   <p className="font-mono text-xs text-muted-foreground">{rule.rule_code}</p>
                 </td>
                 <td className="py-2 pr-3">{rule.legal_act_id ? (actCodes.get(rule.legal_act_id) ?? "—") : "—"}</td>
@@ -271,7 +271,7 @@ function RulesChoice({
                 </td>
                 <td className="py-2">
                   <select
-                    aria-label={`${t("config.column.choice")}: ${rule.name}`}
+                    aria-label={`${t("config.column.choice")}: ${rule.subject}`}
                     value={choices.get(rule.id) ?? "auto"}
                     onChange={(event) => onChoose(rule.id, event.target.value as RuleChoice)}
                     className="h-8 rounded-md border bg-card px-2"
@@ -318,7 +318,7 @@ function PreviewResult({ preview, acts, stale }: { preview: AuditPreview; acts: 
               {decision.selected ? t("config.ruleSelected") : t("config.ruleSkipped")}
             </span>
             <span>
-              {decision.name} <span className="font-mono text-xs text-muted-foreground">{decision.rule_code}</span>
+              {decision.subject} <span className="font-mono text-xs text-muted-foreground">{decision.rule_code}</span>
               <span className="text-muted-foreground">
                 {" "}
                 — {tOptional(`reason.${decision.reason}`) ?? decision.reason}

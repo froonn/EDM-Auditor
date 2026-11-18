@@ -10,13 +10,13 @@ class RuleSpec:
 
     rule_id: int
     rule_code: str
-    name: str
+    subject: str
+    constraint_text: str
     severity: str
-    check_type: str
-    description: str = ""
+    condition: str = ""
+    constraint_json: dict[str, Any] | None = None
     applicability_scope: str = "unknown"
     document_types: tuple[str, ...] = ()
-    parameters: dict[str, Any] = field(default_factory=dict)
     legal_act_id: int | None = None
     is_active: bool = True
     source_quote: str | None = None
@@ -55,9 +55,9 @@ class FindingDraft:
     legal_act_id: int | None = None
     deduplication_key: str = ""
     source_context: dict[str, Any] | None = None
-    check_type: str = ""
     norm_quote: str | None = None
     rule_name: str = ""
+    requires_confirmation: bool = False
 
 
 @dataclass(frozen=True, slots=True)

@@ -70,7 +70,13 @@ class DatabaseIndexSourceLoader:
                 ):
                     rule_context = "\n\n".join(
                         part
-                        for part in (act.title, rule.name, rule.description, act.article_text)
+                        for part in (
+                            act.title,
+                            rule.subject,
+                            rule.constraint_text,
+                            rule.condition,
+                            act.article_text,
+                        )
                         if part
                     )
                     sources.append(

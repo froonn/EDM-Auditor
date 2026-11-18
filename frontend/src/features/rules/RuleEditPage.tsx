@@ -6,11 +6,9 @@ import { Link, useNavigate, useParams } from "react-router";
 import { hasErrorCode } from "@/api/client";
 import { api } from "@/api/endpoints";
 import {
-  CHECK_TYPES,
   MANUAL_SCOPES,
   SEVERITIES,
   type ApplicabilityScope,
-  type CheckType,
   type Rule,
 } from "@/api/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -23,7 +21,6 @@ import { TypeChecklist } from "@/features/shared/TypeChecklist";
 import { useI18n } from "@/i18n";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 
-import { InvalidNumber, toForm, toParameters, type ParameterForm } from "./ruleParameters";
 
 export function RuleEditPage() {
   const { id } = useParams();
@@ -60,7 +57,7 @@ function RuleScreen({ rule }: { rule: Rule | null }) {
         {t("rules.back")}
       </Link>
       <div className="flex items-start gap-4">
-        <h1 className="flex-1 text-2xl font-semibold">{rule ? rule.name : t("rules.createTitle")}</h1>
+        <h1 className="flex-1 text-2xl font-semibold">{rule ? (rule.subject ?? rule.name ?? "") : t("rules.createTitle")}</h1>
         {rule && (
           <Button variant="destructive" onClick={() => setConfirmDelete(true)} disabled={remove.isPending}>
             {t("action.delete")}
@@ -88,7 +85,7 @@ function RuleScreen({ rule }: { rule: Rule | null }) {
         <ConfirmDialog
           open={confirmDelete}
           onOpenChange={setConfirmDelete}
-          title={t("rules.deleteTitle", { name: rule.name })}
+          title={t("rules.deleteTitle", { name: rule.subject ?? rule.name ?? "" })}
           description={t("rules.deleteDescription")}
           confirmLabel={t("action.delete")}
           destructive
@@ -111,8 +108,6 @@ function SourceQuote({ rule }: { rule: Rule }) {
   );
 }
 
-const isCheckType = (value: string): value is CheckType => (CHECK_TYPES as readonly string[]).includes(value);
-
 function RuleForm({ rule }: { rule: Rule | null }) {
   const { t } = useI18n();
   const navigate = useNavigate();
@@ -120,40 +115,39 @@ function RuleForm({ rule }: { rule: Rule | null }) {
   const acts = useQuery({ queryKey: queryKeys.legalActs, queryFn: ({ signal }) => api.legalActs.all(signal) });
 
   const [code, setCode] = useState("");
-  const [name, setName] = useState(rule?.name ?? "");
-  const [description, setDescription] = useState(rule?.description ?? "");
+  const [subject, setSubject] = useState(rule?.subject ?? rule?.name ?? "");
+  const [constraintText, setConstraintText] = useState(rule?.constraint_text ?? rule?.description ?? "");
+  const [condition, setCondition] = useState(rule?.condition ?? "");
+  const [constraintJson, setConstraintJson] = useState(
+    rule?.constraint_json ? JSON.stringify(rule.constraint_json, null, 2) : "",
+  );
   const [severity, setSeverity] = useState(rule?.severity ?? "medium");
-  // A stored semantic rule cannot be saved as such: the API refuses it, so another type is offered.
-  const [checkType, setCheckType] = useState<CheckType>(rule && isCheckType(rule.check_type) ? rule.check_type : "keyword");
-  const [form, setForm] = useState<ParameterForm>(() => toForm(rule?.parameters ?? {}));
   const [active, setActive] = useState(rule?.is_active ?? true);
   const [actId, setActId] = useState("");
   const [scope, setScope] = useState<ApplicabilityScope>("universal");
   const [types, setTypes] = useState<string[]>([]);
   const [numberError, setNumberError] = useState(false);
 
-  const update = (changes: Partial<ParameterForm>) => setForm((current) => ({ ...current, ...changes }));
-
   const save = useMutation({
     mutationFn: async () => {
-      const parameters = toParameters(checkType, form);
+      const parsedConstraint = constraintJson.trim() ? JSON.parse(constraintJson) : null;
       if (rule) {
         return api.rules.update(rule.id, {
-          name: name.trim(),
-          description: description.trim(),
+          subject: subject.trim(),
+          constraint_text: constraintText.trim(),
+          constraint_json: parsedConstraint,
+          condition: condition.trim(),
           severity,
-          check_type: checkType,
-          parameters,
           is_active: active,
         });
       }
       return api.rules.create({
         rule_code: code.trim(),
-        name: name.trim(),
-        description: description.trim(),
+        subject: subject.trim(),
+        constraint_text: constraintText.trim(),
+        constraint_json: parsedConstraint,
+        condition: condition.trim(),
         severity,
-        check_type: checkType,
-        parameters,
         legal_act_id: actId ? Number(actId) : null,
         applicability_scope: scope,
         document_types: scope === "typed" ? types : [],
@@ -166,19 +160,22 @@ function RuleForm({ rule }: { rule: Rule | null }) {
   });
 
   const submit = () => {
-    try {
-      toParameters(checkType, form);
-    } catch (error) {
-      if (error instanceof InvalidNumber) {
+    setNumberError(false);
+    if (constraintJson.trim()) {
+      try {
+        const parsed = JSON.parse(constraintJson);
+        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+          setNumberError(true);
+          return;
+        }
+      } catch {
         setNumberError(true);
         return;
       }
-      throw error;
     }
-    setNumberError(false);
     save.mutate();
   };
-  const valid = name.trim() && (rule || code.trim()) && (rule || scope !== "typed" || types.length > 0);
+  const valid = subject.trim() && constraintText.trim() && (rule || code.trim()) && (rule || scope !== "typed" || types.length > 0);
 
   return (
     <Panel title={t("rules.editTitle")}>
@@ -189,11 +186,17 @@ function RuleForm({ rule }: { rule: Rule | null }) {
               <Input value={code} onChange={(event) => setCode(event.target.value)} maxLength={100} />
             </FormField>
           )}
-          <FormField label={t("rules.field.name")} className={rule ? "col-span-2" : undefined}>
-            <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={255} />
+          <FormField label={t("rules.field.subject")} className={rule ? "col-span-2" : undefined}>
+            <Input value={subject} onChange={(event) => setSubject(event.target.value)} maxLength={255} />
           </FormField>
-          <FormField label={t("rules.field.description")} className="col-span-2">
-            <Textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} />
+          <FormField label={t("rules.field.constraintText")} className="col-span-2">
+            <Textarea value={constraintText} onChange={(event) => setConstraintText(event.target.value)} rows={3} />
+          </FormField>
+          <FormField label={t("rules.field.condition")} className="col-span-2">
+            <Textarea value={condition} onChange={(event) => setCondition(event.target.value)} rows={2} />
+          </FormField>
+          <FormField label={t("rules.field.constraintJson")} className="col-span-2">
+            <Textarea value={constraintJson} onChange={(event) => setConstraintJson(event.target.value)} rows={4} />
           </FormField>
           <FormField label={t("rules.field.severity")}>
             <Select value={severity} onChange={(event) => setSeverity(event.target.value)}>
@@ -204,22 +207,7 @@ function RuleForm({ rule }: { rule: Rule | null }) {
               ))}
             </Select>
           </FormField>
-          <FormField label={t("rules.field.check")}>
-            <Select value={checkType} onChange={(event) => setCheckType(event.target.value as CheckType)}>
-              {CHECK_TYPES.map((value) => (
-                <option key={value} value={value}>
-                  {t(`rules.check.${value}`)}
-                </option>
-              ))}
-            </Select>
-          </FormField>
         </div>
-
-        <ParameterFields checkType={checkType} form={form} onChange={update} />
-
-        <FormField label={t("rules.field.recommendation")} hint={t("rules.field.recommendationHint")}>
-          <Textarea value={form.recommendation} onChange={(event) => update({ recommendation: event.target.value })} rows={2} />
-        </FormField>
 
         {!rule && (
           <div className="space-y-3">
@@ -258,89 +246,6 @@ function RuleForm({ rule }: { rule: Rule | null }) {
   );
 }
 
-function ParameterFields({
-  checkType,
-  form,
-  onChange,
-}: {
-  checkType: CheckType;
-  form: ParameterForm;
-  onChange: (changes: Partial<ParameterForm>) => void;
-}) {
-  const { t } = useI18n();
-  switch (checkType) {
-    case "keyword":
-      return (
-        <div className="grid grid-cols-2 gap-3">
-          <FormField label={t("rules.field.keywords")} className="col-span-2">
-            <Textarea value={form.keywords} onChange={(event) => onChange({ keywords: event.target.value })} rows={3} />
-          </FormField>
-          <FormField label={t("rules.field.mode")}>
-            <Select value={form.mode} onChange={(event) => onChange({ mode: event.target.value as ParameterForm["mode"] })}>
-              <option value="forbidden">{t("rules.mode.forbidden")}</option>
-              <option value="required">{t("rules.mode.required")}</option>
-            </Select>
-          </FormField>
-          <FormField label={t("rules.field.match")}>
-            <Select value={form.match} onChange={(event) => onChange({ match: event.target.value as ParameterForm["match"] })}>
-              <option value="literal">{t("rules.match.literal")}</option>
-              <option value="stem">{t("rules.match.stem")}</option>
-              <option value="regex">{t("rules.match.regex")}</option>
-            </Select>
-          </FormField>
-        </div>
-      );
-    case "regex":
-      return (
-        <FormField label={t("rules.field.pattern")}>
-          <Input value={form.pattern} onChange={(event) => onChange({ pattern: event.target.value })} className="font-mono" />
-        </FormField>
-      );
-    case "numeric":
-      return (
-        <div className="grid grid-cols-3 gap-3">
-          <FormField label={t("rules.field.entity")}>
-            <Select value={form.entity} onChange={(event) => onChange({ entity: event.target.value as ParameterForm["entity"] })}>
-              {(["number", "duration", "money", "percent"] as const).map((entity) => (
-                <option key={entity} value={entity}>
-                  {t(`rules.entity.${entity}`)}
-                </option>
-              ))}
-            </Select>
-          </FormField>
-          <FormField label={t("rules.field.min")}>
-            <Input inputMode="decimal" value={form.min} onChange={(event) => onChange({ min: event.target.value })} />
-          </FormField>
-          <FormField label={t("rules.field.max")}>
-            <Input inputMode="decimal" value={form.max} onChange={(event) => onChange({ max: event.target.value })} />
-          </FormField>
-        </div>
-      );
-    case "date":
-      return (
-        <div className="grid grid-cols-2 gap-3">
-          <FormField label={t("rules.field.after")}>
-            <Input type="date" value={form.after} onChange={(event) => onChange({ after: event.target.value })} />
-          </FormField>
-          <FormField label={t("rules.field.before")}>
-            <Input type="date" value={form.before} onChange={(event) => onChange({ before: event.target.value })} />
-          </FormField>
-        </div>
-      );
-    case "duration":
-      return (
-        <div className="grid grid-cols-2 gap-3">
-          <FormField label={t("rules.field.minDays")}>
-            <Input inputMode="numeric" value={form.minDays} onChange={(event) => onChange({ minDays: event.target.value })} />
-          </FormField>
-          <FormField label={t("rules.field.maxDays")}>
-            <Input inputMode="numeric" value={form.maxDays} onChange={(event) => onChange({ maxDays: event.target.value })} />
-          </FormField>
-        </div>
-      );
-  }
-}
-
 function ScopeFields({
   scope,
   types,
@@ -357,11 +262,7 @@ function ScopeFields({
     <div className="space-y-3">
       <FormField label={t("rules.field.scope")} hint={t("rules.applicabilityHint")}>
         <Select value={scope} onChange={(event) => onScope(event.target.value as ApplicabilityScope)}>
-          {MANUAL_SCOPES.map((value) => (
-            <option key={value} value={value}>
-              {t(`scope.${value}`)}
-            </option>
-          ))}
+          {MANUAL_SCOPES.map((value) => <option key={value} value={value}>{t(`scope.${value}`)}</option>)}
         </Select>
       </FormField>
       {scope === "typed" && <TypeChecklist label={t("rules.field.types")} value={types} onChange={onTypes} />}

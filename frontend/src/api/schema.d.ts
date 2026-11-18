@@ -998,25 +998,20 @@ export interface components {
         RuleCreate: {
             /** Rule Code */
             rule_code: string;
-            /** Name */
-            name: string;
+            /** Subject */
+            subject: string;
+            /** Constraint Text */
+            constraint_text: string;
+            /** Constraint Json */
+            constraint_json?: { [key: string]: unknown } | null;
+            /** Condition */
+            condition?: string;
             /** Severity */
             severity: string;
-            /** Check Type */
-            check_type: string;
-            /**
-             * Description
-             * @default
-             */
-            description: string;
             /** Applicability Scope */
             applicability_scope?: string | null;
             /** Document Types */
             document_types?: string[];
-            /** Parameters */
-            parameters?: {
-                [key: string]: unknown;
-            };
             /** Legal Act Id */
             legal_act_id?: number | null;
         };
@@ -1026,8 +1021,17 @@ export interface components {
             rule_id: number;
             /** Rule Code */
             rule_code: string;
-            /** Name */
-            name: string;
+            /** Subject */
+            subject: string;
+            /** Constraint Text */
+            constraint_text: string;
+            /** Constraint Json */
+            constraint_json?: { [key: string]: unknown } | null;
+            /** Condition */
+            condition?: string;
+            /** Legacy fixture fields; not sent by the stage-2 API. */
+            check_type?: string;
+            parameters?: { [key: string]: unknown };
             /** Legal Act Id */
             legal_act_id: number | null;
             /** Applicability Scope */
@@ -1071,8 +1075,21 @@ export interface components {
             id: number;
             /** Rule Code */
             rule_code: string;
-            /** Name */
-            name: string;
+            /** Legacy fixture name (removed from API contract). */
+            name?: string;
+            /** Subject */
+            subject?: string;
+            /** Legacy fixture description (removed from API contract). */
+            description?: string;
+            /** Constraint Text */
+            constraint_text?: string;
+            /** Constraint Json */
+            constraint_json?: { [key: string]: unknown } | null;
+            /** Condition */
+            condition?: string;
+            /** Legacy fixture fields; not sent by the stage-2 API. */
+            check_type?: string;
+            parameters?: { [key: string]: unknown };
             /**
              * Applicability Scope
              * @default unknown
@@ -1090,14 +1107,6 @@ export interface components {
             } | null;
             /** Severity */
             severity: string;
-            /** Description */
-            description: string;
-            /** Check Type */
-            check_type: string;
-            /** Parameters */
-            parameters: {
-                [key: string]: unknown;
-            };
             /** Is Active */
             is_active: boolean;
             /** Legal Act Id */
@@ -1118,18 +1127,16 @@ export interface components {
         };
         /** RuleUpdate */
         RuleUpdate: {
-            /** Name */
-            name?: string | null;
+            /** Subject */
+            subject?: string | null;
+            /** Constraint Text */
+            constraint_text?: string | null;
+            /** Constraint Json */
+            constraint_json?: { [key: string]: unknown } | null;
+            /** Condition */
+            condition?: string | null;
             /** Severity */
             severity?: string | null;
-            /** Check Type */
-            check_type?: string | null;
-            /** Description */
-            description?: string | null;
-            /** Parameters */
-            parameters?: {
-                [key: string]: unknown;
-            } | null;
             /** Is Active */
             is_active?: boolean | null;
         };

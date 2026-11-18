@@ -121,7 +121,7 @@ class AuditSelectionRequest(BaseModel):
 class RuleDecisionResponse(BaseModel):
     rule_id: int
     rule_code: str
-    name: str
+    subject: str
     legal_act_id: int | None
     applicability_scope: str
     document_types: list[str]
@@ -217,30 +217,30 @@ class ReportResponse(BaseModel):
 
 class RuleCreate(BaseModel):
     rule_code: str = Field(min_length=1, max_length=100)
-    name: str = Field(min_length=1, max_length=255)
+    subject: str = Field(min_length=1, max_length=255)
+    constraint_text: str = Field(min_length=1)
+    constraint_json: dict[str, Any] | None = None
+    condition: str = ""
     severity: str
-    check_type: str
-    description: str = ""
     applicability_scope: str | None = None
     document_types: list[str] = Field(default_factory=list)
-    parameters: dict[str, Any] = Field(default_factory=dict)
     legal_act_id: int | None = None
 
 
 class RuleUpdate(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=255)
+    subject: str | None = Field(default=None, min_length=1, max_length=255)
+    constraint_text: str | None = Field(default=None, min_length=1)
+    constraint_json: dict[str, Any] | None = None
+    condition: str | None = None
     severity: str | None = None
-    check_type: str | None = None
-    description: str | None = None
-    parameters: dict[str, Any] | None = None
     is_active: bool | None = None
 
-    @field_validator("name", "severity", "check_type")
+    @field_validator("subject", "severity")
     @classmethod
     def _required_value_is_kept(cls, value: str | None) -> str:
         return _kept_value(value)
 
-    @field_validator("description", "parameters", "is_active")
+    @field_validator("constraint_text", "condition", "is_active")
     @classmethod
     def _value_is_not_null(cls, value: Any) -> Any:
         if value is None:
@@ -258,16 +258,16 @@ class RuleResponse(BaseModel):
 
     id: int
     rule_code: str
-    name: str
+    subject: str
+    constraint_text: str
+    constraint_json: dict[str, Any] | None = None
+    condition: str = ""
     applicability_scope: str = "unknown"
     document_types: list[str] = Field(default_factory=list)
     applicability_confidence: float | None = None
     applicability_source: str | None = None
     automatic_applicability: dict[str, Any] | None = None
     severity: str
-    description: str
-    check_type: str
-    parameters: dict[str, Any]
     is_active: bool
     legal_act_id: int | None
     is_generated: bool = False

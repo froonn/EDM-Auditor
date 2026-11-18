@@ -22,7 +22,7 @@ from edm_auditor.audit_engine import (
     extract_entities,
 )
 from edm_auditor.database.connection import create_engine_for, create_session_factory
-from edm_auditor.database.enums import AuditSeverity, CheckType, DocumentStatus
+from edm_auditor.database.enums import AuditSeverity, DocumentStatus
 from edm_auditor.database.models import (
     AuditReport,
     AuditRule,
@@ -52,19 +52,19 @@ def test_engine_applies_active_matching_rules_and_deduplicates() -> None:
     rules = [
         RuleSpec(
             rule_id=1,
-            rule_code="leave-keyword",
-            name="Missing leave wording",
+            rule_code="leave-minimum",
+            subject="Продолжительность отпуска",
+            constraint_text="Отпуск должен быть не менее 24 дней.",
+            constraint_json={"kind": "value", "operator": "gte", "value": 24, "unit": "day"},
             severity="medium",
-            check_type="keyword",
-            parameters={"keywords": ["14 дней"]},
         ),
         RuleSpec(
             rule_id=3,
             rule_code="inactive",
-            name="Inactive",
+            subject="Неактивное правило",
+            constraint_text="Отпуск не менее 30 дней.",
+            constraint_json={"kind": "value", "operator": "gte", "value": 30, "unit": "day"},
             severity="critical",
-            check_type="keyword",
-            parameters={"keywords": ["отпуск"]},
             is_active=False,
         ),
     ]
@@ -79,23 +79,23 @@ def test_engine_applies_active_matching_rules_and_deduplicates() -> None:
 
 def test_invalid_rule_is_reported_without_hiding_other_findings() -> None:
     result = AuditEngine(entity_extractor=no_entities).audit(
-        "Условие присутствует.",
+        "Отпуск составляет 14 дней.",
         [
             RuleSpec(
                 rule_id=1,
                 rule_code="broken",
-                name="Broken",
+                subject="Broken",
+                constraint_text="Broken constraint",
+                constraint_json={"kind": "unknown"},
                 severity="high",
-                check_type="regex",
-                parameters={"pattern": "["},
             ),
             RuleSpec(
                 rule_id=2,
                 rule_code="valid",
-                name="Valid",
+                subject="Valid",
+                constraint_text="Отпуск не менее 24 дней.",
+                constraint_json={"kind": "value", "operator": "gte", "value": 24, "unit": "day"},
                 severity="low",
-                check_type="keyword",
-                parameters={"keywords": ["условие"]},
             ),
         ],
     )
@@ -111,10 +111,10 @@ def test_numeric_rule_reports_values_outside_bounds() -> None:
             RuleSpec(
                 rule_id=4,
                 rule_code="minimum-leave",
-                name="Minimum leave",
+                subject="Minimum leave",
+                constraint_text="Отпуск не менее 24 дней.",
+                constraint_json={"kind": "value", "operator": "gte", "value": 24, "unit": "day"},
                 severity="high",
-                check_type="numeric",
-                parameters={"entity": "duration", "min": 24},
             )
         ],
     )
@@ -129,10 +129,10 @@ def test_engine_keeps_deterministic_entities_when_provider_returns_none() -> Non
             RuleSpec(
                 rule_id=5,
                 rule_code="minimum-compensation",
-                name="Minimum compensation",
+                subject="Minimum compensation",
+                constraint_text="Компенсация не менее 50 рублей.",
+                constraint_json={"kind": "value", "operator": "gte", "value": 50, "unit": "byn"},
                 severity="high",
-                check_type="numeric",
-                parameters={"entity": "money", "min": 50},
             )
         ],
     )
@@ -149,10 +149,10 @@ def test_engine_unions_provider_entities_with_deterministic_entities() -> None:
             RuleSpec(
                 rule_id=6,
                 rule_code="minimum-leave",
-                name="Minimum leave",
+                subject="Minimum leave",
+                constraint_text="Отпуск не менее 24 дней.",
+                constraint_json={"kind": "value", "operator": "gte", "value": 24, "unit": "day"},
                 severity="high",
-                check_type="duration",
-                parameters={"min_days": 24},
             )
         ],
     )
@@ -167,10 +167,10 @@ def test_remote_work_gold_documents_report_findings_without_external_models() ->
         RuleSpec(
             rule_id=1,
             rule_code="minimum-compensation",
-            name="Minimum compensation",
+            subject="Minimum compensation",
+            constraint_text="Компенсация не менее 50 рублей.",
+            constraint_json={"kind": "value", "operator": "gte", "value": 50, "unit": "byn"},
             severity="critical",
-            check_type="numeric",
-            parameters={"entity": "money", "min": 50},
         ),
     )
 
@@ -221,10 +221,12 @@ def test_persistence_creates_atomic_report_and_updates_status(session_factory) -
         session.add(
             AuditRule(
                 rule_code="leave-days",
-                name="Leave duration",
+                subject="Leave duration",
+                constraint_text="Отпуск не менее 24 дней.",
+                constraint_json=json.dumps(
+                    {"kind": "value", "operator": "gte", "value": 24, "unit": "day"}
+                ),
                 severity=AuditSeverity.HIGH.value,
-                check_type=CheckType.KEYWORD.value,
-                parameters_json=json.dumps({"keywords": ["14 дней"]}),
                 applicability_scope="typed",
                 document_types=[_contract_type(session)],
             )
@@ -262,58 +264,37 @@ def test_persistence_audits_synthetic_employment_contract(session_factory) -> No
             [
                 AuditRule(
                     rule_code="leave-minimum",
-                    name="Minimum annual leave",
+                    subject="Minimum annual leave",
+                    constraint_text="Отпуск не менее 24 дней.",
+                    constraint_json=json.dumps(
+                        {"kind": "value", "operator": "gte", "value": 24, "unit": "day"}
+                    ),
                     severity=AuditSeverity.HIGH.value,
-                    check_type=CheckType.DURATION.value,
-                    parameters_json=json.dumps({"min_days": 24}),
                     applicability_scope="typed",
-                document_types=[_contract_type(session)],
+                    document_types=[_contract_type(session)],
                 ),
                 AuditRule(
                     rule_code="probation-limit",
-                    name="Probation limit",
+                    subject="Probation limit",
+                    constraint_text="Испытательный срок не более 90 дней.",
+                    constraint_json=json.dumps(
+                        {"kind": "value", "operator": "lte", "value": 90, "unit": "day"}
+                    ),
                     severity=AuditSeverity.HIGH.value,
-                    check_type=CheckType.DURATION.value,
-                    parameters_json=json.dumps({"max_days": 90}),
                     applicability_scope="typed",
-                document_types=[_contract_type(session)],
-                ),
-                AuditRule(
-                    rule_code="contract-date",
-                    name="Contract date",
-                    severity=AuditSeverity.MEDIUM.value,
-                    check_type=CheckType.DATE.value,
-                    parameters_json=json.dumps({"after": "2026-03-01"}),
-                    applicability_scope="typed",
-                document_types=[_contract_type(session)],
-                ),
-                AuditRule(
-                    rule_code="prohibited-probation-wording",
-                    name="Prohibited probation wording",
-                    severity=AuditSeverity.LOW.value,
-                    check_type=CheckType.KEYWORD.value,
-                    parameters_json=json.dumps({"keywords": ["испытательный срок"]}),
-                    applicability_scope="typed",
-                document_types=[_contract_type(session)],
+                    document_types=[_contract_type(session)],
                 ),
             ]
         )
 
     report = make_persistence(session_factory).audit_document(document_id)
 
-    assert report.total_findings == 4
+    assert report.total_findings == 2
     assert report.high_count == 2
-    assert report.medium_count == 1
-    assert report.low_count == 1
     with session_factory() as session:
         stored = session.scalar(select(AuditReport).where(AuditReport.id == report.id))
         assert stored is not None
-        assert {finding.quote for finding in stored.findings} == {
-            "14 дней",
-            "4 месяца",
-            "01.02.2026",
-            "испытательный срок",
-        }
+        assert {finding.quote for finding in stored.findings} == {"14 дней", "4 месяца"}
 
 
 def test_persistence_stores_neural_analysis_status(session_factory) -> None:
@@ -322,7 +303,7 @@ def test_persistence_stores_neural_analysis_status(session_factory) -> None:
             title="Neural contract",
             file_type="txt",
             file_path="neural.txt",
-            raw_text="Условие присутствует.",
+            raw_text="Отпуск составляет 14 дней.",
             confirmed_types=[_contract_type(session)],
         )
         session.add(document)
@@ -330,11 +311,13 @@ def test_persistence_stores_neural_analysis_status(session_factory) -> None:
         session.add(
             AuditRule(
                 rule_code="condition-present",
-                name="Condition",
+                subject="Condition",
+                constraint_text="Отпуск не менее 24 дней.",
+                constraint_json=json.dumps(
+                    {"kind": "value", "operator": "gte", "value": 24, "unit": "day"}
+                ),
                 severity=AuditSeverity.LOW.value,
-                check_type=CheckType.KEYWORD.value,
                 applicability_scope="universal",
-                parameters_json=json.dumps({"keywords": ["условие"]}),
             )
         )
         document_id = document.id
@@ -346,14 +329,16 @@ def test_persistence_stores_neural_analysis_status(session_factory) -> None:
     assert summary["neural"]["model"] == "fake-llm"
 
 
-def _universal_rule(keyword: str = "отсутствует") -> AuditRule:
+def _universal_rule(min_days: int = 10) -> AuditRule:
     return AuditRule(
-        rule_code=f"universal-{keyword}",
-        name="Universal",
+        rule_code=f"universal-{min_days}",
+        subject=f"Universal {min_days}",
+        constraint_text=f"Срок не менее {min_days} дней.",
+        constraint_json=json.dumps(
+            {"kind": "value", "operator": "gte", "value": min_days, "unit": "day"}
+        ),
         severity=AuditSeverity.LOW.value,
-        check_type=CheckType.KEYWORD.value,
         applicability_scope="universal",
-        parameters_json=json.dumps({"keywords": [keyword]}),
     )
 
 
@@ -374,7 +359,7 @@ def _stored_document(session_factory) -> int:
 def test_persistence_calls_llm_even_without_findings(session_factory) -> None:
     document_id = _stored_document(session_factory)
     with session_factory.begin() as session:
-        session.add(_universal_rule())
+        session.add(_universal_rule(10))
     llm = FakeLLMProvider()
 
     report = make_persistence(session_factory, llm=llm).audit_document(document_id)
@@ -399,7 +384,7 @@ def test_model_failure_marks_document_failed_without_report(
 ) -> None:
     document_id = _stored_document(session_factory)
     with session_factory.begin() as session:
-        session.add(_universal_rule())
+        session.add(_universal_rule(10))
 
     with pytest.raises(AuditModelError, match=message):
         make_persistence(session_factory, **options).audit_document(document_id)
@@ -409,29 +394,6 @@ def test_model_failure_marks_document_failed_without_report(
         assert session.scalar(select(AuditReport)) is None
 
 
-def test_embedding_failure_stops_semantic_audit() -> None:
-    class FailingSearcher:
-        def search(self, query, **kwargs):
-            raise EmbeddingError("embedding service unavailable")
-
-    engine = AuditEngine(entity_extractor=no_entities, rag_searcher=FailingSearcher())
-
-    with pytest.raises(AuditModelError, match="semantic search failed"):
-        engine.audit(
-            "Отпуск 14 дней.",
-            [
-                RuleSpec(
-                    rule_id=1,
-                    rule_code="leave-context",
-                    name="Leave context",
-                    severity="medium",
-                    check_type="semantic",
-                    parameters={"query": "отпуск"},
-                )
-            ],
-        )
-
-
 def test_audit_runs_only_the_rules_chosen_by_the_resolver(session_factory) -> None:
     document_id = _stored_document(session_factory)
     other = DocumentType(code="payroll_order", name="Payroll")
@@ -439,15 +401,17 @@ def test_audit_runs_only_the_rules_chosen_by_the_resolver(session_factory) -> No
         session.add(
             AuditRule(
                 rule_code="other-type",
-                name="Other type",
+                subject="Other type",
+                constraint_text="Отпуск не менее 30 дней.",
+                constraint_json=json.dumps(
+                    {"kind": "value", "operator": "gte", "value": 30, "unit": "day"}
+                ),
                 severity=AuditSeverity.HIGH.value,
-                check_type=CheckType.KEYWORD.value,
                 applicability_scope="typed",
                 document_types=[other],
-                parameters_json=json.dumps({"keywords": ["отпуск"]}),
             )
         )
-        session.add(_universal_rule("14 дней"))
+        session.add(_universal_rule(24))
 
     report = make_persistence(session_factory).audit_document(document_id)
 
@@ -458,7 +422,7 @@ def test_audit_runs_only_the_rules_chosen_by_the_resolver(session_factory) -> No
 def test_preview_and_audit_use_the_same_rules(session_factory) -> None:
     document_id = _stored_document(session_factory)
     with session_factory.begin() as session:
-        kept, excluded = _universal_rule("14 дней"), _universal_rule("отпуск")
+        kept, excluded = _universal_rule(24), _universal_rule(30)
         session.add_all([kept, excluded])
         session.flush()
         kept_id, excluded_id = kept.id, excluded.id
@@ -481,7 +445,7 @@ def test_unconfigured_audit_keeps_document_status_and_creates_no_report(
         document = Document(
             title="Unknown", file_type="txt", file_path="u.txt", raw_text="Текст."
         )
-        session.add_all([document, _universal_rule("Текст")])
+        session.add_all([document, _universal_rule(24)])
         session.flush()
         document_id = document.id
 
@@ -497,7 +461,7 @@ def test_unconfigured_audit_keeps_document_status_and_creates_no_report(
 def test_audit_continues_with_a_warning_when_rag_is_unavailable(session_factory) -> None:
     document_id = _stored_document(session_factory)
     with session_factory.begin() as session:
-        session.add(_universal_rule("14 дней"))
+        session.add(_universal_rule(24))
 
     def failing_recommender(_: str):
         raise EmbeddingError("embedding service unavailable")
@@ -522,12 +486,14 @@ def test_rag_candidate_of_another_act_does_not_select_its_rule(session_factory) 
     with session_factory.begin() as session:
         rule = AuditRule(
             rule_code="payroll",
-            name="Payroll",
+            subject="Payroll",
+            constraint_text="Срок не менее 24 дней.",
+            constraint_json=json.dumps(
+                {"kind": "value", "operator": "gte", "value": 24, "unit": "day"}
+            ),
             severity=AuditSeverity.HIGH.value,
-            check_type=CheckType.KEYWORD.value,
             applicability_scope="typed",
             document_types=[other],
-            parameters_json=json.dumps({"keywords": ["отпуск"]}),
         )
         session.add(rule)
         session.flush()

@@ -41,7 +41,6 @@ from .neural_models import NeuralFinding, NeuralResult
 logger = logging.getLogger(__name__)
 
 # These checks compare every value of a kind, so the model confirms what each value means.
-VALUE_COMPARISON_CHECKS = frozenset({"duration", "numeric"})
 SURROUNDING_CHARS = 200
 
 
@@ -233,7 +232,7 @@ class AuditPersistence:
                 ),
                 norm_quote=finding.norm_quote,
                 surrounding_text=_surrounding_text(text, finding),
-                requires_confirmation=finding.check_type in VALUE_COMPARISON_CHECKS,
+                requires_confirmation=finding.requires_confirmation,
             )
             for finding in findings
         )
@@ -348,19 +347,19 @@ def _applied_legal_acts(
 
 
 def _to_rule_spec(rule: AuditRule) -> RuleSpec:
-    parameters = json.loads(rule.parameters_json) if rule.parameters_json else {}
-    if not isinstance(parameters, dict):
-        raise ValueError(f"rule {rule.rule_code} parameters must be a JSON object")
+    constraint_json = json.loads(rule.constraint_json) if rule.constraint_json else None
+    if constraint_json is not None and not isinstance(constraint_json, dict):
+        raise ValueError(f"rule {rule.rule_code} constraint_json must be an object")
     return RuleSpec(
         rule_id=rule.id,
         rule_code=rule.rule_code,
-        name=rule.name,
+        subject=rule.subject,
+        constraint_text=rule.constraint_text,
         severity=rule.severity,
-        check_type=rule.check_type,
-        description=rule.description,
+        condition=rule.condition,
+        constraint_json=constraint_json,
         applicability_scope=rule.applicability_scope,
         document_types=tuple(item.code for item in rule.document_types),
-        parameters=parameters,
         legal_act_id=rule.legal_act_id,
         is_active=rule.is_active,
         source_quote=rule.source_quote,

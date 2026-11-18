@@ -26,7 +26,7 @@ export interface Diagnostic {
 export interface PassedRule {
   ruleId: number | undefined;
   ruleCode: string | undefined;
-  name: string | undefined;
+  subject: string | undefined;
   legalAct: string | undefined;
   /** Candidates the check found, but the model decided that the norm was kept. */
   rejected: RejectedCandidate[];
@@ -114,7 +114,7 @@ function toPassedRules(report: Report): PassedRule[] | null {
     .map((item) => ({
       ruleId: integer(item.rule_id),
       ruleCode: text(item.rule_code),
-      name: text(item.name),
+      subject: text(item.subject ?? item.name),
       legalAct: acts.get(integer(item.legal_act_id)) || undefined,
       rejected: rejected.filter((candidate) => candidate.ruleCode !== undefined && candidate.ruleCode === text(item.rule_code)),
     }))

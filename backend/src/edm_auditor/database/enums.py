@@ -21,12 +21,3 @@ class AuditSeverity(StrEnum):
     MEDIUM = "medium"
     HIGH = "high"
     CRITICAL = "critical"
-
-
-class CheckType(StrEnum):
-    KEYWORD = "keyword"
-    REGEX = "regex"
-    NUMERIC = "numeric"
-    DATE = "date"
-    DURATION = "duration"
-    SEMANTIC = "semantic"

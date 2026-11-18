@@ -27,6 +27,18 @@ VERDICTS = {
     (item["description"], item["quote"]): item["is_violation"] for item in RECORDED["verdicts"]
 }
 
+_STAGE2_CONSTRAINTS = {
+    "REMOTE_WORK_NOTICE_PERIOD": {"kind": "value", "operator": "gte", "value": 10, "unit": "day"},
+    "INTERNET_COMPENSATION_MIN": {"kind": "value", "operator": "gte", "value": 50, "unit": "byn"},
+    "REMOTE_WORK_KEYWORD_REQUIRED": None,
+    "TRIP_DURATION_LIMIT": {"kind": "value", "operator": "lte", "value": 30, "unit": "day"},
+    "REPORT_SUBMISSION_DEADLINE": {"kind": "value", "operator": "lte", "value": 3, "unit": "day"},
+    "CERTIFICATE_KEYWORD_REQUIREMENT": None,
+    "PAYROLL_FREQ_001": {"kind": "frequency", "operator": "gte", "count": 2, "period": "month"},
+    "PAYROLL_ADVANCE_001": {"kind": "value", "operator": "gte", "value": 40, "unit": "%"},
+    "PAYROLL_DEADLINE_001": {"kind": "day_of_month", "operator": "lte", "day": 5, "month_offset": 1},
+}
+
 
 class RecordedRuleExtractor:
     model_name = "recorded-extractor"
@@ -35,7 +47,19 @@ class RecordedRuleExtractor:
         self, text: str, *, source_language: str, source_location: str, legal_act_title: str, **_
     ):
         return tuple(
-            {**rule, "source_location": source_location}
+            {
+                "subject": rule["name"],
+                "constraint_text": rule["description"],
+                "constraint_json": _STAGE2_CONSTRAINTS.get(rule["rule_code"]),
+                "condition": "",
+                "severity": rule["severity"],
+                "source_quote": rule["source_quote"],
+                "applicability_scope": rule["applicability_scope"],
+                "document_types": rule["document_types"],
+                "applicability_confidence": rule["applicability_confidence"],
+                "suggested_type_name": rule["suggested_type_name"],
+                "suggested_type_reason": rule["suggested_type_reason"],
+            }
             for rule in RECORDED["rules"][legal_act_title]
         )
 
@@ -156,19 +180,23 @@ def test_each_document_gets_only_its_own_violations(client: TestClient) -> None:
 
 def test_model_rejects_values_that_the_norm_does_not_regulate(client: TestClient) -> None:
     trip = _audit(client, "business_trip_order.txt")
-    payroll = _audit(client, "payroll_order.txt")
 
     assert [item["quote"] for item in trip["summary"]["rejected_candidates"]] == [
         "45 календарных дней"
     ]
     assert trip["high_count"] + trip["critical_count"] + trip["medium_count"] == 2
-    assert [item["quote"] for item in payroll["summary"]["rejected_candidates"]] == ["25"]
 
 
-def test_day_of_month_is_not_reported_as_a_period(client: TestClient) -> None:
+def test_day_of_month_and_frequency_are_detected_without_false_period_matches(
+    client: TestClient,
+) -> None:
     payroll = _audit(client, "payroll_order.txt")
 
-    assert _quotes(payroll) == ["25 процентов", "8"]
+    assert _quotes(payroll) == [
+        "один раз в месяц",
+        "25 процентов",
+        "8 числа следующего месяца",
+    ]
 
 
 def test_all_mode_shows_the_false_findings_that_selection_prevents(client: TestClient) -> None:

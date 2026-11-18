@@ -13,7 +13,7 @@ from .models import (
     RuleDiagnostic,
     RuleSpec,
 )
-from .rag_validator import ContextSearcher, validate_semantic_rule
+from .rag_validator import ContextSearcher
 from .validators import validate_rule
 
 __all__ = [
@@ -34,5 +34,4 @@ __all__ = [
     "entities_from_provider",
     "validate_rule",
     "ContextSearcher",
-    "validate_semantic_rule",
 ]

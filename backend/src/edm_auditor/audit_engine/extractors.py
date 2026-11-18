@@ -18,7 +18,7 @@ _PATTERNS = {
     "duration": re.compile(
         # "5 числа следующего месяца" is a day of the month, not a period of five months.
         r"\b\d+(?:[.,]\d+)?(?!\s+числ)(?:\s+\S+){0,3}\s+"
-        r"(?:дн(?:я|ей)?|месяц(?:а|ев)?|лет?|год(?:а|ов)?)\b",
+        r"(?:дн(?:я|ей)?|день|месяц(?:а|ев)?|лет?|год(?:а|ов)?|days?)\b",
         re.IGNORECASE,
     ),
     "money": re.compile(r"\b\d+(?:[.,]\d+)?\s*(?:руб(?:лей|ля)?|BYN|р\.)\b", re.IGNORECASE),

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from edm_auditor.document_parser import ParsedDocument
 
-from .enums import AuditSeverity, CheckType, DocumentStatus
+from .enums import AuditSeverity, DocumentStatus
 from .models import AuditRule, Document, DocumentParagraph, LegalAct
 
 
@@ -110,23 +110,23 @@ class DocumentRepository:
         self,
         *,
         rule_code: str,
-        name: str,
+        subject: str,
+        constraint_text: str,
         severity: AuditSeverity,
-        check_type: CheckType,
-        description: str = "",
+        condition: str = "",
+        constraint_json: str | None = None,
         applicability_scope: str = "unknown",
-        parameters_json: str | None = None,
         legal_act_id: int | None = None,
     ) -> AuditRule:
         with self._session_factory.begin() as session:
             rule = AuditRule(
                 rule_code=rule_code,
-                name=name,
+                subject=subject,
+                constraint_text=constraint_text,
+                condition=condition,
+                constraint_json=constraint_json,
                 severity=severity.value,
-                check_type=check_type.value,
-                description=description,
                 applicability_scope=applicability_scope,
-                parameters_json=parameters_json,
                 legal_act_id=legal_act_id,
             )
             session.add(rule)

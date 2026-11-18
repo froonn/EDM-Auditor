@@ -28,7 +28,7 @@ def selection_snapshot(
             {
                 "rule_id": item.rule_id,
                 "rule_code": item.rule_code,
-                "name": item.name,
+                "subject": item.subject,
                 "legal_act_id": item.legal_act_id,
                 "applicability_scope": item.applicability_scope,
                 "document_types": list(item.document_types),

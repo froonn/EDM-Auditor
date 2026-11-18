@@ -102,7 +102,7 @@ class RagRecommendation:
 class RuleDecision:
     rule_id: int
     rule_code: str
-    name: str
+    subject: str
     legal_act_id: int | None
     applicability_scope: str
     document_types: tuple[str, ...]

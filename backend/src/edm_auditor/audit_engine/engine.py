@@ -10,7 +10,7 @@ from .extractors import entities_from_provider, extract_entities
 from .models import AuditResult, ExtractedEntity, FindingDraft, RuleDiagnostic, RuleSpec
 from .neural_errors import AuditModelError
 from .validators import validate_rule
-from .rag_validator import ContextSearcher, validate_semantic_rule
+from .rag_validator import ContextSearcher
 
 
 class AuditEngine:
@@ -43,19 +43,7 @@ class AuditEngine:
             if not rule.is_active:
                 continue
             try:
-                if rule.check_type == "semantic":
-                    if self._rag_searcher is None:
-                        raise ValueError("semantic rule requires a configured RAG searcher")
-                    try:
-                        findings.extend(
-                            validate_semantic_rule(rule, text, self._rag_searcher)
-                        )
-                    except InvalidRuleConfiguration:
-                        raise
-                    except (RuntimeError, ValueError, TypeError, RAGError) as exc:
-                        raise AuditModelError("semantic search failed") from exc
-                else:
-                    findings.extend(validate_rule(rule, text, entities))
+                findings.extend(validate_rule(rule, text, entities))
             except (ValueError, TypeError) as exc:
                 diagnostics.append(RuleDiagnostic(rule.rule_code, str(exc)))
         unique = {finding.deduplication_key: finding for finding in findings}

@@ -67,7 +67,7 @@ def test_upgrade_preserves_legacy_rule_scope_and_finding_links(tmp_path: Path) -
         connection.executescript(LEGACY_SCHEMA)
     command.stamp(_config(path), "0005_rule_publication_metadata")
 
-    command.upgrade(_config(path), "head")
+    command.upgrade(_config(path), "0009_finding_snapshot")
 
     with sqlite3.connect(path) as connection:
         assert connection.execute(
@@ -96,3 +96,13 @@ def test_upgrade_preserves_legacy_rule_scope_and_finding_links(tmp_path: Path) -
         ]
         columns = [row[1] for row in connection.execute("PRAGMA table_info(audit_rules)")]
         assert "document_type" not in columns
+
+    command.upgrade(_config(path), "head")
+
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM audit_rules").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM audit_findings").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM documents").fetchone()[0] == 2
+        assert connection.execute("SELECT COUNT(*) FROM legal_acts").fetchone()[0] == 1
+        head_columns = {row[1] for row in connection.execute("PRAGMA table_info(audit_rules)")}
+        assert {"subject", "constraint_text", "constraint_json", "condition"} <= head_columns

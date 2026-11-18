@@ -248,7 +248,7 @@ function ActRules({ id }: { id: number }) {
               header: t("rules.column.rule"),
               cell: (rule) => (
                 <Link to={`/rules/${rule.id}`} className="text-primary hover:underline">
-                  {rule.name}
+                  {rule.subject ?? rule.name ?? rule.rule_code}
                 </Link>
               ),
             },

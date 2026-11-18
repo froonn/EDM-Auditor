@@ -380,7 +380,7 @@ def passed_rules(report: ReportResponse) -> list[dict[str, Any]] | None:
             {
                 "rule_id": rule_id,
                 "rule_code": code,
-                "name": _text(item.get("name")),
+                "name": _text(item.get("subject")) or _text(item.get("name")),
                 "legal_act": acts.get(item.get("legal_act_id")) or None,
                 "rejected": [
                     candidate for candidate in rejected if code and candidate["rule_code"] == code

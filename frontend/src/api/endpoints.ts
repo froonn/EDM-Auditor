@@ -30,7 +30,6 @@ export interface PageRequest {
 export interface RuleFilters {
   is_active?: boolean;
   document_type?: string;
-  check_type?: string;
   applicability_scope?: ApplicabilityScope;
   legal_act_id?: number;
 }

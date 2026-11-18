@@ -3,7 +3,7 @@
 [legal_act_processing.chunking]
 # A legal act chunk for the model holds whole articles and points up to this size.
 max_chars = 4000
-# Used only by the RAG index: model chunks carry headings as context instead of an overlap.
+# Kept only for the legacy paragraph-v1 RAG compatibility mode; structure-v1 uses no overlap.
 overlap_chars = 0
 max_rules_per_chunk = 20
 

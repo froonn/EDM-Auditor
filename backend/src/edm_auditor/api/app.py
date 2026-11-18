@@ -60,7 +60,7 @@ from edm_auditor.classification.store import (
     record_type_suggestion,
     stored_classification,
 )
-from edm_auditor.database.enums import AuditSeverity, CheckType
+from edm_auditor.database.enums import AuditSeverity
 from edm_auditor.database.models import (
     AuditFinding,
     AuditReport,
@@ -99,7 +99,7 @@ from edm_auditor.report_export import (
 from edm_auditor.rule_validation import (
     RuleValidationError,
     validate_generated_rule,
-    validate_manual_rule_parameters,
+    validate_manual_constraint,
 )
 from edm_auditor.rag import (
     DatabaseIndexSourceLoader,
@@ -151,7 +151,7 @@ NEEDS_REPROCESSING = "needs_reprocessing"
 RAG_RECOMMENDATION_THRESHOLD = 0.5
 RAG_RECOMMENDATION_LIMIT = 5
 RAG_QUERY_CHARS = 2000
-RAG_INDEXED_RULE_FIELDS = ("name", "description", "is_active")
+RAG_INDEXED_RULE_FIELDS = ("subject", "constraint_text", "condition", "is_active")
 
 
 def _setup_file_logging(log_file: Path) -> None:
@@ -295,8 +295,13 @@ def create_app(
         except ClassificationModelError as exc:
             raise _classification_error(exc) from exc
 
-    def process_legal_act(legal_act_id: int) -> None:
-        """Extract, validate, and atomically publish generated rules."""
+    def process_legal_act(
+        legal_act_id: int,
+        *,
+        only_failed: bool = False,
+        target_chunk_id: str | None = None,
+    ) -> None:
+        """Extract, validate, and publish generated rules while preserving manual edits."""
         with session_factory() as session:
             legal_act = session.get(LegalAct, legal_act_id)
             if legal_act is None:
@@ -305,6 +310,14 @@ def create_app(
             source_code = legal_act.code
             source_title = legal_act.title
             catalog = document_type_options(session)
+            existing_diagnostics = {
+                item.chunk_id: item.status
+                for item in session.scalars(
+                    select(RuleExtractionResult).where(
+                        RuleExtractionResult.legal_act_id == legal_act_id
+                    )
+                ).all()
+            }
         catalog_codes = {item.code for item in catalog}
 
         source_language = model_settings.processing.source_language
@@ -317,34 +330,61 @@ def create_app(
             legal_act_id=legal_act_id,
             max_chars=model_settings.processing.chunking.max_chars,
         )
+        partial_reprocess = only_failed or target_chunk_id is not None
+        if target_chunk_id is not None:
+            selected_chunk_ids = {target_chunk_id}
+        elif only_failed:
+            selected_chunk_ids = {
+                cid for cid, status in existing_diagnostics.items() if status in {"failed", "partial"}
+            }
+        else:
+            selected_chunk_ids = {chunk.chunk_id for chunk in chunks}
+
         processing_version = model_settings.processing.processing_version
         with session_factory.begin() as session:
             legal_act = session.get(LegalAct, legal_act_id)
             legal_act.processing_status = "processing"
             legal_act.processing_version = processing_version
             legal_act.chunks_total = len(chunks)
-            legal_act.chunks_processed = 0
-            legal_act.rules_accepted = 0
-            legal_act.rules_rejected = 0
-            session.execute(
-                delete(RuleExtractionResult).where(
-                    RuleExtractionResult.legal_act_id == legal_act_id
+            if not partial_reprocess:
+                legal_act.chunks_processed = 0
+                legal_act.rules_accepted = 0
+                legal_act.rules_rejected = 0
+                session.execute(
+                    delete(RuleExtractionResult).where(
+                        RuleExtractionResult.legal_act_id == legal_act_id
+                    )
                 )
-            )
+            elif selected_chunk_ids:
+                session.execute(
+                    delete(RuleExtractionResult).where(
+                        RuleExtractionResult.legal_act_id == legal_act_id,
+                        RuleExtractionResult.chunk_id.in_(selected_chunk_ids),
+                    )
+                )
 
         validated_rules: list[dict[str, object]] = []
-        failed_chunks = 0
-        accepted_chunks = 0
+        provider_failures = 0
         model_failure: Exception | None = None
+        called_chunks = 0
         for chunk_index, chunk in enumerate(chunks):
-            if chunk_index:
+            if chunk.chunk_id not in selected_chunk_ids:
+                continue
+            if called_chunks:
                 delay = model_settings.extractor.inter_chunk_delay_seconds
                 if delay:
                     time.sleep(delay)
+            called_chunks += 1
             chunk_rules: list[dict[str, object]] = []
             chunk_error: RuleValidationError | None = None
+            rejected_rules = 0
+            first_rejection_code: str | None = None
+            rejection_messages: list[str] = []
+            skipped_messages: list[str] = []
             try:
-                raw_extracted = rule_extractor.extract_rules(
+                if hasattr(rule_extractor, "last_skipped_norms"):
+                    rule_extractor.last_skipped_norms = ()
+                raw_response = rule_extractor.extract_rules(
                     chunk.text,
                     source_language=source_language,
                     source_location=chunk.chunk_id,
@@ -352,22 +392,39 @@ def create_app(
                     legal_act_title=source_title,
                     context=chunk.context_text,
                 )
+                if isinstance(raw_response, dict):
+                    raw_extracted = raw_response.get("rules", ())
+                    skipped_norms = raw_response.get("skipped_norms", ())
+                else:
+                    raw_extracted = raw_response
+                    skipped_norms = getattr(rule_extractor, "last_skipped_norms", ())
+                for skipped in skipped_norms or ():
+                    if isinstance(skipped, dict):
+                        s_quote = str(skipped.get("source_quote", "")).strip()
+                        s_reason = str(skipped.get("reason", "")).strip()
+                        if s_quote or s_reason:
+                            skipped_messages.append(
+                                f"skipped: «{s_quote}» ({s_reason})" if s_quote and s_reason else f"skipped: {s_quote or s_reason}"
+                            )
                 for item in raw_extracted:
-                    if not isinstance(item, dict):
-                        chunk_error = RuleValidationError(
-                            "invalid_schema", "provider returned a non-object rule"
+                    try:
+                        if not isinstance(item, dict):
+                            raise RuleValidationError("invalid_schema", "provider returned a non-object rule")
+                        rule_fields, model_applicability, suggestion = split_generated_rule(item, catalog_codes)
+                        normalized = validate_generated_rule(
+                            rule_fields,
+                            source_text=chunk.text,
+                            source_language=source_language,
+                            source_location=chunk.chunk_id,
+                            index=len(chunk_rules) + rejected_rules + 1,
                         )
-                        break
-                    rule_fields, model_applicability, suggestion = split_generated_rule(
-                        item, catalog_codes
-                    )
-                    normalized = validate_generated_rule(
-                        rule_fields,
-                        source_text=chunk.text,
-                        source_language=source_language,
-                        source_location=chunk.chunk_id,
-                        index=len(chunk_rules) + 1,
-                    )
+                    except (RuntimeError, ValueError, TypeError) as exc:
+                        rejected_rules += 1
+                        code = exc.code if isinstance(exc, RuleValidationError) else "invalid_schema"
+                        if first_rejection_code is None:
+                            first_rejection_code = code
+                        rejection_messages.append(str(exc)[:300])
+                        continue
                     normalized["source_start"] = chunk.start_char + normalized["source_start"]
                     normalized["source_end"] = chunk.start_char + normalized["source_end"]
                     normalized["source_location"] = structure.location(
@@ -379,6 +436,7 @@ def create_app(
                     normalized["_suggestion"] = suggestion
                     chunk_rules.append(normalized)
             except (RuntimeError, ValueError, TypeError) as exc:
+                provider_failures += 1
                 chunk_error = (
                     exc if isinstance(exc, RuleValidationError)
                     else RuleValidationError("extraction_failed", type(exc).__name__)
@@ -389,7 +447,6 @@ def create_app(
                         _model_failure(exc, ApiError(503, "", "")).code, str(exc)
                     )
             if chunk_error is not None:
-                failed_chunks += 1
                 with session_factory.begin() as session:
                     session.add(
                         RuleExtractionResult(
@@ -397,126 +454,233 @@ def create_app(
                             chunk_id=chunk.chunk_id,
                             status="failed",
                             error_code=chunk_error.code,
-                            diagnostic_message=str(chunk_error)[:1000],
-                            rules_total=0,
+                            rules_total=len(chunk_rules) + rejected_rules,
                             processing_version=processing_version,
+                            rules_accepted=len(chunk_rules),
+                            rules_rejected=rejected_rules,
+                            diagnostic_message="; ".join([*rejection_messages, *skipped_messages])[:1000]
+                            or str(chunk_error)[:1000],
                         )
                     )
                 if model_failure is not None:
                     # The remaining chunks would fail the same way and use up the limit.
                     break
                 continue
-            accepted_chunks += 1
+
             validated_rules.extend(chunk_rules)
+            chunk_status = (
+                "failed"
+                if rejected_rules and not chunk_rules
+                else "partial"
+                if rejected_rules
+                else "accepted"
+            )
             with session_factory.begin() as session:
                 session.add(
                     RuleExtractionResult(
                         legal_act_id=legal_act_id,
                         chunk_id=chunk.chunk_id,
-                        status="accepted",
-                        rules_total=len(chunk_rules),
+                        status=chunk_status,
+                        error_code=first_rejection_code if rejected_rules else None,
+                        rules_total=len(chunk_rules) + rejected_rules,
                         rules_accepted=len(chunk_rules),
+                        rules_rejected=rejected_rules,
+                        diagnostic_message="; ".join([*rejection_messages, *skipped_messages])[:1000] or None,
                         processing_version=processing_version,
                     )
                 )
 
-        if failed_chunks:
-            with session_factory.begin() as session:
-                legal_act = session.get(LegalAct, legal_act_id)
-                legal_act.processing_status = "failed"
-                legal_act.chunks_processed = accepted_chunks
-            raise _model_failure(
-                model_failure,
-                ApiError(
-                    503,
-                    "rule_extraction_error",
-                    f"Online rule extraction failed for {failed_chunks} chunk(s)",
-                ),
-            )
-
         with session_factory.begin() as session:
             legal_act = session.get(LegalAct, legal_act_id)
-            old_rule_ids = session.scalars(
-                select(AuditRule.id).where(
-                    AuditRule.legal_act_id == legal_act_id,
-                    AuditRule.is_generated.is_(True),
-                )
-            ).all()
-            if old_rule_ids:
-                session.execute(
-                    update(AuditFinding)
-                    .where(AuditFinding.rule_id.in_(old_rule_ids))
-                    .values(rule_id=None)
-                )
-                session.execute(
-                    delete(AuditRule).where(AuditRule.id.in_(old_rule_ids))
-                )
-            published = 0
-            duplicates = 0
-            for index, generated in enumerate(validated_rules, start=1):
-                parameters_json = generated["parameters_json"]
-                deduplication_key = hashlib.sha256(
-                    f"{legal_act_id}|{generated['source_start']}|{generated['source_end']}|"
-                    f"{generated['check_type']}|{parameters_json}".encode("utf-8")
-                ).hexdigest()
-                existing = session.scalar(
-                    select(AuditRule.id).where(
-                        AuditRule.deduplication_key == deduplication_key
+            existing_generated = list(
+                session.scalars(
+                    select(AuditRule)
+                    .options(selectinload(AuditRule.document_types))
+                    .where(
+                        AuditRule.legal_act_id == legal_act_id,
+                        AuditRule.is_generated.is_(True),
                     )
+                    .order_by(AuditRule.id)
+                ).all()
+            )
+            matched_existing_ids: set[int] = set()
+            seen_dedup_keys: set[str] = set()
+            duplicates = 0
+
+            for index, generated in enumerate(validated_rules, start=1):
+                constraint_json = generated["constraint_json"]
+                constraint_json_text = (
+                    json.dumps(constraint_json, ensure_ascii=False, sort_keys=True)
+                    if constraint_json is not None
+                    else None
                 )
-                if existing is not None:
+                norm_quote_key = _normalize_quote_key(str(generated["source_quote"]))
+                location_str = str(generated["source_location"])[:255]
+                deduplication_key = hashlib.sha256(
+                    f"{legal_act_id}|{location_str}|{norm_quote_key}|{generated['subject']}".encode(
+                        "utf-8"
+                    )
+                ).hexdigest()
+                if deduplication_key in seen_dedup_keys:
                     duplicates += 1
                     continue
-                chunk_id = str(generated["_chunk_id"])
-                rule_code = (
-                    f"{source_code}-{chunk_id.rsplit(':', 1)[-1]}-{index:03d}-"
-                    f"{deduplication_key[:8]}"
-                )[:100]
-                generated_rule = AuditRule(
+                seen_dedup_keys.add(deduplication_key)
+
+                matched_rule = _match_existing_generated_rule(
+                    existing_generated,
+                    matched_existing_ids,
+                    location=location_str,
+                    quote_key=norm_quote_key,
+                    subject=str(generated["subject"]),
+                )
+                if matched_rule is not None:
+                    matched_existing_ids.add(matched_rule.id)
+                    modified = _modified_rule_fields(matched_rule)
+                    matched_rule.source_quote = str(generated["source_quote"])
+                    matched_rule.source_location = location_str
+                    matched_rule.source_start = int(generated["source_start"])
+                    matched_rule.source_end = int(generated["source_end"])
+                    matched_rule.deduplication_key = deduplication_key
+                    for field_name, new_val in (
+                        ("subject", generated["subject"]),
+                        ("constraint_text", generated["constraint_text"]),
+                        ("constraint_json", constraint_json_text),
+                        ("condition", generated["condition"]),
+                        ("severity", generated["severity"]),
+                    ):
+                        if field_name not in modified:
+                            setattr(matched_rule, field_name, new_val)
+                    matched_rule.applicability_auto = _with_modified_fields(
+                        str(generated["_applicability"]), modified
+                    )
+                    if matched_rule.applicability_source != SOURCE_MANUAL:
+                        apply_rule_applicability(
+                            matched_rule,
+                            generated_rule_applicability(
+                                session,
+                                legal_act,
+                                str(generated["_applicability"]),
+                                min_confidence=document_processing.classification_min_confidence,
+                            ),
+                        )
+                    target_rule = matched_rule
+                else:
+                    chunk_id = str(generated["_chunk_id"])
+                    rule_code = (
+                        f"{source_code}-{chunk_id.rsplit(':', 1)[-1]}-{index:03d}-"
+                        f"{deduplication_key[:8]}"
+                    )[:100]
+                    while session.scalar(select(AuditRule.id).where(AuditRule.rule_code == rule_code)) is not None:
+                        rule_code = f"{source_code}-{deduplication_key[:12]}-{index:03d}"[:100]
+                    target_rule = AuditRule(
                         legal_act_id=legal_act_id,
                         is_generated=True,
                         deduplication_key=deduplication_key,
                         source_quote=generated["source_quote"],
-                        source_location=str(generated["source_location"])[:255],
+                        source_location=location_str,
                         source_start=generated["source_start"],
                         source_end=generated["source_end"],
                         rule_code=rule_code,
-                        name=generated["name"],
+                        subject=generated["subject"],
+                        constraint_text=generated["constraint_text"],
+                        constraint_json=constraint_json_text,
+                        condition=generated["condition"],
                         severity=generated["severity"],
-                        description=generated["description"],
-                        check_type=generated["check_type"],
-                        parameters_json=parameters_json,
-                )
-                generated_rule.applicability_auto = generated["_applicability"]
-                apply_rule_applicability(
-                    generated_rule,
-                    generated_rule_applicability(
-                        session,
-                        legal_act,
-                        generated["_applicability"],
-                        min_confidence=document_processing.classification_min_confidence,
-                    ),
-                )
-                session.add(generated_rule)
+                    )
+                    target_rule.applicability_auto = generated["_applicability"]
+                    apply_rule_applicability(
+                        target_rule,
+                        generated_rule_applicability(
+                            session,
+                            legal_act,
+                            generated["_applicability"],
+                            min_confidence=document_processing.classification_min_confidence,
+                        ),
+                    )
+                    session.add(target_rule)
                 if generated["_suggestion"] is not None:
                     record_type_suggestion(
                         session, generated["_suggestion"], legal_act_id=legal_act_id
                     )
-                published += 1
-            legal_act.processing_status = "completed" if duplicates == 0 else "partial"
-            legal_act.chunks_processed = len(chunks)
-            legal_act.rules_accepted = published
-            legal_act.rules_rejected = duplicates
-            if duplicates:
-                session.execute(
-                    update(RuleExtractionResult)
-                    .where(RuleExtractionResult.legal_act_id == legal_act_id)
-                    .values(
-                        status="partial",
-                        rules_rejected=duplicates,
-                        diagnostic_message="duplicate generated rules were not published",
+
+            if not partial_reprocess and provider_failures == 0 and model_failure is None:
+                obsolete_ids = [
+                    rule.id
+                    for rule in existing_generated
+                    if rule.id not in matched_existing_ids
+                    and not _modified_rule_fields(rule)
+                    and rule.applicability_source != SOURCE_MANUAL
+                ]
+                if obsolete_ids:
+                    session.execute(
+                        update(AuditFinding)
+                        .where(AuditFinding.rule_id.in_(obsolete_ids))
+                        .values(rule_id=None)
                     )
+                    session.execute(
+                        delete(AuditRule).where(AuditRule.id.in_(obsolete_ids))
+                    )
+            session.flush()
+
+            all_diagnostics = list(
+                session.scalars(
+                    select(RuleExtractionResult).where(
+                        RuleExtractionResult.legal_act_id == legal_act_id
+                    )
+                ).all()
+            )
+            if duplicates:
+                for diag in all_diagnostics:
+                    if diag.chunk_id in selected_chunk_ids:
+                        diag.status = "partial"
+                        diag.rules_rejected += duplicates
+                        diag.diagnostic_message = (
+                            f"{diag.diagnostic_message}; duplicate generated rules were not published"
+                            if diag.diagnostic_message
+                            else "duplicate generated rules were not published"
+                        )
+                        break
+
+            accepted_diag_chunks = sum(
+                1 for item in all_diagnostics if item.status in {"accepted", "partial"}
+            )
+            failed_diag_chunks = sum(1 for item in all_diagnostics if item.status == "failed")
+            partial_diag_chunks = sum(1 for item in all_diagnostics if item.status == "partial")
+            total_rejected = sum(item.rules_rejected for item in all_diagnostics)
+            total_published = session.scalar(
+                select(func.count())
+                .select_from(AuditRule)
+                .where(
+                    AuditRule.legal_act_id == legal_act_id,
+                    AuditRule.is_generated.is_(True),
                 )
+            ) or 0
+
+            legal_act.chunks_processed = accepted_diag_chunks
+            legal_act.rules_accepted = total_published
+            legal_act.rules_rejected = total_rejected
+            if model_failure is not None and total_published == 0 and accepted_diag_chunks == 0:
+                legal_act.processing_status = "failed"
+            elif failed_diag_chunks > 0 and total_published == 0 and (
+                provider_failures > 0 or accepted_diag_chunks == 0
+            ):
+                legal_act.processing_status = "failed"
+            elif (
+                failed_diag_chunks > 0
+                or partial_diag_chunks > 0
+                or len(all_diagnostics) < len(chunks)
+            ):
+                legal_act.processing_status = "partial"
+            else:
+                legal_act.processing_status = "completed"
+
+        if model_failure is not None:
+            raise _model_failure(
+                model_failure,
+                ApiError(503, "rule_extraction_error", "Online rule extraction failed"),
+            )
+        if provider_failures > 0 and not validated_rules:
+            raise ApiError(503, "rule_extraction_error", "Online rule extraction failed")
 
     @app.middleware("http")
     async def request_logging_middleware(request, call_next):
@@ -818,7 +982,7 @@ def create_app(
                 RuleDecisionResponse(
                     rule_id=item.rule_id,
                     rule_code=item.rule_code,
-                    name=item.name,
+                    subject=item.subject,
                     legal_act_id=item.legal_act_id,
                     applicability_scope=item.applicability_scope,
                     document_types=list(item.document_types),
@@ -987,7 +1151,6 @@ def create_app(
         response: Response,
         is_active: bool | None = None,
         document_type: str | None = None,
-        check_type: str | None = None,
         applicability_scope: ApplicabilityScope | None = None,
         legal_act_id: int | None = None,
         limit: int = Query(default=50, ge=1, le=100),
@@ -1001,8 +1164,6 @@ def create_app(
                 statement = statement.join(rule_document_types).where(
                     rule_document_types.c.document_type_code == document_type
                 )
-            if check_type is not None:
-                statement = statement.where(AuditRule.check_type == check_type)
             if applicability_scope is not None:
                 statement = statement.where(
                     AuditRule.applicability_scope == applicability_scope.value
@@ -1027,7 +1188,10 @@ def create_app(
     @app.post("/api/rules", response_model=RuleResponse, status_code=201)
     def create_rule(payload: RuleCreate) -> RuleResponse:
         _require_valid_severity(payload.severity)
-        _require_valid_check(payload.check_type, payload.parameters)
+        try:
+            normalized_constraint = validate_manual_constraint(payload.constraint_json)
+        except RuleValidationError as exc:
+            raise ApiError(422, exc.code, exc.message) from exc
         with session_factory.begin() as session:
             if payload.legal_act_id is not None and session.get(
                 LegalAct, payload.legal_act_id
@@ -1035,13 +1199,14 @@ def create_app(
                 raise ApiError(404, "legal_act_not_found", "Legal act does not exist")
             rule = AuditRule(
                 rule_code=payload.rule_code,
-                name=payload.name,
-                severity=payload.severity,
-                check_type=payload.check_type,
-                description=payload.description,
-                parameters_json=json.dumps(
-                    payload.parameters, ensure_ascii=False, sort_keys=True
+                subject=payload.subject,
+                constraint_text=payload.constraint_text,
+                constraint_json=(
+                    json.dumps(normalized_constraint, ensure_ascii=False, sort_keys=True)
+                    if normalized_constraint is not None else None
                 ),
+                condition=payload.condition,
+                severity=payload.severity,
                 legal_act_id=payload.legal_act_id,
             )
             apply_rule_applicability(
@@ -1077,25 +1242,35 @@ def create_app(
         changes = payload.model_dump(exclude_unset=True)
         if "severity" in changes:
             _require_valid_severity(changes["severity"])
+        if "constraint_json" in changes:
+            try:
+                changes["constraint_json"] = validate_manual_constraint(changes["constraint_json"])
+            except RuleValidationError as exc:
+                raise ApiError(422, exc.code, exc.message) from exc
         with session_factory.begin() as session:
             rule = session.get(AuditRule, rule_id)
             if rule is None:
                 raise ApiError(404, "rule_not_found", "Audit rule does not exist")
-            if "check_type" in changes or "parameters" in changes:
-                _require_valid_check(
-                    changes.get("check_type", rule.check_type),
-                    changes.get("parameters", _parse_parameters(rule.parameters_json)),
-                )
             if changes.get("is_active") and not rule.is_active:
                 _require_active_rule_types(rule)
+            if "constraint_json" in changes:
+                changes["constraint_json"] = (
+                    json.dumps(changes["constraint_json"], ensure_ascii=False, sort_keys=True)
+                    if changes["constraint_json"] is not None else None
+                )
             indexed_change = any(
                 field in changes and changes[field] != getattr(rule, field)
                 for field in RAG_INDEXED_RULE_FIELDS
             )
-            if "parameters" in changes:
-                rule.parameters_json = json.dumps(
-                    changes.pop("parameters"), ensure_ascii=False, sort_keys=True
-                )
+            if rule.is_generated:
+                modified = _modified_rule_fields(rule)
+                for field, value in changes.items():
+                    if value != getattr(rule, field):
+                        modified.add(field)
+                if modified:
+                    rule.applicability_auto = _with_modified_fields(
+                        rule.applicability_auto, modified
+                    )
             for field, value in changes.items():
                 setattr(rule, field, value)
             session.flush()
@@ -1273,11 +1448,15 @@ def create_app(
             return LegalActResponse.model_validate(session.get(LegalAct, legal_act_id))
 
     @app.post("/api/legal-acts/{legal_act_id}/reprocess", response_model=LegalActResponse)
-    def reprocess_legal_act(legal_act_id: int) -> LegalActResponse:
+    def reprocess_legal_act(
+        legal_act_id: int,
+        only_failed: bool = Query(default=False),
+        chunk_id: str | None = Query(default=None),
+    ) -> LegalActResponse:
         with session_factory() as session:
             if session.get(LegalAct, legal_act_id) is None:
                 raise ApiError(404, "legal_act_not_found", "Legal act does not exist")
-        process_legal_act(legal_act_id)
+        process_legal_act(legal_act_id, only_failed=only_failed, target_chunk_id=chunk_id)
         _rebuild_after_mutation(rebuild_rag_index)
         with session_factory() as session:
             return LegalActResponse.model_validate(session.get(LegalAct, legal_act_id))
@@ -1390,19 +1569,6 @@ def _require_active_rule_types(rule: AuditRule) -> None:
             f"All document types of the rule are deactivated: {codes}. "
             "Change its applicability or reactivate a type first",
         )
-
-
-def _require_valid_check(check_type: str, parameters: dict) -> None:
-    if check_type not in {item.value for item in CheckType}:
-        raise ApiError(422, "invalid_check_type", "Unsupported check type")
-    if check_type == CheckType.SEMANTIC.value:
-        raise ApiError(
-            422, "unsupported_check_type", "Semantic rules are not executed by the audit"
-        )
-    try:
-        validate_manual_rule_parameters(check_type, parameters)
-    except RuleValidationError as exc:
-        raise ApiError(422, "invalid_rule_parameters", str(exc)) from exc
 
 
 def _report_response(report: AuditReport) -> ReportResponse:
@@ -1616,12 +1782,69 @@ def _require_current_schema(engine) -> None:
     finding_columns = {
         item["name"] for item in inspect_schema(engine).get_columns("audit_findings")
     }
-    if "applicability_auto" not in columns or "finding_key" not in finding_columns:
+    if (
+        "subject" not in columns
+        or "applicability_auto" not in columns
+        or "finding_key" not in finding_columns
+    ):
         raise RuntimeError(
             "The database schema is outdated. Back it up and run "
             "'alembic upgrade head' (for a database that has no alembic_version table, "
             "run 'alembic stamp 0005_rule_publication_metadata' first)."
         )
+
+
+def _normalize_quote_key(quote: str) -> str:
+    return " ".join(quote.split())
+
+
+def _modified_rule_fields(rule: AuditRule) -> set[str]:
+    if not rule.applicability_auto:
+        return set()
+    try:
+        parsed = json.loads(rule.applicability_auto)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return set()
+    fields = parsed.get("modified_fields") if isinstance(parsed, dict) else None
+    if not isinstance(fields, list):
+        return set()
+    return {str(item) for item in fields if isinstance(item, str)}
+
+
+def _with_modified_fields(auto_json: str | None, modified: set[str]) -> str | None:
+    if not modified:
+        return auto_json
+    try:
+        parsed = json.loads(auto_json) if auto_json else {}
+    except (TypeError, ValueError, json.JSONDecodeError):
+        parsed = {}
+    if not isinstance(parsed, dict):
+        parsed = {}
+    parsed["modified_fields"] = sorted(modified)
+    return json.dumps(parsed, ensure_ascii=False, sort_keys=True)
+
+
+def _match_existing_generated_rule(
+    existing_rules: list[AuditRule],
+    matched_ids: set[int],
+    *,
+    location: str,
+    quote_key: str,
+    subject: str,
+) -> AuditRule | None:
+    candidates = [
+        rule
+        for rule in existing_rules
+        if rule.id not in matched_ids
+        and (rule.source_location or "") == location
+        and _normalize_quote_key(rule.source_quote or "") == quote_key
+    ]
+    if not candidates:
+        return None
+    for rule in candidates:
+        if rule.subject == subject:
+            return rule
+    return candidates[0]
 
 
 def _selection_config(
@@ -1702,21 +1925,30 @@ def _manual_applicability(
 
 
 def _rule_response(rule: AuditRule) -> RuleResponse:
+    constraint_json = json.loads(rule.constraint_json) if rule.constraint_json else None
+    raw_auto = json.loads(rule.applicability_auto) if rule.applicability_auto else None
+    automatic_applicability = (
+        {
+            key: raw_auto[key]
+            for key in ("scope", "document_types", "confidence")
+            if key in raw_auto
+        }
+        if isinstance(raw_auto, dict) and "scope" in raw_auto
+        else None
+    )
     return RuleResponse(
         id=rule.id,
         rule_code=rule.rule_code,
-        name=rule.name,
+        subject=rule.subject,
+        constraint_text=rule.constraint_text,
+        constraint_json=constraint_json,
+        condition=rule.condition,
         applicability_scope=rule.applicability_scope,
         document_types=[item.code for item in rule.document_types],
         applicability_confidence=rule.applicability_confidence,
         applicability_source=rule.applicability_source,
-        automatic_applicability=(
-            json.loads(rule.applicability_auto) if rule.applicability_auto else None
-        ),
+        automatic_applicability=automatic_applicability,
         severity=rule.severity,
-        description=rule.description,
-        check_type=rule.check_type,
-        parameters=_parse_parameters(rule.parameters_json),
         is_active=rule.is_active,
         legal_act_id=rule.legal_act_id,
         is_generated=rule.is_generated,

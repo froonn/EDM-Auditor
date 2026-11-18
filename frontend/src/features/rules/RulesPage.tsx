@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 
 import { api, type RuleFilters } from "@/api/endpoints";
-import { CHECK_TYPES, type ApplicabilityScope, type Rule } from "@/api/types";
+import { type ApplicabilityScope, type Rule } from "@/api/types";
 import { SeverityBadge } from "@/components/badges";
 import { DataTable, type Column } from "@/components/DataTable";
 import { ErrorAlert } from "@/components/ErrorAlert";
@@ -18,7 +18,7 @@ const TOGGLE_KEY = ["toggleRule"];
 
 interface RuleToggle {
   id: number;
-  name: string;
+  subject: string;
   isActive: boolean;
 }
 const SCOPES: ApplicabilityScope[] = ["universal", "typed", "manual_only", "unknown"];
@@ -40,11 +40,11 @@ export function RulesPage() {
   });
   // Several rules can be switched at once. One mutation object remembers only its latest call, so
   // the pending switches are read from the mutation cache instead.
-  const [failures, setFailures] = useState<ReadonlyMap<number, { name: string; error: unknown }>>(() => new Map());
+  const [failures, setFailures] = useState<ReadonlyMap<number, { subject: string; error: unknown }>>(() => new Map());
   const toggle = useMutation({
     mutationKey: TOGGLE_KEY,
     mutationFn: (change: RuleToggle) => api.rules.update(change.id, { is_active: change.isActive }),
-    onError: (error, change) => setFailures((current) => new Map(current).set(change.id, { name: change.name, error })),
+    onError: (error, change) => setFailures((current) => new Map(current).set(change.id, { subject: change.subject, error })),
     // Returning the promise keeps the switch pending until the list shows the new state.
     onSettled: () => invalidateCatalog(queryClient),
   });
@@ -60,7 +60,7 @@ export function RulesPage() {
       next.delete(rule.id);
       return next;
     });
-    toggle.mutate({ id: rule.id, name: rule.name, isActive: !rule.is_active });
+    toggle.mutate({ id: rule.id, subject: rule.subject ?? rule.name ?? "", isActive: !rule.is_active });
   };
 
   const filter = (changes: RuleFilters) => {
@@ -76,13 +76,12 @@ export function RulesPage() {
       cell: (rule) => (
         <div>
           <Link to={`/rules/${rule.id}`} className="font-medium text-primary hover:underline">
-            {rule.name}
+            {rule.subject ?? rule.name ?? ""}
           </Link>
           <p className="font-mono text-xs text-muted-foreground">{rule.rule_code}</p>
         </div>
       ),
     },
-    { key: "check", header: t("rules.column.check"), cell: (rule) => tOptional(`rules.check.${rule.check_type}`) ?? rule.check_type },
     {
       key: "act",
       header: t("rules.column.act"),
@@ -107,7 +106,7 @@ export function RulesPage() {
       cell: (rule) => (
         <input
           type="checkbox"
-          aria-label={t("rules.toggle", { name: rule.name })}
+          aria-label={t("rules.toggle", { name: rule.subject ?? rule.name ?? "" })}
           // A pending switch shows the requested state and waits: the server rebuilds the search index
           // before it answers, and the list is read again after that.
           checked={pending.get(rule.id) ?? rule.is_active}
@@ -153,16 +152,6 @@ export function RulesPage() {
             ))}
           </Select>
         </FormField>
-        <FormField label={t("rules.filter.check")}>
-          <Select value={filters.check_type ?? ""} onChange={(event) => filter({ check_type: event.target.value || undefined })}>
-            <option value="">{t("common.all")}</option>
-            {CHECK_TYPES.map((check) => (
-              <option key={check} value={check}>
-                {t(`rules.check.${check}`)}
-              </option>
-            ))}
-          </Select>
-        </FormField>
         <FormField label={t("rules.filter.scope")}>
           <Select
             value={filters.applicability_scope ?? ""}
@@ -179,7 +168,7 @@ export function RulesPage() {
       </div>
       {[...failures].map(([id, failure]) => (
         <div key={id} className="space-y-1">
-          <p className="text-sm font-medium">{t("rules.toggleFailed", { name: failure.name })}</p>
+          <p className="text-sm font-medium">{t("rules.toggleFailed", { name: failure.subject })}</p>
           <ErrorAlert error={failure.error} showServerMessage />
         </div>
       ))}

@@ -1,19 +1,20 @@
 import pytest
 
-from edm_auditor.model_providers import RULE_EXTRACTION_SCHEMA
-from edm_auditor.rule_validation import RuleValidationError, validate_generated_rule
+from edm_auditor.rule_validation import (
+    RuleValidationError,
+    validate_generated_rule,
+    validate_manual_constraint,
+)
 
 
 def _rule(**overrides):
     value = {
-        "rule_code": "leave-duration",
-        "name": "Минимальная продолжительность отпуска",
-        "description": "Отпуск должен быть не менее 24 дней.",
+        "subject": "Минимальная продолжительность отпуска",
+        "constraint_text": "Отпуск должен быть не менее 24 дней.",
+        "constraint_json": {"kind": "value", "operator": "gte", "value": 24, "unit": "day"},
+        "condition": "",
         "severity": "high",
-        "check_type": "duration",
-        "parameters": {"min_days": 24},
         "source_quote": "Отпуск должен быть не менее 24 дней.",
-        "source_location": "act:chunk-0",
     }
     value.update(overrides)
     return value
@@ -30,14 +31,20 @@ def test_generated_rule_is_normalized_and_quote_range_is_resolved() -> None:
 
     assert result["source_start"] == 10
     assert result["source_end"] == 10 + len(result["source_quote"])
-    assert result["parameters_json"] == '{"min_days": 24}'
+    assert result["constraint_json"] == {
+        "kind": "value",
+        "operator": "gte",
+        "value": 24,
+        "unit": "day",
+    }
 
 
 def test_quote_matching_allows_normalized_whitespace_and_preserves_source_range() -> None:
     source = "Работодатель обязан предоставить\n\nработнику письменное уведомление."
     result = validate_generated_rule(
         _rule(
-            description="Работодатель обязан предоставить работнику письменное уведомление.",
+            constraint_text="Работодатель обязан предоставить работнику письменное уведомление.",
+            constraint_json=None,
             source_quote="Работодатель обязан предоставить работнику письменное уведомление.",
         ),
         source_text=source,
@@ -52,17 +59,14 @@ def test_quote_matching_allows_normalized_whitespace_and_preserves_source_range(
 
 
 @pytest.mark.parametrize(
-    ("field", "expected"),
+    ("field", "value", "expected"),
     [
-        ("source_quote", "quote_not_found"),
-        ("source_location", "invalid_schema"),
-        ("name", "language_mismatch"),
+        ("source_quote", "missing text", "quote_not_found"),
+        ("subject", "", "invalid_schema"),
+        ("subject", "Minimum leave", "language_mismatch"),
     ],
 )
-def test_generated_rule_rejection_has_explicit_category(field, expected) -> None:
-    value = "missing text" if field == "source_quote" else "act:other"
-    if field == "name":
-        value = "Minimum leave"
+def test_generated_rule_rejection_has_explicit_category(field, value, expected) -> None:
     with pytest.raises(RuleValidationError) as error:
         validate_generated_rule(
             _rule(**{field: value}),
@@ -90,68 +94,86 @@ def test_duplicate_quote_is_rejected_as_ambiguous() -> None:
 
 
 @pytest.mark.parametrize(
-    ("check_type", "parameters"),
+    "bad_constraint",
     [
-        ("duration", {"min_days": "24"}),
-        ("keyword", {"keywords": []}),
-        ("regex", {"pattern": "["}),
-        ("date", {"before": "tomorrow"}),
-        ("duration", {"field": "days", "operator": "gte", "value": 24}),
+        {"kind": "unknown", "operator": "gte", "value": 24, "unit": "day"},
+        {"kind": "value", "operator": "gte", "value": "24", "unit": "day"},
+        {"kind": "value", "operator": "gte", "value": 24, "unit": "weeks"},
+        # Contradicts text number (text says 24, structure says 30).
+        {"kind": "value", "operator": "gte", "value": 30, "unit": "day"},
+        # Contradicts text operator ("не менее" requires gte/gt, not lte).
+        {"kind": "value", "operator": "lte", "value": 24, "unit": "day"},
+        {"kind": "frequency", "operator": "gte", "count": 0, "period": "month"},
+        {"kind": "day_of_month", "operator": "lte", "day": 32, "month_offset": 1},
     ],
 )
-def test_validator_enforces_check_type_contract(check_type, parameters) -> None:
-    with pytest.raises(RuleValidationError) as error:
-        validate_generated_rule(
-            _rule(
-                check_type=check_type,
-                parameters=parameters,
-                source_quote="Отпуск должен быть не менее 24 дней.",
-            ),
-            source_text="Отпуск должен быть не менее 24 дней.",
-            source_language="ru",
-            source_location="act:chunk-0",
-            index=1,
-        )
-
-    assert error.value.code == "invalid_parameters"
-
-
-@pytest.mark.parametrize(
-    ("check_type", "parameters"),
-    [
-        ("duration", {"max_days": 30}),
-        ("numeric", {"entity": "money", "min": 100}),
-        ("date", {"after": "2026-01-01"}),
-        ("keyword", {"keywords": ["отпуск"], "mode": "required"}),
-        ("regex", {"pattern": r"\bотпуск\b"}),
-    ],
-)
-def test_validator_accepts_supported_parameter_contracts(check_type, parameters) -> None:
+def test_bad_or_contradictory_generated_structure_is_dropped_without_rejecting_rule(
+    bad_constraint: dict,
+) -> None:
     result = validate_generated_rule(
-        _rule(check_type=check_type, parameters=parameters),
+        _rule(constraint_json=bad_constraint),
         source_text="Отпуск должен быть не менее 24 дней.",
         source_language="ru",
         source_location="act:chunk-0",
         index=1,
     )
 
-    assert result["check_type"] == check_type
+    assert result["constraint_json"] is None
+    assert result["constraint_text"] == "Отпуск должен быть не менее 24 дней."
 
 
-def test_model_cannot_create_a_semantic_rule() -> None:
-    rule_schema = RULE_EXTRACTION_SCHEMA["properties"]["rules"]["items"]["properties"]
-    assert "semantic" not in rule_schema["check_type"]["enum"]
+@pytest.mark.parametrize(
+    ("quote", "text", "constraint_json", "expected"),
+    [
+        (
+            "Отпуск должен быть не менее 24 дней.",
+            "Отпуск должен быть не менее 24 дней.",
+            {"kind": "value", "operator": "gte", "value": 24, "unit": "day", "count": None},
+            {"kind": "value", "operator": "gte", "value": 24, "unit": "day"},
+        ),
+        (
+            "Заработная плата выплачивается не реже двух раз в месяц.",
+            "Заработная плата выплачивается не реже двух раз в месяц.",
+            {"kind": "frequency", "operator": "gte", "count": 2, "period": "month"},
+            {"kind": "frequency", "operator": "gte", "count": 2, "period": "month"},
+        ),
+        (
+            "Окончательный расчет производится не позднее 5 числа следующего месяца.",
+            "Окончательный расчет производится не позднее 5 числа следующего месяца.",
+            {"kind": "day_of_month", "operator": "lte", "day": 5, "month_offset": 1},
+            {"kind": "day_of_month", "operator": "lte", "day": 5, "month_offset": 1},
+        ),
+    ],
+)
+def test_validator_accepts_supported_constraint_structures(
+    quote: str, text: str, constraint_json: dict, expected: dict
+) -> None:
+    result = validate_generated_rule(
+        _rule(constraint_text=text, source_quote=quote, constraint_json=constraint_json),
+        source_text=quote,
+        source_language="ru",
+        source_location="act:chunk-0",
+        index=1,
+    )
 
+    assert result["constraint_json"] == expected
+
+
+@pytest.mark.parametrize(
+    "invalid_manual",
+    [
+        {"kind": "regex", "pattern": "("},
+        {"kind": "value", "operator": "gte", "value": -1, "unit": "day"},
+        {"kind": "frequency", "operator": "gte", "count": 2, "period": "week"},
+        {"kind": "day_of_month", "operator": "lte", "day": 40},
+        "not-an-object",
+    ],
+)
+def test_manual_constraint_validation_rejects_invalid_structures(invalid_manual) -> None:
     with pytest.raises(RuleValidationError) as error:
-        validate_generated_rule(
-            _rule(check_type="semantic", parameters={"query": "срок отпуска"}),
-            source_text="Отпуск должен быть не менее 24 дней.",
-            source_language="ru",
-            source_location="act:chunk-0",
-            index=1,
-        )
+        validate_manual_constraint(invalid_manual)
 
-    assert error.value.code == "unsupported_check_type"
+    assert error.value.code == "invalid_rule_parameters"
 
 
 @pytest.mark.parametrize("gap", ["...", "…", " ... "])
@@ -162,9 +184,8 @@ def test_quote_with_ellipsis_matches_from_first_to_last_part(gap: str) -> None:
     )
     result = validate_generated_rule(
         _rule(
-            check_type="keyword",
-            parameters={"keywords": ["порядок взаимодействия"], "mode": "required"},
-            description="В соглашении указывается порядок взаимодействия.",
+            constraint_json=None,
+            constraint_text="В соглашении указывается порядок взаимодействия.",
             source_quote=f"В соглашении указываются:{gap}б) порядок взаимодействия работника и нанимателя.",
         ),
         source_text=source,

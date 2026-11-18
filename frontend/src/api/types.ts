@@ -25,9 +25,6 @@ export type ApplicabilityScope = "universal" | "typed" | "manual_only" | "unknow
 export const MANUAL_SCOPES: readonly ApplicabilityScope[] = ["universal", "typed", "manual_only"];
 
 /** Check types the audit runs. `semantic` is refused by the API and is never offered. */
-export type CheckType = "keyword" | "regex" | "numeric" | "date" | "duration";
-export const CHECK_TYPES: readonly CheckType[] = ["keyword", "regex", "numeric", "date", "duration"];
-
 export type SelectionMode = "automatic" | "manual" | "combined" | "all";
 export const SELECTION_MODES: readonly SelectionMode[] = ["automatic", "manual", "combined", "all"];
 

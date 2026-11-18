@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 from edm_auditor.database.connection import create_engine_for, create_session_factory
 from edm_auditor.database.models import AuditRule, Base, LegalAct
-from edm_auditor.database.enums import AuditSeverity, CheckType
+from edm_auditor.database.enums import AuditSeverity
 from edm_auditor.database.repositories import DocumentRepository
 from edm_auditor.rag import DatabaseIndexSourceLoader, TextLegalActIngestor
 
@@ -49,18 +49,16 @@ def test_database_loader_returns_act_and_active_rule_sources(session_factory) ->
         session.get(LegalAct, act.id).processing_status = "completed"
     repository.create_rule(
         rule_code="RULE-1",
-        name="Active rule",
-        description="Check article",
+        subject="Active rule",
+        constraint_text="Check article",
         severity=AuditSeverity.HIGH,
-        check_type=CheckType.SEMANTIC,
         legal_act_id=act.id,
     )
     repository.create_rule(
         rule_code="RULE-2",
-        name="Inactive rule",
-        description="Do not index",
+        subject="Inactive rule",
+        constraint_text="Do not index",
         severity=AuditSeverity.LOW,
-        check_type=CheckType.KEYWORD,
         legal_act_id=act.id,
     )
     with session_factory.begin() as session:

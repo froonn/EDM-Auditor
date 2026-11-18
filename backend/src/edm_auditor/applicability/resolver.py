@@ -76,7 +76,7 @@ class RuleApplicabilityResolver:
         return RuleDecision(
             rule_id=rule.rule_id,
             rule_code=rule.rule_code,
-            name=rule.name,
+            subject=rule.subject,
             legal_act_id=rule.legal_act_id,
             applicability_scope=rule.applicability_scope,
             document_types=tuple(rule.document_types),

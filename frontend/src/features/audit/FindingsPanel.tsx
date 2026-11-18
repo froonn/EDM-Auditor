@@ -182,7 +182,7 @@ export function PassedRules({ rules }: { rules: PassedRule[] | null }) {
                     <div className="flex items-start gap-2">
                       <CircleCheck aria-hidden className="mt-0.5 size-4 shrink-0 text-success" />
                       <div className="min-w-0 space-y-0.5">
-                        <p className="font-medium">{rule.name ?? rule.ruleCode}</p>
+                        <p className="font-medium">{rule.subject ?? rule.ruleCode}</p>
                         {rule.legalAct && <p className="text-muted-foreground">{rule.legalAct}</p>}
                       </div>
                     </div>
@@ -218,7 +218,7 @@ function PassedRuleCard({ rule }: { rule: PassedRule }) {
       {deleted && <p className="text-muted-foreground">{t("audit.passedDeleted")}</p>}
       {current && (
         <>
-          <Field label={t("finding.description")}>{current.description || current.name}</Field>
+          <Field label={t("finding.description")}>{current.constraint_text}</Field>
           {current.source_quote && <NormField quote={current.source_quote} />}
           <Field label={t("finding.severity")}>
             <SeverityBadge severity={current.severity} />
@@ -226,7 +226,7 @@ function PassedRuleCard({ rule }: { rule: PassedRule }) {
         </>
       )}
       {rule.legalAct && <Field label={t("finding.legalAct")}>{rule.legalAct}</Field>}
-      <Field label={t("finding.rule")}>{joinNameAndCode(rule.name, rule.ruleCode)}</Field>
+      <Field label={t("finding.rule")}>{joinNameAndCode(rule.subject, rule.ruleCode)}</Field>
       {rule.rejected.map((candidate, index) => (
         <Field key={index} label={t("audit.passedRejected")}>
           {candidate.quote && <span className="font-medium">«{asOneLine(candidate.quote)}»</span>}

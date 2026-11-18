@@ -245,15 +245,15 @@ class AuditRule(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     rule_code: Mapped[str] = mapped_column(String(100), unique=True)
-    name: Mapped[str] = mapped_column(String(255))
+    subject: Mapped[str] = mapped_column(String(255))
+    constraint_text: Mapped[str] = mapped_column(Text)
+    constraint_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    condition: Mapped[str] = mapped_column(Text, default="")
     applicability_scope: Mapped[str] = mapped_column(String(20), default="unknown")
     applicability_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     applicability_source: Mapped[str | None] = mapped_column(String(50), nullable=True)
     applicability_auto: Mapped[str | None] = mapped_column(Text, nullable=True)
     severity: Mapped[str] = mapped_column(String(20))
-    description: Mapped[str] = mapped_column(Text, default="")
-    check_type: Mapped[str] = mapped_column(String(20))
-    parameters_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True)
     legal_act_id: Mapped[int | None] = mapped_column(
         ForeignKey("legal_acts.id", ondelete="CASCADE"), nullable=True
@@ -279,12 +279,8 @@ class AuditRule(Base):
             name="ck_rules_severity",
         ),
         CheckConstraint(
-            "check_type IN ('keyword', 'regex', 'numeric', 'date', 'duration', 'semantic')",
-            name="ck_rules_check_type",
-        ),
-        CheckConstraint(
-            "parameters_json IS NULL OR json_valid(parameters_json)",
-            name="ck_rules_parameters_json",
+            "constraint_json IS NULL OR json_valid(constraint_json)",
+            name="ck_rules_constraint_json",
         ),
         CheckConstraint(
             "applicability_scope IN ('universal', 'typed', 'manual_only', 'unknown')",

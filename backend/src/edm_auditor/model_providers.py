@@ -83,6 +83,21 @@ ENTITY_EXTRACTION_SCHEMA = {
     "additionalProperties": False,
 }
 
+CONSTRAINT_JSON_SCHEMA = {
+    "type": ["object", "null"],
+    "properties": {
+        "kind": {"type": "string", "enum": ["value", "frequency", "day_of_month"]},
+        "operator": {"type": "string", "enum": ["gte", "lte", "gt", "lt", "eq"]},
+        "value": {"type": ["number", "null"]},
+        "unit": {"type": ["string", "null"], "enum": ["day", "hour", "byn", "%", None]},
+        "count": {"type": ["integer", "null"]},
+        "period": {"type": ["string", "null"], "enum": ["month", "year", None]},
+        "day": {"type": ["integer", "null"]},
+        "month_offset": {"type": ["integer", "null"]},
+    },
+    "additionalProperties": False,
+}
+
 RULE_EXTRACTION_SCHEMA = {
     "type": "object",
     "properties": {
@@ -91,82 +106,34 @@ RULE_EXTRACTION_SCHEMA = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "rule_code": {"type": "string"},
-                    "name": {"type": "string"},
-                    "description": {"type": "string"},
-                    "severity": {
-                        "type": "string",
-                        "enum": ["low", "medium", "high", "critical"],
-                    },
-                    "check_type": {
-                        "type": "string",
-                        "enum": ["keyword", "regex", "numeric", "date", "duration"],
-                    },
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "min_days": {"type": "integer"},
-                            "max_days": {"type": "integer"},
-                            "entity": {
-                                "type": "string",
-                                "enum": ["number", "duration", "percent", "money"],
-                            },
-                            "min": {"type": "number"},
-                            "max": {"type": "number"},
-                            "before": {"type": "string"},
-                            "after": {"type": "string"},
-                            "keywords": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                            },
-                            "mode": {
-                                "type": "string",
-                                "enum": ["forbidden", "required"],
-                            },
-                            "match": {
-                                "type": "string",
-                                "enum": ["literal", "stem", "regex"],
-                            },
-                            "pattern": {"type": "string"},
-                        },
-                        "additionalProperties": False,
-                    },
+                    "subject": {"type": "string"},
+                    "constraint_text": {"type": "string"},
+                    "constraint_json": CONSTRAINT_JSON_SCHEMA,
+                    "condition": {"type": "string"},
+                    "severity": {"type": "string", "enum": ["low", "medium", "high", "critical"]},
                     "source_quote": {"type": "string"},
-                    "source_location": {"type": "string"},
-                    "applicability_scope": {
-                        "type": "string",
-                        "enum": ["typed", "universal", "unknown"],
-                    },
-                    "document_types": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                    },
-                    "applicability_confidence": {
-                        "type": "number",
-                        "minimum": 0,
-                        "maximum": 1,
-                    },
+                    "applicability_scope": {"type": "string", "enum": ["typed", "universal", "unknown"]},
+                    "document_types": {"type": "array", "items": {"type": "string"}},
+                    "applicability_confidence": {"type": "number", "minimum": 0, "maximum": 1},
                     "suggested_type_name": {"type": "string"},
                     "suggested_type_reason": {"type": "string"},
                 },
-                "required": [
-                    "rule_code",
-                    "name",
-                    "description",
-                    "severity",
-                    "check_type",
-                    "parameters",
-                    "source_quote",
-                    "source_location",
-                    "applicability_scope",
-                    "document_types",
-                    "applicability_confidence",
-                    "suggested_type_name",
-                    "suggested_type_reason",
-                ],
+                "required": ["subject", "constraint_text", "constraint_json", "condition", "severity", "source_quote", "applicability_scope", "document_types", "applicability_confidence", "suggested_type_name", "suggested_type_reason"],
                 "additionalProperties": False,
             },
-        }
+        },
+        "skipped_norms": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "source_quote": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+                "required": ["source_quote", "reason"],
+                "additionalProperties": False,
+            },
+        },
     },
     "required": ["rules"],
     "additionalProperties": False,
@@ -347,6 +314,7 @@ class RuleExtractionProvider(Protocol):
         source_location: str = "unknown",
         document_types: Sequence[DocumentTypeOption] = (),
         legal_act_title: str = "",
+        context: str = "",
     ) -> Sequence[dict[str, object]]:
         """Return structured rules explicitly supported by the source text."""
 
@@ -522,6 +490,7 @@ class OpenAICompatibleRuleExtractionProvider:
         self.model_name = config.model
         self._config = config
         self._timeout = timeout or config.request_timeout_seconds
+        self.last_skipped_norms: tuple[dict[str, str], ...] = ()
 
     def extract_rules(
         self,
@@ -533,36 +502,20 @@ class OpenAICompatibleRuleExtractionProvider:
         legal_act_title: str = "",
         context: str = "",
     ) -> Sequence[dict[str, object]]:
+        self.last_skipped_norms = ()
         prompt = (
-            "Извлеки только явные, проверяемые и обязательные требования из одного "
-            "фрагмента нормативного акта. Не додумывай, не суммируй и не изобретай "
-            "требования. Каждое правило должно быть непосредственно связано с "
-            "исходным текстом. Если безопасное правило создать нельзя, верни пустой "
-            "массив rules.\n\n"
-            f"source_language={source_language}; output_language={source_language}; "
-            f"source_location={source_location}.\n"
-            "Для русского источника не переводи name, description, keywords "
-            "и source_quote: сохраняй язык источника.\n\n"
-            "The check_type and parameters must match these exact validator contracts:\n"
-            '- duration: parameters must contain "min_days" and/or "max_days" as '
-            "numbers. Use this for requirements such as 'at least 24 calendar days'.\n"
-            '- numeric: parameters must contain "entity" with one of "number", '
-            '"duration", "money", or "percent", and "min" and/or "max" as numbers.\n'
-            '- date: parameters must contain "before" and/or "after" as ISO dates '
-            "(YYYY-MM-DD).\n"
-            '- keyword: parameters must contain a non-empty "keywords" array of '
-            "strings. Use mode \"required\" when the document must contain the "
-            "keyword; use mode \"forbidden\" for prohibited wording. Use match "
-            "\"stem\" for inflected word forms.\n"
-            '- regex: parameters must contain a non-empty "pattern" string. Use '
-            "this only when an exact regular-expression requirement is stated.\n"
-            "Do not create a rule for a requirement that these types cannot check.\n\n"
-            "Never use generic parameters such as field, operator, unit, or value. "
-            "For example, convert 'vacation must be at least 24 calendar days' to "
-            'check_type "duration" with {"min_days": 24}, not to a numeric rule '
-            'with {"field": "...", "operator": ">=", "unit": "...", "value": 24}. '
-            "Для каждого правила обязательно верни точный source_quote из chunk и "
-            "source_location."
+            "Извлеки каждую явную обязательную норму из фрагмента нормативного акта. "
+            "Для каждой нормы верни предмет (subject), текстовое ограничение (constraint_text), "
+            "условие применения (condition, пустая строка если без условий) и при возможности "
+            "структурированный constraint_json (виды: value с operator/value/unit, frequency с "
+            "operator/count/period, day_of_month с operator/day/month_offset). Если норма не относится "
+            "к проверке документов (например, полномочия органа или область действия акта), "
+            "перечисли её отдельно в skipped_norms с source_quote и reason. Не пропускай норму "
+            "из-за того, что структура не распознаётся: constraint_json можно вернуть null.\n\n"
+            f"source_language={source_language}; output_language={source_language}.\n"
+            "constraint_json должен содержать только подтверждённые текстом поля и может "
+            "быть null. Для русского источника сохраняй язык источника. "
+            "Для каждого правила обязательно верни точный source_quote."
             f"{RULE_SEVERITY_PROMPT}"
             f"{_rule_applicability_prompt(document_types, legal_act_title)}"
             f"{RULE_QUOTE_PROMPT}"
@@ -603,6 +556,7 @@ class OpenAICompatibleRuleExtractionProvider:
             rules = parsed["rules"]
             if not isinstance(rules, list):
                 raise ValueError
+            self.last_skipped_norms = _extract_skipped_norms(parsed)
             return tuple(item for item in rules if isinstance(item, dict))
         except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as error:
             raise ValueError("rule extraction provider returned invalid JSON") from error
@@ -773,6 +727,7 @@ class GoogleAIStudioRuleExtractionProvider:
         self.model_name = config.model
         self._config = config
         self._client = client or _google_client(config)
+        self.last_skipped_norms: tuple[dict[str, str], ...] = ()
 
     def extract_rules(
         self,
@@ -784,21 +739,23 @@ class GoogleAIStudioRuleExtractionProvider:
         legal_act_title: str = "",
         context: str = "",
     ) -> Sequence[dict[str, object]]:
+        self.last_skipped_norms = ()
         prompt = (
-            "Извлеки только явные обязательные проверяемые требования из одного "
-            "фрагмента НПА. Не додумывай и не изобретай правила. Используй точные "
-            'contracts: duration uses min_days/max_days; numeric uses entity '
-            "plus min/max; date uses before/after ISO dates; keyword uses "
-            "keywords plus optional mode (forbidden/required) and match "
-            "(literal/stem/regex); regex uses pattern. "
-            "Do not create a rule for a requirement that these types cannot check. "
+            "Извлеки каждую явную обязательную норму из одного фрагмента НПА. "
+            "Для каждой нормы верни предмет (subject), текстовое ограничение "
+            "(constraint_text), условие применения (condition, пустая строка если без условий) и, только если "
+            "структура подтверждается текстом, constraint_json (виды: value с operator/value/unit, "
+            "frequency с operator/count/period, day_of_month с operator/day/month_offset). Если структуру "
+            "надёжно определить нельзя, верни constraint_json как null, но сохрани "
+            "правило с текстовым ограничением. Если норма вообще не относится к проверке документов "
+            "(например, полномочия органа или общие сведения), перечисли её в skipped_norms с "
+            "source_quote и reason. Не додумывай и не изобретай нормы. "
             "Never use generic field/operator/unit/value parameters. "
-            f"source_language={source_language}; output_language={source_language}; "
-            f"source_location={source_location}. "
-            "For Russian sources, do not translate names, descriptions, keywords, "
+            f"source_language={source_language}; output_language={source_language}. "
+            "For Russian sources, do not translate subject, constraint_text, condition, "
             "or source quotes. Return exactly "
             'one JSON object with a "rules" array; do not return a bare array. '
-            "Every rule must contain source_quote and source_location."
+            "Every rule must contain source_quote."
             f"{RULE_SEVERITY_PROMPT}"
             f"{_rule_applicability_prompt(document_types, legal_act_title)}"
             f"{RULE_QUOTE_PROMPT}"
@@ -843,6 +800,7 @@ class GoogleAIStudioRuleExtractionProvider:
             if not isinstance(rules, list):
                 logger.error("Parsed rule response has no 'rules' array")
                 raise ValueError("rule extraction provider returned invalid JSON")
+            self.last_skipped_norms = _extract_skipped_norms(payload)
             result = tuple(item for item in rules if isinstance(item, dict))
             logger.info("Google AI Studio successfully extracted %d rules", len(result))
             return result
@@ -1047,11 +1005,33 @@ def _google_schema(schema: dict[str, object]) -> dict[str, object]:
             }
         elif key == "items" and isinstance(value, dict):
             converted[key] = _google_schema(value)
+        elif key == "type" and isinstance(value, list):
+            non_null = [item for item in value if item != "null"]
+            converted["type"] = non_null[0] if non_null else "string"
+            if "null" in value:
+                converted["nullable"] = True
+        elif key == "enum" and isinstance(value, list):
+            converted[key] = [item for item in value if item is not None]
         elif key == "type" and value == "integer":
             converted[key] = "integer"
         else:
             converted[key] = value
     return converted
+
+
+def _extract_skipped_norms(payload: dict[str, object]) -> tuple[dict[str, str], ...]:
+    raw = payload.get("skipped_norms")
+    if not isinstance(raw, list):
+        return ()
+    items = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        quote = entry.get("source_quote")
+        reason = entry.get("reason")
+        if isinstance(quote, str) and quote.strip() and isinstance(reason, str) and reason.strip():
+            items.append({"source_quote": quote.strip(), "reason": reason.strip()})
+    return tuple(items)
 
 
 def _google_response_text(response) -> str:

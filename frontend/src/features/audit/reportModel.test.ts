@@ -135,11 +135,11 @@ describe("toReportView", () => {
       {
         ruleId: 4,
         ruleCode: "R4",
-        name: "Правило R4",
+        subject: "Правило R4",
         legalAct: "Положение (ACT)",
         rejected: [{ ruleCode: "R4", quote: "7 дней", reason: "длительность поездки" }],
       },
-      { ruleId: 5, ruleCode: "R5", name: "Правило R5", legalAct: "Положение (ACT)", rejected: [] },
+      { ruleId: 5, ruleCode: "R5", subject: "Правило R5", legalAct: "Положение (ACT)", rejected: [] },
     ]);
   });
 });

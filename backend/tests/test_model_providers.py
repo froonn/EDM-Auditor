@@ -208,10 +208,12 @@ def test_rule_extractor_requests_json_schema_when_configured(monkeypatch) -> Non
                 {
                     "message": {
                         "content": (
-                            '{"rules":[{"rule_code":"leave-minimum",'
-                            '"name":"Minimum leave","description":"At least 24 days",'
-                            '"severity":"high","check_type":"duration",'
-                            '"parameters":{"min_days":24}}]}'
+                            '{"rules":[{"subject":"Минимальный отпуск",'
+                            '"constraint_text":"Отпуск не менее 24 дней.",'
+                            '"constraint_json":{"kind":"value","operator":"gte","value":24,"unit":"day"},'
+                            '"condition":"","severity":"high",'
+                            '"source_quote":"Отпуск не менее 24 дней."}],'
+                            '"skipped_norms":[{"source_quote":"Общие положения","reason":"не проверяет документ"}]}'
                         )
                     }
                 }
@@ -234,13 +236,15 @@ def test_rule_extractor_requests_json_schema_when_configured(monkeypatch) -> Non
         source_location="legal-act-7:chunk-0",
     )
 
-    assert rules[0]["check_type"] == "duration"
+    assert rules[0]["subject"] == "Минимальный отпуск"
+    assert provider.last_skipped_norms == (
+        {"source_quote": "Общие положения", "reason": "не проверяет документ"},
+    )
     assert captured["response_format"]["json_schema"]["name"] == "rule_extraction"
     prompt = captured["messages"][0]["content"]
-    assert '"min_days"' in prompt
-    assert "Never use generic parameters" in prompt
+    assert "constraint_json" in prompt
+    assert "skipped_norms" in prompt
     assert "source_language=ru" in prompt
-    assert "source_location=legal-act-7:chunk-0" in prompt
     assert "source_quote" in prompt
 
 
@@ -275,22 +279,23 @@ def test_google_schema_omits_openai_only_additional_properties() -> None:
     )
 
 
-def test_google_rule_schema_describes_parameters_properties() -> None:
+def test_google_rule_schema_describes_constraint_json_properties() -> None:
     schema = _google_schema(RULE_EXTRACTION_SCHEMA)
-    parameters = schema["properties"]["rules"]["items"]["properties"]["parameters"]
+    constraint_json = schema["properties"]["rules"]["items"]["properties"]["constraint_json"]
 
-    assert parameters["type"] == "object"
-    assert "min_days" in parameters["properties"]
-    assert "keywords" in parameters["properties"]
-    assert "additionalProperties" not in parameters
+    assert constraint_json["type"] == "object"
+    assert constraint_json["nullable"] is True
+    assert "kind" in constraint_json["properties"]
+    assert "operator" in constraint_json["properties"]
+    assert "additionalProperties" not in constraint_json
 
 
 def test_google_rule_extractor_accepts_root_array_response() -> None:
     client = _GoogleClient(
         _GoogleResponse(
-            '[{"rule_code":"leave-minimum","name":"Minimum leave",'
-            '"description":"At least 24 days","severity":"high",'
-            '"check_type":"duration","parameters":{"min_days":24}}]'
+            '[{"subject":"Минимальный отпуск","constraint_text":"Не менее 24 дней",'
+            '"constraint_json":{"kind":"value","operator":"gte","value":24,"unit":"day"},'
+            '"condition":"","severity":"high","source_quote":"Отпуск не менее 24 дней."}]'
         )
     )
     provider = GoogleAIStudioRuleExtractionProvider(
@@ -305,7 +310,7 @@ def test_google_rule_extractor_accepts_root_array_response() -> None:
     rules = provider.extract_rules("Отпуск не менее 24 дней.")
 
     assert len(rules) == 1
-    assert rules[0]["rule_code"] == "leave-minimum"
+    assert rules[0]["subject"] == "Минимальный отпуск"
 
 
 class _FailingGoogleModels:

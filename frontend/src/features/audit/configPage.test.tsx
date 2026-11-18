@@ -9,16 +9,16 @@ import { renderApp } from "@/test/render";
 
 afterEach(() => vi.unstubAllGlobals());
 
-const rule = (id: number, name: string): Rule => ({
+const rule = (id: number, subject: string): Rule => ({
   id,
   rule_code: `R-${id}`,
-  name,
+  subject,
+  constraint_text: "",
+  constraint_json: null,
+  condition: "",
   applicability_scope: "typed",
   document_types: ["remote_work_agreement"],
   severity: "high",
-  description: "",
-  check_type: "keyword",
-  parameters: {},
   is_active: true,
   legal_act_id: 1,
   is_generated: true,
@@ -34,8 +34,8 @@ const preview = {
   candidate_document_types: [],
   selected_rule_ids: [1],
   decisions: [
-    { rule_id: 1, rule_code: "R-1", name: "Срок", legal_act_id: 1, applicability_scope: "typed", document_types: [], selected: true, reason: "rule_included_by_user" },
-    { rule_id: 2, rule_code: "R-2", name: "Сумма", legal_act_id: 1, applicability_scope: "typed", document_types: [], selected: false, reason: "rule_excluded_by_user" },
+    { rule_id: 1, rule_code: "R-1", subject: "Срок", legal_act_id: 1, applicability_scope: "typed", document_types: [], selected: true, reason: "rule_included_by_user" },
+    { rule_id: 2, rule_code: "R-2", subject: "Сумма", legal_act_id: 1, applicability_scope: "typed", document_types: [], selected: false, reason: "rule_excluded_by_user" },
   ],
   warnings: ["rules_with_unknown_applicability"],
   rag_recommendations: [{ legal_act_id: 1, rule_id: null, score: 0.87, threshold: 0.5, reason: "rag_candidate_above_threshold" }],

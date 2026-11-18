@@ -12,16 +12,16 @@ afterEach(() => vi.unstubAllGlobals());
 const rule = (overrides: Partial<Rule> = {}): Rule => ({
   id: 1,
   rule_code: "ACT-1",
-  name: "Срок уведомления",
+  subject: "Срок уведомления",
+  constraint_text: "Уведомление не позднее 10 дней.",
+  constraint_json: { kind: "value", operator: "gte", value: 10, unit: "day" },
+  condition: "",
   applicability_scope: "typed",
   document_types: ["remote_work_agreement"],
   applicability_confidence: 0.9,
   applicability_source: "llm",
   automatic_applicability: { scope: "typed", document_types: ["remote_work_agreement"], confidence: 0.9 },
   severity: "high",
-  description: "Уведомление не позднее 10 дней.",
-  check_type: "duration",
-  parameters: { min_days: 10 },
   is_active: true,
   legal_act_id: 1,
   is_generated: true,
@@ -46,11 +46,10 @@ describe("rules list", () => {
     renderApp("/rules");
     const row = (await screen.findByRole("link", { name: "Срок уведомления" })).closest("tr")!;
     expect(within(row).getByText("Высокая")).toBeInTheDocument();
-    expect(within(row).getByText("Срок")).toBeInTheDocument();
 
-    await userEvent.selectOptions(screen.getByLabelText("Тип проверки"), "keyword");
+    await userEvent.selectOptions(screen.getByLabelText("Применимость"), "typed");
     await waitFor(() =>
-      expect(api.calls.some((call) => call.url.searchParams.get("check_type") === "keyword")).toBe(true),
+      expect(api.calls.some((call) => call.url.searchParams.get("applicability_scope") === "typed")).toBe(true),
     );
     await userEvent.click(within(row).getByRole("checkbox", { name: /Срок уведомления/ }));
     await waitFor(() => expect(api.calls.some((call) => call.method === "PATCH")).toBe(true));
@@ -72,7 +71,7 @@ describe("deactivated document types", () => {
       "GET /api/rules": () =>
         page([
           rule({ id: 1, is_active: false, document_types: ["expense_report"] }),
-          rule({ id: 2, name: "Сумма компенсации", rule_code: "ACT-2" }),
+          rule({ id: 2, subject: "Сумма компенсации", rule_code: "ACT-2" }),
         ]),
       "PATCH /api/rules/1": () => new Promise<Response>((resolve) => (answer = resolve)),
     });
@@ -106,7 +105,7 @@ describe("deactivated document types", () => {
       "GET /api/rules": () =>
         page([
           rule({ id: 1, is_active: states.get(1) }),
-          rule({ id: 2, name: "Сумма компенсации", rule_code: "ACT-2", is_active: states.get(2) }),
+          rule({ id: 2, subject: "Сумма компенсации", rule_code: "ACT-2", is_active: states.get(2) }),
         ]),
       "PATCH /api/rules/1": ({ init }) =>
         new Promise<Response>((resolve) =>
@@ -166,37 +165,36 @@ describe("deactivated document types", () => {
 });
 
 describe("rule form", () => {
-  it("edits a generated rule and warns that reprocessing replaces it", async () => {
+  it("edits a generated rule and warns about generated rule status", async () => {
     const api = mockApi({ ...base, "GET /api/rules/1": () => json(rule()), "PATCH /api/rules/1": () => json(rule()) });
     renderApp("/rules/1");
     expect(await screen.findByText(/ваши изменения пропадут/)).toBeInTheDocument();
     expect(screen.getByText("Работодатель обязан уведомить не позднее 10 дней.")).toBeInTheDocument();
     expect(screen.getByText(/Выбор модели: По типам документов/)).toBeInTheDocument();
 
-    const min = screen.getByLabelText("Не меньше, дней");
-    await userEvent.clear(min);
-    await userEvent.type(min, "14");
+    const text = screen.getByLabelText("Текст ограничения");
+    await userEvent.clear(text);
+    await userEvent.type(text, "Уведомление не позднее 14 дней.");
     await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
     await waitFor(() => expect(api.calls.some((call) => call.method === "PATCH")).toBe(true));
     expect(body(api.calls.find((call) => call.method === "PATCH")!.init)).toMatchObject({
-      check_type: "duration",
-      parameters: { min_days: 14 },
+      subject: "Срок уведомления",
+      constraint_text: "Уведомление не позднее 14 дней.",
       severity: "high",
     });
   });
 
-  it("creates a keyword rule with a recommendation and its applicability", async () => {
+  it("creates a rule with constraint text, condition and applicability", async () => {
     const api = mockApi({
       ...base,
-      "GET /api/rules/7": () => json(rule({ id: 7, rule_code: "MY-1", name: "Подпись", is_generated: false })),
+      "GET /api/rules/7": () => json(rule({ id: 7, rule_code: "MY-1", subject: "Подпись", is_generated: false })),
       "POST /api/rules": () => json(rule({ id: 7 }), 201),
     });
     renderApp("/rules/new");
     await userEvent.type(await screen.findByLabelText(/^Код правила/), "MY-1");
-    await userEvent.type(screen.getByLabelText("Название"), "Подпись");
-    await userEvent.type(screen.getByLabelText(/Слова или фразы/), "подпись{enter}печать");
-    await userEvent.selectOptions(screen.getByLabelText("Режим"), "required");
-    await userEvent.type(screen.getByLabelText(/^Рекомендация/), "Добавьте подписи.");
+    await userEvent.type(screen.getByLabelText("Предмет"), "Подпись");
+    await userEvent.type(screen.getByLabelText("Текст ограничения"), "Документ должен содержать подпись и печать.");
+    await userEvent.type(screen.getByLabelText("Условие применения"), "для кадровых приказов");
     await userEvent.selectOptions(screen.getByLabelText(/^Область применимости/), "typed");
     const create = screen.getByRole("button", { name: "Создать" });
     expect(create).toBeDisabled();
@@ -206,11 +204,11 @@ describe("rule form", () => {
     await waitFor(() => expect(api.calls.some((call) => call.method === "POST")).toBe(true));
     expect(body(api.calls.find((call) => call.method === "POST")!.init)).toEqual({
       rule_code: "MY-1",
-      name: "Подпись",
-      description: "",
+      subject: "Подпись",
+      constraint_text: "Документ должен содержать подпись и печать.",
+      constraint_json: null,
+      condition: "для кадровых приказов",
       severity: "medium",
-      check_type: "keyword",
-      parameters: { keywords: ["подпись", "печать"], mode: "required", match: "literal", recommendation: "Добавьте подписи." },
       legal_act_id: null,
       applicability_scope: "typed",
       document_types: ["payroll_order"],
@@ -221,22 +219,22 @@ describe("rule form", () => {
   it("shows which parameter the server rejected", async () => {
     mockApi({
       ...base,
-      "GET /api/rules/1": () => json(rule({ check_type: "regex", parameters: { pattern: "(" } })),
-      "PATCH /api/rules/1": () => apiError(422, "invalid_rule_parameters", "invalid regex: missing )"),
+      "GET /api/rules/1": () => json(rule()),
+      "PATCH /api/rules/1": () => apiError(422, "invalid_rule_parameters", "unsupported constraint kind"),
     });
     renderApp("/rules/1");
     await userEvent.click(await screen.findByRole("button", { name: "Сохранить" }));
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Параметры правила заполнены неверно.");
-    expect(alert).toHaveTextContent("invalid regex: missing )");
+    expect(alert).toHaveTextContent("unsupported constraint kind");
   });
 
-  it("rejects a value that is not a number without sending it", async () => {
+  it("rejects invalid JSON in structured constraint without sending it", async () => {
     const api = mockApi({ ...base, "GET /api/rules/1": () => json(rule()) });
     renderApp("/rules/1");
-    const min = await screen.findByLabelText("Не меньше, дней");
-    await userEvent.clear(min);
-    await userEvent.type(min, "десять");
+    const jsonField = await screen.findByLabelText("Структура ограничения");
+    await userEvent.clear(jsonField);
+    await userEvent.type(jsonField, "не-json");
     await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Введите число.");
     expect(api.calls.some((call) => call.method === "PATCH")).toBe(false);
@@ -245,7 +243,7 @@ describe("rule form", () => {
   it("reads only the opened rule and shows a missing one as not found", async () => {
     const api = mockApi({ ...base, "GET /api/rules/1": () => json(rule()), "GET /api/rules/2": () => apiError(404, "rule_not_found") });
     renderApp("/rules/1");
-    expect(await screen.findByLabelText("Не меньше, дней")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Текст ограничения")).toBeInTheDocument();
     expect(api.calls.some((call) => call.path === "/api/rules")).toBe(false);
 
     renderApp("/rules/2");

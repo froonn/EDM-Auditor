@@ -127,9 +127,9 @@ def test_legal_act_deletion_cascades_rules_and_nulls_findings(session_factory) -
         legal_act = LegalAct(code="TK-RB", title="Labour Code", article_text="Article 1")
         rule = AuditRule(
             rule_code="RULE-LINKED",
-            name="Linked rule",
+            subject="Linked rule",
+            constraint_text="Linked constraint",
             severity="low",
-            check_type="keyword",
             legal_act=legal_act,
         )
         report = AuditReport(
@@ -172,10 +172,10 @@ def test_rule_code_and_json_constraints_are_enforced(session_factory) -> None:
         session.add(
             AuditRule(
                 rule_code="RULE-1",
-                name="Required title",
+                subject="Required title",
+                constraint_text="Title is required",
                 severity="low",
-                check_type="keyword",
-                parameters_json='{"keyword": "title"}',
+                constraint_json='{"kind": "value", "operator": "gte", "value": 1, "unit": "day"}',
             )
         )
 
@@ -184,9 +184,9 @@ def test_rule_code_and_json_constraints_are_enforced(session_factory) -> None:
             session.add(
                 AuditRule(
                     rule_code="RULE-1",
-                    name="Duplicate",
+                    subject="Duplicate",
+                    constraint_text="Duplicate constraint",
                     severity="low",
-                    check_type="keyword",
                 )
             )
 
@@ -195,9 +195,9 @@ def test_rule_code_and_json_constraints_are_enforced(session_factory) -> None:
             session.add(
                 AuditRule(
                     rule_code="RULE-2",
-                    name="Invalid JSON",
+                    subject="Invalid JSON",
+                    constraint_text="Invalid JSON constraint",
                     severity="low",
-                    check_type="keyword",
-                    parameters_json="{invalid",
+                    constraint_json="{invalid",
                 )
             )
