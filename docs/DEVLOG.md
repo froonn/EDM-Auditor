@@ -70,6 +70,12 @@
 
 ## Журнал
 
+### 2026-11-18: перенос завершённых планов `feature-*` в архив
+
+- Завершённые планы [`feature-rules-audit-rework.md`](archive/feature-rules-audit-rework.md) и
+  [`feature-tests-rework.md`](archive/feature-tests-rework.md) перенесены в `docs/archive/`, ссылка в
+  [`backend/evaluation/README.md`](../backend/evaluation/README.md) обновлена.
+
 ### 2026-11-18: документирование всех переменных окружения в `backend/.env.example`
 
 - В [`backend/.env.example`](../backend/.env.example) вынесены все переменные окружения системы с кратким

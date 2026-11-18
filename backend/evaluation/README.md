@@ -1,7 +1,7 @@
 # Оценка качества
 
 Размеченный набор НПА и документов, на котором замеряется извлечение правил и аудит. Нужен для переработки
-из [`docs/feature-rules-audit-rework.md`](../../docs/feature-rules-audit-rework.md): каждый этап сравнивается
+из [`docs/archive/feature-rules-audit-rework.md`](../../docs/archive/feature-rules-audit-rework.md): каждый этап сравнивается
 с базовым замером.
 
 ## Набор
