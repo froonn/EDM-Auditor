@@ -160,9 +160,11 @@ curl -s -X POST http://127.0.0.1:8000/api/rules \
 
 Для правил нового формата (с сопоставлением положений) вместо или вместе с `check_type` задаются
 `subject`, `constraint_text`, опциональное `condition` и структура `constraint`:
-- `{"kind": "value", "operator": "min|max|eq|lt|gt", "value": 24, "unit": "days"}`;
-- `{"kind": "frequency", "operator": "min_per|max_per|exact_per", "count": 2, "period": "month"}`;
-- `{"kind": "day_of_month", "operator": "not_later_than|not_earlier_than|exact", "day": 5, "month_offset": 1}`.
+- `{"kind": "value", "operator": "gte", "value": 24, "unit": "day"}`, единицы `day`, `hour`, `byn`, `%`;
+- `{"kind": "frequency", "operator": "gte", "count": 2, "period": "month"}`, периоды `month` и `year`;
+- `{"kind": "day_of_month", "operator": "lte", "day": 5, "month_offset": 1}`, сдвиг от 0 до 12 месяцев.
+
+Операторы: `gte`, `lte`, `gt`, `lt`, `eq`.
 
 Тип `semantic` отклоняется кодом `422 unsupported_check_type`: семантический аудит перенесён в
 дипломный проект.
@@ -208,7 +210,8 @@ curl -s http://127.0.0.1:8000/api/legal-acts/1/diagnostics | jq .
 # Повторное извлечение правил: полностью или только по сбойным/конкретному фрагменту
 curl -s -X POST http://127.0.0.1:8000/api/legal-acts/1/reprocess | jq .
 curl -s -X POST "http://127.0.0.1:8000/api/legal-acts/1/reprocess?only_failed=true" | jq .
-curl -s -X POST "http://127.0.0.1:8000/api/legal-acts/1/reprocess?chunk_id=chunk-2" | jq .
+# chunk_id берётся из diagnostics, вид: legal-act-1:base:<хеш>:<версия>:<номер>
+curl -s -X POST "http://127.0.0.1:8000/api/legal-acts/1/reprocess?chunk_id=<chunk_id>" | jq .
 
 curl -i -X DELETE http://127.0.0.1:8000/api/legal-acts/1
 ```
