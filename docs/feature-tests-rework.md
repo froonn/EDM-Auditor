@@ -100,11 +100,11 @@
 
 ### Этап 3. Перевод остальных тестов
 
-- [ ] Убрать `EDM_AUDIT_MATCHING=off` из `conftest.py`.
-- [ ] Перевести тесты `test_api.py`, `test_engine.py`, `test_dates_and_rag.py`,
+- [x] Убрать `EDM_AUDIT_MATCHING=off` из `conftest.py` (включено `on`; сам переключатель удаляется на этапе 4).
+- [x] Перевести тесты `test_api.py`, `test_engine.py`, `test_dates_and_rag.py`,
   `test_stage2_rule_contract.py`, `test_stage3_statements.py`, `evaluation/test_evaluation.py` на новый
-  режим: вместо `entity_extractor` и `no_entities` использовать дублёры положений из этапа 1.
-- [ ] Тесты, проверявшие только сравнение сущностей, удалить или заменить аналогами для
+  режим: вместо `entity_extractor` и `no_entities` используются дублёры положений из этапа 1.
+- [x] Тесты, проверявшие только сравнение сущностей, удалить или заменить аналогами для
   `compare_structured` и `RuleMatcher`; перечень записать в журнал.
 
 ### Этап 4. Удаление устаревшего кода

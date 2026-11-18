@@ -10,15 +10,16 @@ from edm_auditor.applicability import (
     SelectionConfig,
     SelectionWarning,
 )
-from edm_auditor.audit_engine.extractors import entities_from_provider
+from edm_auditor.audit_engine.extractors import ChunkedStatementExtractor
+from edm_auditor.audit_engine.matching import RuleMatcher
 from edm_auditor.audit_engine.neural_errors import DocumentTooLargeForAudit
 from edm_auditor.audit_engine import (
     AuditEngine,
     AuditSelectionRequired,
-    ChunkedEntityExtractor,
     LLMInterpreter,
     AuditPersistence,
     RuleSpec,
+    StatementSpec,
     extract_entities,
 )
 from edm_auditor.database.connection import create_engine_for, create_session_factory
@@ -31,8 +32,15 @@ from edm_auditor.database.models import (
     DocumentType,
 )
 from edm_auditor.audit_engine.neural_errors import AuditModelError
+from edm_auditor.model_config import AuditMatchingConfig
 from edm_auditor.rag.exceptions import EmbeddingError
-from fakes import FailingEntityProvider, FailingLLMProvider, FakeLLMProvider, no_entities
+from fakes import (
+    BiasedEmbeddingProvider,
+    FailingEntityProvider,
+    FailingLLMProvider,
+    FakeLLMProvider,
+    FakeStatementProvider,
+)
 
 
 def test_extract_entities_preserves_source_ranges() -> None:
@@ -69,7 +77,7 @@ def test_engine_applies_active_matching_rules_and_deduplicates() -> None:
         ),
     ]
 
-    result = AuditEngine(entity_extractor=no_entities).audit(text, rules)
+    result = AuditEngine().audit(text, rules)
 
     assert len(result.findings) == 1
     assert result.findings[0].quote == "14 дней"
@@ -78,7 +86,7 @@ def test_engine_applies_active_matching_rules_and_deduplicates() -> None:
 
 
 def test_invalid_rule_is_reported_without_hiding_other_findings() -> None:
-    result = AuditEngine(entity_extractor=no_entities).audit(
+    result = AuditEngine().audit(
         "Отпуск составляет 14 дней.",
         [
             RuleSpec(
@@ -105,7 +113,7 @@ def test_invalid_rule_is_reported_without_hiding_other_findings() -> None:
 
 
 def test_numeric_rule_reports_values_outside_bounds() -> None:
-    result = AuditEngine(entity_extractor=no_entities).audit(
+    result = AuditEngine().audit(
         "Отпуск составляет 14 дней.",
         [
             RuleSpec(
@@ -123,7 +131,7 @@ def test_numeric_rule_reports_values_outside_bounds() -> None:
 
 
 def test_engine_keeps_deterministic_entities_when_provider_returns_none() -> None:
-    result = AuditEngine(entity_extractor=lambda _: ()).audit(
+    result = AuditEngine(statement_extractor=lambda _: ()).audit(
         "Компенсация составляет 35 рублей.",
         [
             RuleSpec(
@@ -140,11 +148,22 @@ def test_engine_keeps_deterministic_entities_when_provider_returns_none() -> Non
     assert result.findings[0].quote == "35 рублей"
 
 
-def test_engine_unions_provider_entities_with_deterministic_entities() -> None:
+def test_engine_unions_provider_statements_with_deterministic_entities() -> None:
+    text = "Отпуск 14 календарных дней."
+    start = text.index("14 календарных дней")
     result = AuditEngine(
-        entity_extractor=lambda _: ({"kind": "duration", "value": "14 календарных дней"},)
+        statement_extractor=lambda _: (
+            StatementSpec(
+                subject="Отпуск",
+                statement_text=text,
+                source_quote="14 календарных дней",
+                start_char=start,
+                end_char=start + len("14 календарных дней"),
+                constraint_json={"kind": "value", "operator": "eq", "value": 14, "unit": "day"},
+            ),
+        )
     ).audit(
-        "Отпуск 14 календарных дней.",
+        text,
         [
             RuleSpec(
                 rule_id=6,
@@ -174,7 +193,7 @@ def test_remote_work_gold_documents_report_findings_without_external_models() ->
         ),
     )
 
-    result = AuditEngine(entity_extractor=no_entities).audit(agreement, rules)
+    result = AuditEngine().audit(agreement, rules)
 
     assert result.findings
 
@@ -196,11 +215,16 @@ def _contract_type(session) -> DocumentType:
     )
 
 
-def make_persistence(session_factory, *, llm=None, entity_extractor=no_entities):
+def make_persistence(session_factory, *, llm=None, statement_extractor=None):
+    llm_provider = llm or FakeLLMProvider()
     return AuditPersistence(
         session_factory,
-        engine=AuditEngine(entity_extractor=entity_extractor),
-        neural_interpreter=LLMInterpreter(llm or FakeLLMProvider()),
+        engine=AuditEngine(
+            statement_extractor=statement_extractor
+            or ChunkedStatementExtractor(FakeStatementProvider())
+        ),
+        neural_interpreter=LLMInterpreter(llm_provider),
+        rule_matcher=RuleMatcher(llm_provider, BiasedEmbeddingProvider(), AuditMatchingConfig()),
     )
 
 
@@ -372,9 +396,9 @@ def test_persistence_calls_llm_even_without_findings(session_factory) -> None:
 @pytest.mark.parametrize(
     "options, message",
     [
-        ({"llm": FailingLLMProvider()}, "LLM analysis failed"),
+        ({"llm": FailingLLMProvider()}, "LLM matching failed"),
         (
-            {"entity_extractor": lambda text: FailingEntityProvider().extract(text)},
+            {"statement_extractor": lambda text: FailingEntityProvider().extract_statements(text)},
             "entity extraction model failed",
         ),
     ],
@@ -466,10 +490,12 @@ def test_audit_continues_with_a_warning_when_rag_is_unavailable(session_factory)
     def failing_recommender(_: str):
         raise EmbeddingError("embedding service unavailable")
 
+    llm_provider = FakeLLMProvider()
     persistence = AuditPersistence(
         session_factory,
-        engine=AuditEngine(entity_extractor=no_entities),
-        neural_interpreter=LLMInterpreter(FakeLLMProvider()),
+        engine=AuditEngine(statement_extractor=ChunkedStatementExtractor(FakeStatementProvider())),
+        neural_interpreter=LLMInterpreter(llm_provider),
+        rule_matcher=RuleMatcher(llm_provider, BiasedEmbeddingProvider(), AuditMatchingConfig()),
         rag_recommender=failing_recommender,
     )
 
@@ -500,7 +526,7 @@ def test_rag_candidate_of_another_act_does_not_select_its_rule(session_factory) 
         rule_id = rule.id
     persistence = AuditPersistence(
         session_factory,
-        engine=AuditEngine(entity_extractor=no_entities),
+        engine=AuditEngine(),
         neural_interpreter=LLMInterpreter(FakeLLMProvider()),
         rag_recommender=lambda _: [RagCandidate(5, rule_id, 0.99, 0.5)],
     )
@@ -518,41 +544,48 @@ class _ChunkProvider:
         self.values = values
         self.chunks: list[str] = []
 
-    def extract(self, text: str):
+    def extract_statements(self, text: str, *, source_language: str = "auto"):
         self.chunks.append(text)
         return [
-            {"kind": "duration", "value": value} for value in self.values if value in text
+            {
+                "subject": f"Срок {value}",
+                "statement_text": f"Срок составляет {value}.",
+                "constraint_json": None,
+                "source_quote": value,
+            }
+            for value in self.values
+            if value in text
         ]
 
 
-def test_entity_extractor_reads_the_whole_document_in_limited_parts() -> None:
+def test_statement_extractor_reads_the_whole_document_in_limited_parts() -> None:
     first = "В начале срок 24 дня."
     last = "В конце срок 36 дней."
     text = "\n".join([first, *["Обычная строка без значений."] * 100, last])
     provider = _ChunkProvider("24 дня", "36 дней")
 
-    entities = ChunkedEntityExtractor(provider, max_chars=300, overlap_chars=0)(text)
+    statements = ChunkedStatementExtractor(provider, max_chars=300, overlap_chars=0)(text)
 
     assert len(provider.chunks) > 1
     assert all(len(chunk) <= 300 for chunk in provider.chunks)
-    assert [text[item.start_char : item.end_char] for item in entities] == ["24 дня", "36 дней"]
+    assert [text[item.start_char : item.end_char] for item in statements] == ["24 дня", "36 дней"]
 
 
-def test_entity_extractor_counts_an_overlapping_value_once() -> None:
+def test_statement_extractor_counts_an_overlapping_value_once() -> None:
     text = "\n".join(["Срок 24 дня.", "Строка.", "Строка."])
     provider = _ChunkProvider("24 дня")
 
-    entities = ChunkedEntityExtractor(provider, max_chars=20, overlap_chars=15)(text)
+    statements = ChunkedStatementExtractor(provider, max_chars=20, overlap_chars=15)(text)
 
     assert len(provider.chunks) > 1
-    assert len(entities) == 1
+    assert len(statements) == 1
 
 
-def test_entity_extractor_refuses_before_calling_the_model() -> None:
+def test_statement_extractor_refuses_before_calling_the_model() -> None:
     provider = _ChunkProvider()
 
     with pytest.raises(DocumentTooLargeForAudit):
-        ChunkedEntityExtractor(provider, max_chars=10, overlap_chars=0, max_chunks=2)(
+        ChunkedStatementExtractor(provider, max_chars=10, overlap_chars=0, max_chunks=2)(
             "Первая строка.\nВторая строка.\nТретья строка."
         )
 
@@ -564,7 +597,7 @@ def test_too_large_document_is_not_reported_as_a_model_failure() -> None:
         raise DocumentTooLargeForAudit("limit")
 
     with pytest.raises(DocumentTooLargeForAudit):
-        AuditEngine(entity_extractor=too_large).audit("Текст", ())
+        AuditEngine(statement_extractor=too_large).extract_statements("Текст")
 
 
 def test_day_of_month_is_not_extracted_as_a_period() -> None:
@@ -573,13 +606,3 @@ def test_day_of_month_is_not_extracted_as_a_period() -> None:
     durations = [item.value for item in extract_entities(text) if item.kind == "duration"]
 
     assert durations == ["2 месяца"]
-
-
-def test_day_of_month_from_the_model_is_not_a_period() -> None:
-    text = "Расчет производится 5 числа следующего месяца."
-
-    entities = entities_from_provider(
-        text, [{"kind": "duration", "value": "5 числа следующего месяца"}]
-    )
-
-    assert entities == ()

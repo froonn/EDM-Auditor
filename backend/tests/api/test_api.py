@@ -26,7 +26,6 @@ from fakes import (
     FailingEntityProvider,
     FailingLLMProvider,
     FakeClassificationProvider,
-    FakeEntityProvider,
     FakeLLMProvider,
     FakeRuleExtractor,
     FakeStatementProvider,
@@ -1441,9 +1440,9 @@ def test_audit_refuses_a_document_needing_too_many_model_requests(
 ) -> None:
     calls: list[str] = []
 
-    class Entities(FakeEntityProvider):
-        def extract(self, text: str):
-            calls.append(text)
+    class Entities(FakeStatementProvider):
+        def extract_statements(self, chunk: str, *, source_language: str = "auto"):
+            calls.append(chunk)
             return ()
 
     monkeypatch.setattr(
@@ -1508,8 +1507,8 @@ MODEL_ERRORS = [
 def test_audit_reports_model_limits_and_timeouts(
     tmp_path: Path, monkeypatch, error, status, code
 ) -> None:
-    class Entities(FakeEntityProvider):
-        def extract(self, text: str):
+    class Entities(FakeStatementProvider):
+        def extract_statements(self, chunk: str, *, source_language: str = "auto"):
             raise error
 
     monkeypatch.setattr(
@@ -1647,8 +1646,8 @@ def test_database_accepts_writes_while_the_audit_calls_models(
     written: list[int] = []
     holder: dict[str, TestClient] = {}
 
-    class Entities(FakeEntityProvider):
-        def extract(self, text: str):
+    class Entities(FakeStatementProvider):
+        def extract_statements(self, chunk: str, *, source_language: str = "auto"):
             response = holder["client"].post(
                 "/api/document-types",
                 json={"code": "memo", "name": "Записка", "description": "Служебная записка."},

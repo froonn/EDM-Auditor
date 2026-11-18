@@ -71,6 +71,15 @@
 
 ## Журнал
 
+### 2026-11-18: этап 3 переработки тестов — перевод оставшихся тестов на новый режим
+
+- `test_engine.py`, `test_dates_and_rag.py`, `test_matching.py`, `test_stage2_rule_contract.py` и
+  `test_api.py` переведены с `entity_extractor`/`no_entities`/`FakeEntityProvider` на
+  `statement_extractor`, `ChunkedStatementExtractor` и `RuleMatcher`.
+- Удалён `test_day_of_month_from_the_model_is_not_a_period` (проверял разбор `entities_from_provider`;
+  проверка `day_of_month` покрыта тестами `test_stage3_statements.py` и `test_matching.py`); тесты
+  `ChunkedEntityExtractor` перенесены на `ChunkedStatementExtractor`.
+
 ### 2026-11-18: этап 2 переработки тестов — регрессионный тест на корпусе
 
 - `test_multi_legal_act_regression.py` и `recorded_gemini_audit.json` переписаны на

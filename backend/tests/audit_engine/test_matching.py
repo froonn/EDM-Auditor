@@ -17,7 +17,7 @@ from edm_auditor.database.connection import create_engine_for, create_session_fa
 from edm_auditor.database.models import AuditRule, Base, Document, DocumentType
 from edm_auditor.model_config import AuditMatchingConfig
 from edm_auditor.model_providers import MATCHING_RESPONSE_SCHEMA
-from fakes import DeterministicEmbeddingProvider, FakeLLMProvider, no_entities
+from fakes import DeterministicEmbeddingProvider, FakeLLMProvider
 
 TEXT = (
     "Приказ\n\n1. Заработная плата выплачивается один раз в месяц.\n"
@@ -315,9 +315,7 @@ def test_audit_stores_the_statement_and_the_matching_summary(session_factory) ->
         document_id = document.id
     persistence = AuditPersistence(
         session_factory,
-        engine=AuditEngine(
-            entity_extractor=no_entities, statement_extractor=lambda _: tuple(statements)
-        ),
+        engine=AuditEngine(statement_extractor=lambda _: tuple(statements)),
         neural_interpreter=LLMInterpreter(FakeLLMProvider()),
         rule_matcher=_matcher(llm),
     )
@@ -361,7 +359,7 @@ def test_model_failure_stops_the_audit_without_a_report(session_factory) -> None
         document_id = document.id
     persistence = AuditPersistence(
         session_factory,
-        engine=AuditEngine(entity_extractor=no_entities, statement_extractor=lambda _: ()),
+        engine=AuditEngine(statement_extractor=lambda _: ()),
         neural_interpreter=LLMInterpreter(FakeLLMProvider()),
         rule_matcher=_matcher(Failing({})),
     )

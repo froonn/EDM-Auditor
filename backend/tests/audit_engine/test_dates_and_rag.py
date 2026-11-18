@@ -1,9 +1,8 @@
-from edm_auditor.audit_engine import AuditEngine, RuleSpec, entities_from_provider
-from fakes import no_entities
+from edm_auditor.audit_engine import AuditEngine, RuleSpec, StatementSpec
 
 
 def test_duration_and_frequency_and_day_of_month_constraints_compare_normalized_values() -> None:
-    result = AuditEngine(entity_extractor=no_entities).audit(
+    result = AuditEngine().audit(
         "Выплата один раз в месяц 8 числа следующего месяца. Испытательный срок 4 месяца.",
         [
             RuleSpec(
@@ -58,15 +57,21 @@ def test_duration_and_frequency_and_day_of_month_constraints_compare_normalized_
     assert result.findings[2].quote == "4 месяца"
 
 
-def test_provider_entities_support_qualifying_words_in_durations() -> None:
+def test_provider_statements_support_qualifying_words_in_durations() -> None:
     text = "Работнику предоставляется отпуск 14 календарных дней."
-    entities = entities_from_provider(
-        text, [{"kind": "duration", "value": "14 календарных дней"}]
+    start = text.index("14 календарных дней")
+    statements = (
+        StatementSpec(
+            subject="Продолжительность отпуска",
+            statement_text=text,
+            source_quote="14 календарных дней",
+            start_char=start,
+            end_char=start + len("14 календарных дней"),
+            constraint_json={"kind": "value", "operator": "eq", "value": 14, "unit": "day"},
+        ),
     )
 
-    result = AuditEngine(
-        entity_extractor=lambda _: entities
-    ).audit(
+    result = AuditEngine(statement_extractor=lambda _: statements).audit(
         text,
         [
             RuleSpec(
@@ -84,7 +89,7 @@ def test_provider_entities_support_qualifying_words_in_durations() -> None:
 
 
 def test_duration_rule_checks_date_interval_when_duration_is_not_written() -> None:
-    result = AuditEngine(entity_extractor=no_entities).audit(
+    result = AuditEngine().audit(
         "Изменение действует с 01.03.2027. Уведомление направлено 25.02.2027.",
         [
             RuleSpec(
@@ -103,7 +108,7 @@ def test_duration_rule_checks_date_interval_when_duration_is_not_written() -> No
 
 
 def test_textual_rule_without_structure_produces_no_deterministic_finding() -> None:
-    result = AuditEngine(entity_extractor=no_entities).audit(
+    result = AuditEngine().audit(
         "Соглашение о работе.",
         [
             RuleSpec(

@@ -112,10 +112,18 @@ class FakeEntityProvider:
 
 
 _AMOUNT = re.compile(
-    r"(\d+)\s*(календарных дней|календарных дня|рабочих дней|дней|days|рублей|BYN|процентов|%)",
+    r"(\d+)\s*(календарных дней|календарных дня|рабочих дней|дней|дня|days|месяцев|месяца|месяц|рублей|BYN|процентов|%)",
     re.IGNORECASE,
 )
-_UNITS = {"дн": "day", "day": "day", "руб": "byn", "byn": "byn", "про": "%", "%": "%"}
+_UNITS = {
+    "дн": ("day", 1),
+    "day": ("day", 1),
+    "мес": ("day", 30),
+    "руб": ("byn", 1),
+    "byn": ("byn", 1),
+    "про": ("%", 1),
+    "%": ("%", 1),
+}
 
 
 class FakeStatementProvider(FakeEntityProvider):
@@ -126,8 +134,8 @@ class FakeStatementProvider(FakeEntityProvider):
     def extract_statements(self, chunk: str, *, source_language: str = "auto"):
         statements = []
         for match in _AMOUNT.finditer(chunk):
-            unit = next(
-                (code for prefix, code in _UNITS.items() if match.group(2).casefold().startswith(prefix)),
+            unit_info = next(
+                (spec for prefix, spec in _UNITS.items() if match.group(2).casefold().startswith(prefix)),
                 None,
             )
             sentence = next(
@@ -143,8 +151,13 @@ class FakeStatementProvider(FakeEntityProvider):
                     "subject": sentence,
                     "statement_text": sentence,
                     "constraint_json": (
-                        {"kind": "value", "operator": "eq", "value": int(match.group(1)), "unit": unit}
-                        if unit
+                        {
+                            "kind": "value",
+                            "operator": "eq",
+                            "value": int(match.group(1)) * unit_info[1],
+                            "unit": unit_info[0],
+                        }
+                        if unit_info
                         else None
                     ),
                     "source_quote": match.group(0),

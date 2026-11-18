@@ -10,26 +10,11 @@ from edm_auditor.database import Base, create_session_factory
 from edm_auditor.database.models import AuditRule
 from edm_auditor.model_providers import rule_extraction_schema
 from edm_auditor.rule_validation import validate_generated_rule
-from fakes import (
-    DeterministicEmbeddingProvider,
-    FakeClassificationProvider,
-    FakeEntityProvider,
-    FakeLLMProvider,
-)
+from fakes import patch_fake_providers
 
 
 def _make_client(tmp_path: Path, monkeypatch, rule_extractor) -> TestClient:
-    monkeypatch.setenv("EDM_MODEL_PRESET", "lm-studio")
-    for factory, provider in (
-        ("create_llm_provider", FakeLLMProvider),
-        ("create_document_classification_provider", FakeClassificationProvider),
-        ("create_entity_extraction_provider", FakeEntityProvider),
-        ("create_embedding_provider", DeterministicEmbeddingProvider),
-    ):
-        monkeypatch.setattr(
-            f"edm_auditor.api.app.{factory}",
-            lambda config, provider=provider: provider(),
-        )
+    patch_fake_providers(monkeypatch, create_rule_extraction_provider=lambda: rule_extractor)
     monkeypatch.setattr(
         "edm_auditor.api.app.create_rule_extraction_provider",
         lambda config: rule_extractor,
