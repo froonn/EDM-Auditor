@@ -75,7 +75,7 @@
 - В [`backend/.env.example`](../backend/.env.example) вынесены все переменные окружения системы с кратким
   описанием и значениями по умолчанию (`EDM_MODEL_CONFIG`, `EDM_DATABASE_URL`, `EDM_DATABASE_PATH`,
   `RAG_INDEX_PATH`, `EDM_UPLOAD_DIR`, `EDM_LOG_FILE`, `EDM_MAX_UPLOAD_BYTES`, `EDM_SOURCE_LANGUAGE`,
-  `EDM_PORT`).
+  `EDM_PORT`), а в корневом [`README.md`](../README.md) добавлена ссылка на их список.
 
 ### 2026-11-18: расширение плана диплома — очередь задач, OCR, версионность, ПДн и аналитика
 

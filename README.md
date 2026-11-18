@@ -93,7 +93,9 @@ flowchart LR
 | `lm-studio`        | Локальные модели в LM Studio              | Запущенный сервер LM Studio                     |
 
 Можно подключить и другой сервер с OpenAI-совместимым API, описав свой пресет. Настройка провайдеров, моделей
-и лимитов описана в [`docs/model-configuration.md`](docs/model-configuration.md).
+и лимитов описана в [`docs/model-configuration.md`](docs/model-configuration.md), а полный список доступных
+переменных окружения — в [`backend/.env.example`](backend/.env.example) и в
+[`backend/README.md`](backend/README.md#configuration).
 
 ```bash
 cp backend/.env.example backend/.env
