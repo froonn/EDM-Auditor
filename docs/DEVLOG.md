@@ -70,6 +70,17 @@
 
 ## Журнал
 
+### 2026-11-24: этап 2 авторизации — API аутентификации, пользователей, групп и защита логов (`feature/auth-rbac`)
+
+- Реализованы зависимости сессионной аутентификации в `backend/src/edm_auditor/auth/dependencies.py`
+  (включая блокировку `403 password_change_required` до смены временного пароля) и роутер
+  `backend/src/edm_auditor/api/auth_routes.py`: `/api/auth/{login,logout,logout-all,me,change-password,transfer-super-admin,audit-log}`,
+  `/api/users*` (включая `revoke-sessions`), `/api/groups*` и `/api/permissions`.
+- В `backend/src/edm_auditor/api/app.py` добавлен идемпотентный старт-сид `super-admin` из env, флаг
+  `EDM_EXPOSE_DOCS`, проверка `Origin` от CSRF для мутирующих запросов и безопасное логирование
+  (редакция `Cookie`/`Set-Cookie`/`Authorization`, скрытие тел чувствительных маршрутов и `EDM_TRACE_LOG_BODIES`).
+- Добавлены интеграционные тесты `backend/tests/api/test_auth_api.py` (126 тестов API/auth/DB проходят).
+
 ### 2026-11-24: этап 1 авторизации — схема БД, групповая модель прав, сессии и CLI (`feature/auth-rbac`)
 
 - Добавлена зависимость `argon2-cffi` (Argon2id) и реализована схема групповой авторизации в

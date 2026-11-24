@@ -380,3 +380,164 @@ class LegalActUpdate(BaseModel):
     @classmethod
     def _required_value_is_kept(cls, value: str | None) -> str:
         return _kept_value(value)
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=255)
+    password: str = Field(min_length=1, max_length=1024)
+
+
+class GroupSummaryResponse(BaseModel):
+    id: int
+    name: str
+    kind: str
+
+
+class AuthUserResponse(BaseModel):
+    id: int
+    username: str
+    email: str
+    full_name: str
+    is_active: bool
+    is_super_admin: bool
+    must_change_password: bool
+    groups: list[GroupSummaryResponse] = Field(default_factory=list)
+    permissions: list[str] = Field(default_factory=list)
+    created_at: datetime
+    last_login_at: datetime | None = None
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=1024)
+    new_password: str = Field(min_length=8, max_length=1024)
+
+
+class TransferSuperAdminRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=1024)
+    target_user_id: int
+
+
+class TransferSuperAdminResponse(BaseModel):
+    previous_super_admin_id: int
+    previous_super_admin_username: str
+    new_super_admin_id: int
+    new_super_admin_username: str
+
+
+class UserCreate(BaseModel):
+    username: str = Field(min_length=2, max_length=100)
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=8, max_length=1024)
+    full_name: str = Field(default="", max_length=255)
+    custom_group_ids: list[int] = Field(default_factory=list)
+    must_change_password: bool = True
+
+
+class UserUpdate(BaseModel):
+    email: str | None = Field(default=None, min_length=3, max_length=255)
+    full_name: str | None = Field(default=None, max_length=255)
+    is_active: bool | None = None
+    new_password: str | None = Field(default=None, min_length=8, max_length=1024)
+
+    @field_validator("email")
+    @classmethod
+    def _email_is_kept(cls, value: str | None) -> str:
+        return _kept_value(value)
+
+
+class UserGroupsUpdate(BaseModel):
+    custom_group_ids: list[int] = Field(default_factory=list)
+
+
+class UserResponse(BaseModel):
+    id: int
+    username: str
+    email: str
+    full_name: str
+    is_active: bool
+    is_super_admin: bool
+    must_change_password: bool
+    personal_group_id: int | None = None
+    custom_groups: list[GroupSummaryResponse] = Field(default_factory=list)
+    permissions: list[str] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+    last_login_at: datetime | None = None
+
+
+class RevokeSessionsResponse(BaseModel):
+    revoked_count: int
+
+
+class PermissionInfoResponse(BaseModel):
+    code: str
+    description: str
+    super_admin_only: bool = False
+
+
+class GroupMemberSummary(BaseModel):
+    id: int
+    username: str
+    full_name: str
+    is_active: bool
+
+
+class GroupCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=100)
+    description: str = Field(default="", max_length=1000)
+    permissions: list[str] = Field(default_factory=list)
+
+
+class GroupUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=100)
+    description: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("name")
+    @classmethod
+    def _name_is_kept(cls, value: str | None) -> str:
+        return _kept_value(value)
+
+
+class GroupPermissionsUpdate(BaseModel):
+    permissions: list[str] = Field(default_factory=list)
+
+
+class GroupResponse(BaseModel):
+    id: int
+    name: str
+    kind: str
+    description: str
+    owner_user_id: int | None = None
+    owner_username: str | None = None
+    member_count: int = 0
+    members: list[GroupMemberSummary] = Field(default_factory=list)
+    permissions: list[str] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class AuthAuditLogResponse(BaseModel):
+    id: int
+    actor_user_id: int | None = None
+    actor_username: str
+    action: str
+    target_type: str | None = None
+    target_id: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+    ip_address: str | None = None
+    created_at: datetime
+
+
+class ResolutionCreate(BaseModel):
+    decision: Literal["approved", "needs_revision", "rejected"]
+    comment: str = Field(default="", max_length=4000)
+
+
+class ResolutionResponse(BaseModel):
+    id: int
+    report_id: int
+    author_id: int | None = None
+    author_name: str
+    decision: str
+    comment: str
+    created_at: datetime

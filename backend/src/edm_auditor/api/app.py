@@ -46,6 +46,11 @@ from edm_auditor.audit_engine import (
     LLMInterpreter,
 )
 from edm_auditor.audit_engine.neural_errors import AuditModelError, DocumentTooLargeForAudit
+from edm_auditor.auth import (
+    AuthError,
+    LoginRateLimiter,
+    ensure_initial_super_admin,
+)
 from edm_auditor.database import (
     Base,
     DocumentRepository,
@@ -115,6 +120,7 @@ from edm_auditor.rag import (
     normalize_source_text,
 )
 
+from .auth_routes import create_auth_router
 from .config import ApiSettings
 from .errors import ApiError, parser_error
 from .schemas import (
@@ -203,6 +209,13 @@ def create_app(
         _require_current_schema(engine)
         session_factory = create_session_factory(engine)
     ensure_default_document_types(session_factory)
+    with session_factory.begin() as auth_session:
+        ensure_initial_super_admin(
+            auth_session,
+            username=config.initial_admin_username,
+            email=config.initial_admin_email,
+            password=config.initial_admin_password,
+        )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -210,9 +223,17 @@ def create_app(
         if engine is not None:
             engine.dispose()
 
-    app = FastAPI(title="EDM-Auditor API", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(
+        title="EDM-Auditor API",
+        version="0.1.0",
+        lifespan=lifespan,
+        docs_url="/docs" if config.expose_docs else None,
+        redoc_url="/redoc" if config.expose_docs else None,
+        openapi_url="/openapi.json" if config.expose_docs else None,
+    )
     app.state.settings = config
     app.state.session_factory = session_factory
+    app.state.login_rate_limiter = LoginRateLimiter()
 
     def rebuild_rag_index() -> None:
         model_settings = ModelSettings.from_toml(
@@ -698,16 +719,54 @@ def create_app(
         if provider_failures > 0 and not validated_rules:
             raise ApiError(503, "rule_extraction_error", "Online rule extraction failed")
 
+    _REDACTED_HEADERS = frozenset({"cookie", "set-cookie", "authorization", "x-api-key"})
+    _SENSITIVE_PATH_PREFIXES = ("/api/auth", "/api/users", "/api/groups")
+    _STATE_CHANGING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+    def _sanitize_headers(raw_headers) -> dict[str, str]:
+        return {
+            key: ("[REDACTED]" if key.lower() in _REDACTED_HEADERS else value)
+            for key, value in raw_headers.items()
+        }
+
+    def _is_origin_allowed(request) -> bool:
+        origin = request.headers.get("origin")
+        if not origin:
+            return True
+        normalized = origin.rstrip("/").lower()
+        if normalized in {item.rstrip("/").lower() for item in config.trusted_origins}:
+            return True
+        host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+        if not host:
+            return False
+        scheme = request.headers.get("x-forwarded-proto") or request.url.scheme or "http"
+        return normalized == f"{scheme}://{host}".rstrip("/").lower()
+
     @app.middleware("http")
     async def request_logging_middleware(request, call_next):
         request_id = request.headers.get("X-Request-ID", uuid4().hex)
         request.state.request_id = request_id
 
-        headers_dict = dict(request.headers)
+        if request.method in _STATE_CHANGING_METHODS and not _is_origin_allowed(request):
+            return _error_response(
+                request,
+                403,
+                "csrf_origin_mismatch",
+                "Request origin is not allowed",
+            )
+
+        headers_dict = _sanitize_headers(request.headers)
         content_type = request.headers.get("content-type", "")
+        is_sensitive_path = any(
+            request.url.path.startswith(prefix) for prefix in _SENSITIVE_PATH_PREFIXES
+        )
 
         req_body_desc = ""
-        if "application/json" in content_type:
+        if is_sensitive_path:
+            req_body_desc = "[redacted sensitive payload]"
+        elif not config.trace_log_bodies:
+            req_body_desc = "[body logging disabled]"
+        elif "application/json" in content_type:
             raw_body = await request.body()
             req_body_desc = raw_body.decode("utf-8", errors="replace")
         elif "multipart" in content_type:
@@ -725,16 +784,21 @@ def create_app(
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
 
-        chunks = [chunk async for chunk in response.body_iterator]
-        async def _re_iterator():
-            for c in chunks:
-                yield c
-        response.body_iterator = _re_iterator()
+        resp_text = "[body logging disabled]"
+        if is_sensitive_path:
+            resp_text = "[redacted sensitive payload]"
+        elif config.trace_log_bodies:
+            chunks = [chunk async for chunk in response.body_iterator]
 
-        body_bytes = b"".join(chunks)
-        resp_text = body_bytes.decode("utf-8", errors="replace")
-        if len(resp_text) > 4000:
-            resp_text = resp_text[:4000] + "... [truncated]"
+            async def _re_iterator():
+                for c in chunks:
+                    yield c
+
+            response.body_iterator = _re_iterator()
+            body_bytes = b"".join(chunks)
+            resp_text = body_bytes.decode("utf-8", errors="replace")
+            if len(resp_text) > 4000:
+                resp_text = resp_text[:4000] + "... [truncated]"
 
         trace_logger.info(
             "<-- %d %s %s [id=%s]\nHeaders: %s\nBody: %s",
@@ -742,10 +806,16 @@ def create_app(
             request.method,
             request.url.path,
             request_id,
-            json.dumps(dict(response.headers), ensure_ascii=False),
+            json.dumps(_sanitize_headers(response.headers), ensure_ascii=False),
             resp_text or "(empty)",
         )
         return response
+
+    @app.exception_handler(AuthError)
+    async def handle_auth_error(request, exc: AuthError):
+        return _error_response(request, exc.status_code, exc.code, exc.message)
+
+    app.include_router(create_auth_router())
 
     @app.exception_handler(ApiError)
     async def handle_api_error(request, exc):

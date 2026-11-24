@@ -271,14 +271,14 @@
 
 ### Этап 2. Бэкенд: API аутентификации, пользователей, групп и защита логов
 
-- [ ] Добавить схемы Pydantic в `api/schemas.py` (`LoginRequest`, `AuthUserResponse`, `ChangePasswordRequest`,
+- [x] Добавить схемы Pydantic в `api/schemas.py` (`LoginRequest`, `AuthUserResponse`, `ChangePasswordRequest`,
   `TransferSuperAdminRequest`, `UserCreate`, `UserUpdate`, `UserGroupsUpdate`, `UserResponse`, `GroupCreate`,
   `GroupUpdate`, `GroupPermissionsUpdate`, `GroupResponse`, `PermissionInfoResponse`, `AuthAuditLogResponse`,
   `ResolutionCreate`, `ResolutionResponse`).
-- [ ] Реализовать FastAPI-зависимости в `auth/dependencies.py`: `get_current_user` (с блокировкой
+- [x] Реализовать FastAPI-зависимости в `auth/dependencies.py`: `get_current_user` (с блокировкой
   `403 password_change_required`, если у пользователя `must_change_password=True`, кроме `/api/auth/me`,
   `/api/auth/change-password`, `/api/auth/logout`), `require_permission(...)`, `require_super_admin`.
-- [ ] Реализовать эндпоинты:
+- [x] Реализовать эндпоинты:
     - `POST /api/auth/login`, `POST /api/auth/logout`, `POST /api/auth/logout-all`, `GET /api/auth/me`
       (возвращает профиль, `is_super_admin`, `must_change_password`, список групп и итоговый массив `permissions`),
       `POST /api/auth/change-password` (снимает `must_change_password`), `POST /api/auth/transfer-super-admin`,
@@ -292,11 +292,11 @@
       `PUT /api/groups/{id}/permissions`, `DELETE /api/groups/{id}` (`409 group_not_empty`, если есть участники;
       проверка потолка прав и `403` при попытке менять `groups.manage` без статуса `super-admin` или трогать
       группу `super-admin`).
-- [ ] Писать события в `auth_audit_log` на всех критичных действиях (вход/неудачный вход, смена/сброс пароля,
+- [x] Писать события в `auth_audit_log` на всех критичных действиях (вход/неудачный вход, смена/сброс пароля,
   создание/блокировка пользователя, отзыв сессий, изменение групп и прав, передача `super-admin`).
-- [ ] Обновить `request_logging_middleware` (редакция `Cookie`/`Set-Cookie`/`Authorization`, скрытие тел
+- [x] Обновить `request_logging_middleware` (редакция `Cookie`/`Set-Cookie`/`Authorization`, скрытие тел
   `/api/auth/*`, `/api/users*`, `/api/groups*`, флаг `EDM_TRACE_LOG_BODIES`) и добавить проверку `Origin`.
-- [ ] Написать API-тесты аутентификации, `must_change_password`, управления пользователями, группами, потолка
+- [x] Написать API-тесты аутентификации, `must_change_password`, управления пользователями, группами, потолка
   прав, делегирования `groups.manage`, отзыва сессий, передачи `super-admin`, журнала `auth_audit_log`, rate
   limit и безопасности логов.
 
