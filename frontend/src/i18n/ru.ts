@@ -52,6 +52,7 @@ export const ru = {
   "common.no": "нет",
   "common.none": "—",
   "common.readOnlyNotice": "Режим только чтения: у вашей учётной записи нет прав на редактирование этого раздела.",
+  "validation.required": "Поле обязательно для заполнения.",
 
   "documents.column.owner": "Автор",
   "documents.ownerUnassigned": "Не назначен",
@@ -89,6 +90,10 @@ export const ru = {
   "users.field.usernameHint": "Латиница, цифры, '.', '_' или '-'. После создания не меняется.",
   "users.field.fullName": "ФИО / отображаемое имя",
   "users.field.email": "Email",
+  "users.field.emailPlaceholder": "user@example.com",
+  "users.validation.username":
+    "Логин должен содержать от 2 до 100 символов: латинские буквы, цифры, '.', '_' или '-'.",
+  "users.validation.email": "Укажите корректный email с символом «@», например user@example.com.",
   "users.field.password": "Временный пароль",
   "users.field.passwordHint":
     "Генерируется автоматически и не редактируется вручную. Скопируйте и передайте пользователю.",
@@ -146,6 +151,9 @@ export const ru = {
   "groups.createTitle": "Новая кастомная группа",
   "groups.field.name": "Название группы",
   "groups.field.nameHint": "Латиница, цифры, '.', '_' или '-'.",
+  "groups.validation.name":
+    "Название должно содержать от 2 до 100 символов: латинские буквы, цифры, '.', '_' или '-'.",
+  "groups.validation.reserved": "Имя «super-admin» зарезервировано системой.",
   "groups.field.description": "Описание",
   "groups.members": "Участники ({count})",
   "groups.noMembers": "Участников нет",

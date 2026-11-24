@@ -265,6 +265,13 @@ describe("role-based UI screens", () => {
     expect(await screen.findByRole("heading", { name: "employee" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "empty-group" })).toBeInTheDocument();
 
+    // Empty or invalid group name shows an inline error instead of silently disabling submit.
+    const createGroupPanel = screen.getByRole("heading", { name: "Новая кастомная группа" }).closest("section")!;
+    await user.click(within(createGroupPanel).getByRole("button", { name: "Создать" }));
+    expect(within(createGroupPanel).getByText("Поле обязательно для заполнения.")).toBeInTheDocument();
+    await user.type(within(createGroupPanel).getByLabelText(/^Название группы/), "a");
+    expect(within(createGroupPanel).getByText(/Название должно содержать от 2 до 100 символов/)).toBeInTheDocument();
+
     // Non-empty group delete button is disabled; empty group delete button is enabled.
     const employeeCard = screen.getByRole("heading", { name: "employee" }).closest("section")!;
     expect(within(employeeCard).getByRole("button", { name: "Удалить" })).toBeDisabled();
@@ -394,9 +401,20 @@ describe("role-based UI screens", () => {
     expect(writeText).toHaveBeenCalledWith(regeneratedPassword);
     expect(await within(createPanel).findByRole("button", { name: "Скопировано" })).toBeInTheDocument();
 
-    // Creating a user sends the generated temporary password and shows the one-time banner.
+    // Submitting an empty form shows required-field errors on both username and email.
+    await user.click(within(createPanel).getByRole("button", { name: "Создать" }));
+    expect(within(createPanel).getAllByText("Поле обязательно для заполнения.")).toHaveLength(2);
+    expect(createdBody).toBeNull();
+
+    // Typing an invalid email immediately switches the error to format validation.
     await user.type(within(createPanel).getByLabelText(/^Логин/), "maria");
-    await user.type(within(createPanel).getByLabelText("Email"), "maria@example.com");
+    await user.type(within(createPanel).getByLabelText(/^Email/), "maria");
+    expect(within(createPanel).getByText(/Укажите корректный email/)).toBeInTheDocument();
+    await user.click(within(createPanel).getByRole("button", { name: "Создать" }));
+    expect(createdBody).toBeNull();
+
+    await user.clear(within(createPanel).getByLabelText(/^Email/));
+    await user.type(within(createPanel).getByLabelText(/^Email/), "maria@example.com");
     await user.click(within(createPanel).getByRole("button", { name: "Создать" }));
 
     expect(

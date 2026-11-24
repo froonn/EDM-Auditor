@@ -69,14 +69,19 @@ describe("live authentication flow", () => {
 
   it("shows a localized error when login fails with invalid_credentials", async () => {
     const user = userEvent.setup();
-    mockApi({
+    const apiMock = mockApi({
       "GET /api/auth/me": () => apiError(401, "unauthorized"),
       "POST /api/auth/login": () => apiError(401, "invalid_credentials"),
     });
 
     renderApp("/login", null);
 
-    await user.type(screen.getByLabelText("Логин или email"), "root");
+    // Submitting empty fields shows required errors without calling the API.
+    await user.click(screen.getByRole("button", { name: "Войти" }));
+    expect(screen.getAllByText("Поле обязательно для заполнения.")).toHaveLength(2);
+    expect(apiMock.calls.some((c) => c.path === "/api/auth/login")).toBe(false);
+
+    await user.type(screen.getByLabelText(/^Логин или email/), "root");
     await user.type(screen.getByLabelText("Пароль"), "wrong-password");
     await user.click(screen.getByRole("button", { name: "Войти" }));
 

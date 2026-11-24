@@ -183,6 +183,8 @@ function canTogglePermission(
   return actorPerms.has(info.code);
 }
 
+const GROUP_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{1,99}$/;
+
 function CreateGroupPanel({
   catalog,
   isSuperAdmin,
@@ -198,6 +200,17 @@ function CreateGroupPanel({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
+  const [nameTouched, setNameTouched] = useState(false);
+
+  function validateGroupName(value: string): string | undefined {
+    const clean = value.trim();
+    if (!clean) return t("validation.required");
+    if (!GROUP_NAME_RE.test(clean)) return t("groups.validation.name");
+    if (clean.toLowerCase() === "super-admin") return t("groups.validation.reserved");
+    return undefined;
+  }
+
+  const nameError = nameTouched ? validateGroupName(name) : undefined;
 
   const create = useMutation({
     mutationFn: () =>
@@ -210,6 +223,7 @@ function CreateGroupPanel({
       setName("");
       setDescription("");
       setSelected([]);
+      setNameTouched(false);
       onCreated();
     },
   });
@@ -220,16 +234,26 @@ function CreateGroupPanel({
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    setNameTouched(true);
+    if (validateGroupName(name)) return;
     create.mutate();
   }
 
   return (
     <Panel title={t("groups.createTitle")}>
-      <form onSubmit={handleSubmit} className="space-y-3">
+      <form onSubmit={handleSubmit} noValidate className="space-y-3">
         <fieldset disabled={create.isPending} className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <FormField label={t("groups.field.name")} hint={t("groups.field.nameHint")}>
-              <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required />
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <FormField label={t("groups.field.name")} hint={t("groups.field.nameHint")} error={nameError}>
+              <Input
+                value={name}
+                aria-invalid={Boolean(nameError)}
+                className={nameError ? "border-destructive" : undefined}
+                onChange={(e) => setName(e.target.value)}
+                onBlur={() => setNameTouched(true)}
+                maxLength={100}
+                required
+              />
             </FormField>
             <FormField label={t("groups.field.description")}>
               <Input value={description} onChange={(e) => setDescription(e.target.value)} maxLength={1000} />
@@ -264,9 +288,7 @@ function CreateGroupPanel({
               })}
             </div>
           )}
-          <Button type="submit" disabled={name.trim().length < 2}>
-            {t("action.create")}
-          </Button>
+          <Button type="submit">{t("action.create")}</Button>
         </fieldset>
         {create.isError && <ErrorAlert error={create.error} />}
       </form>

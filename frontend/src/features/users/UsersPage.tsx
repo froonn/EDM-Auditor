@@ -389,6 +389,9 @@ function IssuedPasswordBanner({
   );
 }
 
+const USERNAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{1,99}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+$/;
+
 function CreateUserPanel({
   customGroups,
   isSuperAdmin,
@@ -408,6 +411,24 @@ function CreateUserPanel({
   const [password, setPassword] = useState(() => generateTemporaryPassword());
   const [mustChange, setMustChange] = useState(true);
   const [selectedGroupIds, setSelectedGroupIds] = useState<number[]>([]);
+  const [touched, setTouched] = useState<{ username?: boolean; email?: boolean }>({});
+
+  function validateUsername(value: string): string | undefined {
+    const clean = value.trim();
+    if (!clean) return t("validation.required");
+    if (!USERNAME_RE.test(clean)) return t("users.validation.username");
+    return undefined;
+  }
+
+  function validateEmail(value: string): string | undefined {
+    const clean = value.trim();
+    if (!clean) return t("validation.required");
+    if (!EMAIL_RE.test(clean)) return t("users.validation.email");
+    return undefined;
+  }
+
+  const usernameError = touched.username ? validateUsername(username) : undefined;
+  const emailError = touched.email ? validateEmail(email) : undefined;
 
   const create = useMutation({
     mutationFn: (payload: {
@@ -425,6 +446,7 @@ function CreateUserPanel({
       setPassword(generateTemporaryPassword());
       setSelectedGroupIds([]);
       setMustChange(true);
+      setTouched({});
       onCreated({ username: payload.username, password: payload.password });
     },
   });
@@ -435,6 +457,10 @@ function CreateUserPanel({
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    setTouched({ username: true, email: true });
+    if (validateUsername(username) || validateEmail(email)) {
+      return;
+    }
     create.mutate({
       username: username.trim(),
       email: email.trim(),
@@ -445,21 +471,41 @@ function CreateUserPanel({
     });
   }
 
-  const ready = username.trim().length >= 2 && email.includes("@") && password.length >= 8;
-
   return (
     <Panel title={t("users.createTitle")}>
-      <form onSubmit={handleSubmit} className="space-y-3">
+      <form onSubmit={handleSubmit} noValidate className="space-y-3">
         <fieldset disabled={create.isPending} className="space-y-3">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-            <FormField label={t("users.field.username")} hint={t("users.field.usernameHint")}>
-              <Input value={username} onChange={(e) => setUsername(e.target.value)} maxLength={100} required />
+            <FormField
+              label={t("users.field.username")}
+              hint={t("users.field.usernameHint")}
+              error={usernameError}
+            >
+              <Input
+                value={username}
+                aria-invalid={Boolean(usernameError)}
+                className={usernameError ? "border-destructive" : undefined}
+                onChange={(e) => setUsername(e.target.value)}
+                onBlur={() => setTouched((prev) => ({ ...prev, username: true }))}
+                maxLength={100}
+                required
+              />
             </FormField>
             <FormField label={t("users.field.fullName")}>
               <Input value={fullName} onChange={(e) => setFullName(e.target.value)} maxLength={255} />
             </FormField>
-            <FormField label={t("users.field.email")}>
-              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={255} required />
+            <FormField label={t("users.field.email")} error={emailError}>
+              <Input
+                type="email"
+                placeholder={t("users.field.emailPlaceholder")}
+                value={email}
+                aria-invalid={Boolean(emailError)}
+                className={emailError ? "border-destructive" : undefined}
+                onChange={(e) => setEmail(e.target.value)}
+                onBlur={() => setTouched((prev) => ({ ...prev, email: true }))}
+                maxLength={255}
+                required
+              />
             </FormField>
           </div>
 
@@ -501,9 +547,7 @@ function CreateUserPanel({
             {t("users.field.mustChangePassword")}
           </label>
 
-          <Button type="submit" disabled={!ready}>
-            {t("action.create")}
-          </Button>
+          <Button type="submit">{t("action.create")}</Button>
         </fieldset>
         {create.isError && <ErrorAlert error={create.error} />}
       </form>
@@ -682,13 +726,18 @@ function TransferSuperAdminDialog({
   const { t } = useI18n();
   const passwordId = useId();
   const [currentPassword, setCurrentPassword] = useState("");
+  const [touched, setTouched] = useState(false);
   const transfer = useMutation({
     mutationFn: () => api.auth.transferSuperAdmin(currentPassword, user.id),
     onSuccess: (res) => onTransferred(res.new_super_admin_username),
   });
 
+  const passwordError = touched && !currentPassword ? t("validation.required") : undefined;
+
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    setTouched(true);
+    if (!currentPassword) return;
     transfer.mutate();
   }
 
@@ -699,13 +748,16 @@ function TransferSuperAdminDialog({
           <AlertDialogTitle>{t("users.transferTitle")}</AlertDialogTitle>
           <AlertDialogDescription>{t("users.transferDescription", { username: user.username })}</AlertDialogDescription>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <FormField htmlFor={passwordId} label={t("auth.currentPassword")}>
+        <form onSubmit={handleSubmit} noValidate className="space-y-3">
+          <FormField htmlFor={passwordId} label={t("auth.currentPassword")} error={passwordError}>
             <PasswordInput
               id={passwordId}
               required
               value={currentPassword}
+              aria-invalid={Boolean(passwordError)}
+              className={passwordError ? "border-destructive" : undefined}
               onChange={(e) => setCurrentPassword(e.target.value)}
+              onBlur={() => setTouched(true)}
               disabled={transfer.isPending}
             />
           </FormField>
@@ -714,7 +766,7 @@ function TransferSuperAdminDialog({
             <Button type="button" variant="outline" onClick={onClose} disabled={transfer.isPending}>
               {t("action.cancel")}
             </Button>
-            <Button type="submit" variant="destructive" disabled={transfer.isPending || !currentPassword}>
+            <Button type="submit" variant="destructive" disabled={transfer.isPending}>
               {t("action.confirm")}
             </Button>
           </div>

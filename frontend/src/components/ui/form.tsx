@@ -21,6 +21,7 @@ export function Select({ className, ...props }: ComponentProps<"select">) {
 interface FieldProps {
   label: string;
   hint?: string;
+  error?: string;
   htmlFor?: string;
   children: ReactNode;
   className?: string;
@@ -30,7 +31,7 @@ interface FieldProps {
  * A labelled form control. When `htmlFor` is omitted, the label wraps the control so no ids are
  * needed; pass `htmlFor` when `children` contains auxiliary buttons (e.g. show/copy password).
  */
-export function FormField({ label, hint, htmlFor, children, className }: FieldProps) {
+export function FormField({ label, hint, error, htmlFor, children, className }: FieldProps) {
   if (htmlFor) {
     return (
       <div className={cn("flex flex-col gap-1 text-sm", className)}>
@@ -38,7 +39,13 @@ export function FormField({ label, hint, htmlFor, children, className }: FieldPr
           {label}
         </label>
         {children}
-        {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
+        {error ? (
+          <span role="alert" className="text-xs text-destructive">
+            {error}
+          </span>
+        ) : (
+          hint && <span className="text-xs text-muted-foreground">{hint}</span>
+        )}
       </div>
     );
   }
@@ -46,7 +53,13 @@ export function FormField({ label, hint, htmlFor, children, className }: FieldPr
     <label className={cn("flex flex-col gap-1 text-sm", className)}>
       <span className="font-medium">{label}</span>
       {children}
-      {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
+      {error ? (
+        <span role="alert" className="text-xs text-destructive">
+          {error}
+        </span>
+      ) : (
+        hint && <span className="text-xs text-muted-foreground">{hint}</span>
+      )}
     </label>
   );
 }
