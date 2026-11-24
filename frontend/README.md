@@ -41,9 +41,11 @@ Run `npm run api:types` after changing the API and commit the result. It reads
 - **Requests that call the model** (legal act upload, audit, reprocessing) are never repeated
   automatically: a repeat spends the model's request limit. They are mutations, and the user repeats
   them with the retry button.
-- **Permissions.** Screens check permissions with `useAuth().can(...)` or `<Can>`, never roles. Every
-  screen is declared in `src/app/routes.tsx` with a permission; the menu and the route protection come
-  from that list. Without sign-in the local session has every permission.
+- **Permissions & sessions.** `AuthProvider` loads the active cookie session from `GET /api/auth/me`
+  (`refetchOnWindowFocus: true`), intercepts `401` to clear cached data and redirect to `/login`, and
+  enforces forced temporary password changes (`must_change_password`). Screens check permissions with
+  `useAuth().can(...)` or `<Can>`, never hard-coded group names. Every screen is declared in
+  `src/app/routes.tsx` with a permission; the menu and the route protection come from that list.
 - **Texts** come from `src/i18n/ru.ts` through `useI18n().t(...)`. Error messages are keyed by API
   error code, as `error.<code>`. Dates and numbers are formatted through `useI18n()`; API dates have no
   time zone and are read as UTC by `parseApiDate`.
@@ -60,7 +62,7 @@ Run `npm run api:types` after changing the API and commit the result. It reads
 | `src/app/`        | Routes, router, layout, providers, query client                                                            |
 | `src/auth/`       | Permissions, session, `AuthProvider`, `<Can>`, route guard                                                 |
 | `src/components/` | Shared components; `ui/` holds shadcn/ui primitives                                                        |
-| `src/features/`   | Screens with their logic: `documents/`, `audit/`, `legalActs/`, `rules/`, `documentTypes/`, shared queries |
+| `src/features/`   | Screens with their logic: `auth/`, `documents/`, `audit/`, `legalActs/`, `rules/`, `documentTypes/`, `users/`, `groups/`, shared queries |
 | `src/i18n/`       | Dictionary and formatting                                                                                  |
 | `src/pages/`      | Generic pages: not found, forbidden, crash                                                                 |
 | `src/styles/`     | Tailwind entry point and theme variables                                                                   |

@@ -41,13 +41,17 @@ Python 3.11 or newer is required. Run all commands from `backend/`:
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[test]"
-cp .env.example .env    # then set EDM_MODEL_PRESET and the API key
+cp .env.example .env    # set EDM_MODEL_PRESET, API key, and EDM_INITIAL_ADMIN_*
 alembic upgrade head
+# Optional if EDM_INITIAL_ADMIN_* are not set in .env:
+python -m edm_auditor.auth.cli create-super-admin --username admin --email admin@example.com --password "change-me-123"
 uvicorn edm_auditor.api.app:create_app --factory --reload
 ```
 
-OpenAPI documentation is available at <http://127.0.0.1:8000/docs>. The API has no authentication
-and must stay in a trusted development environment.
+OpenAPI documentation is available at <http://127.0.0.1:8000/docs> (set `EDM_EXPOSE_DOCS=false` in
+production). Every `/api/*` endpoint except `/api/auth/login` and `/api/auth/logout` requires an active
+HttpOnly cookie session (`edm_session`) and server-side group permissions (Linux-style union of personal
+and custom groups).
 
 For debugging and `curl` requests, see [`docs/DEBUG.md`](../docs/DEBUG.md); synthetic acts and
 documents live in [`evaluation/corpus/`](evaluation/corpus/).
@@ -70,7 +74,16 @@ The API loads `.env` automatically. Variables already set in the shell take prec
 | `EDM_SOURCE_LANGUAGE`  | `auto`                               | Legal act language: `auto`, `ru` or `en`        |
 | `RAG_INDEX_PATH`       | `data/rag-index.sqlite3`             | RAG index file                                  |
 | `EDM_DATABASE_PATH`    | `data/edm_auditor.sqlite3`           | Database file used by the RAG command line tool |
-| `EDM_LOG_FILE`         | `data/debug.log`                     | Detailed request log                            |
+| `EDM_LOG_FILE`                | `data/debug.log`                     | Detailed request log (cookies/passwords redacted)            |
+| `EDM_TRACE_LOG_BODIES`        | `false`                              | Log non-sensitive request/response bodies to `debug.log`     |
+| `EDM_AUTH_COOKIE_NAME`        | `edm_session`                        | HttpOnly session cookie name                                 |
+| `EDM_AUTH_COOKIE_SECURE`      | `false`                              | Set `Secure` flag on session cookie (enable behind HTTPS)    |
+| `EDM_AUTH_SESSION_TTL_HOURS`  | `24`                                 | Server-side session lifetime in hours                        |
+| `EDM_TRUSTED_ORIGINS`         | empty                                | Comma-separated trusted `Origin` values for CSRF checks      |
+| `EDM_EXPOSE_DOCS`             | `true`                               | Expose `/docs`, `/redoc`, `/openapi.json`                    |
+| `EDM_INITIAL_ADMIN_USERNAME`  | none                                 | Optional idempotent bootstrap `super-admin` username         |
+| `EDM_INITIAL_ADMIN_EMAIL`     | none                                 | Optional idempotent bootstrap `super-admin` email            |
+| `EDM_INITIAL_ADMIN_PASSWORD`  | none                                 | Optional idempotent bootstrap `super-admin` password         |
 
 Models, limits and presets are described in
 [`docs/model-configuration.md`](../docs/model-configuration.md).
@@ -110,8 +123,31 @@ header.
 | `GET /api/documents/{id}/report`                             | Latest report, or the one set by `report_id`   |
 | `PATCH /api/documents/{id}/statements/{statement_id}/link`   | Manually link or unlink a statement to a rule  |
 | `GET /api/reports`                                           | List reports, paginated. Filter: `document_id` |
-| `GET /api/reports/{id}`                    | One report                                     |
+| `GET /api/reports/{id}`                    | One report (includes `latest_resolution`)      |
+| `GET /api/reports/{id}/resolutions`        | Auditor resolutions history for the report     |
+| `POST /api/reports/{id}/resolutions`       | Record an auditor resolution (`resolutions.write`) |
 | `GET /api/reports/{id}/export`             | Download the report as a file, see below       |
+
+### Authentication, users, and groups
+
+| Method and path                         | Purpose                                                                      |
+|-----------------------------------------|------------------------------------------------------------------------------|
+| `POST /api/auth/login`                  | Authenticate with username/email + password, sets `HttpOnly` session cookie  |
+| `POST /api/auth/logout`                 | Revoke current session and clear cookie                                      |
+| `POST /api/auth/logout-all`             | Revoke all sessions of the current user                                      |
+| `GET /api/auth/me`                      | Current user profile, groups, and effective permissions                      |
+| `POST /api/auth/change-password`        | Change own password (clears `must_change_password`, revokes other sessions)  |
+| `POST /api/auth/transfer-super-admin`   | Atomically transfer the single `super-admin` status (password-confirmed)     |
+| `GET /api/auth/audit-log`               | Security audit log, paginated (`users.manage` or `groups.manage`)            |
+| `GET/POST /api/users`                   | List / create users with auto-created personal group (`users.manage`)        |
+| `PATCH /api/users/{id}`                 | Update profile, enable/disable, or reset password (`users.manage`)           |
+| `PUT /api/users/{id}/groups`            | Assign custom groups respecting privilege ceiling (`users.manage`)           |
+| `POST /api/users/{id}/revoke-sessions`  | Revoke all active sessions of a user (`users.manage`)                        |
+| `GET /api/permissions`                  | Catalog of the 16 RBAC permissions                                           |
+| `GET/POST /api/groups`                  | List (`?kind=custom\|personal\|system`) / create custom groups               |
+| `PATCH /api/groups/{id}`                | Rename or update custom group description (`groups.manage`)                  |
+| `PUT /api/groups/{id}/permissions`      | Set permissions on custom or personal group (`groups.manage`)                |
+| `DELETE /api/groups/{id}`               | Delete an empty custom group (`409 group_not_empty` if members exist)        |
 
 ### Rules
 

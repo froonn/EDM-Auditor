@@ -15,16 +15,31 @@
 
 ## Запуск
 
-Нужны Docker и Docker Compose v2. Файл `backend/.env` с пресетом модели и ключом API обязателен, как и при
-разработке: `cp backend/.env.example backend/.env` и заполнить его. В образ он не попадает, Compose передаёт
+Нужны Docker и Docker Compose v2. Файл `backend/.env` с пресетом модели, ключом API и параметрами первого
+супер-администратора (`EDM_INITIAL_ADMIN_USERNAME`, `EDM_INITIAL_ADMIN_EMAIL`, `EDM_INITIAL_ADMIN_PASSWORD`)
+обязателен: `cp backend/.env.example backend/.env` и заполнить его. В образ он не попадает, Compose передаёт
 переменные при запуске.
+
+Если `EDM_INITIAL_ADMIN_*` не заданы, первого `super-admin` можно создать вручную после запуска:
+
+```bash
+docker compose exec backend python -m edm_auditor.auth.cli create-super-admin \
+  --username admin --email admin@example.com --password "change-me-strong-password"
+```
 
 ```bash
 docker compose up --build -d
 ```
 
-Интерфейс открывается на <http://localhost:8080>, документация API на <http://localhost:8080/docs>. Другой
-порт задаётся переменной: `EDM_PORT=9000 docker compose up --build -d`.
+Интерфейс открывается на <http://localhost:8080> (вход на `/login`), документация API на
+<http://localhost:8080/docs> (отключается через `EDM_EXPOSE_DOCS=false`). Другой порт задаётся переменной:
+`EDM_PORT=9000 docker compose up --build -d`.
+
+При публикации за HTTPS-прокси задайте в `backend/.env`:
+
+- `EDM_AUTH_COOKIE_SECURE=true` — флаг `Secure` на сессионной cookie;
+- `EDM_TRUSTED_ORIGINS=https://your-domain.example` — доверенные источники для проверки `Origin`;
+- `EDM_EXPOSE_DOCS=false` — скрыть Swagger UI / OpenAPI.
 
 | Команда                          | Что делает                                       |
 |----------------------------------|--------------------------------------------------|
@@ -67,7 +82,7 @@ docker compose start backend
   сам контейнер. Чтобы обращаться к серверу на компьютере, нужны свой файл моделей с адресом
   `http://host.docker.internal:1234/v1`, подключённый в контейнер и указанный в `EDM_MODEL_CONFIG`, и строка
   `extra_hosts: ["host.docker.internal:host-gateway"]` у сервиса `backend`. Такой запуск не проверялся.
-- **Без авторизации.** API и интерфейс открыты всем, кто видит порт. Запускайте только на своём компьютере или
-  в доверенной сети. Авторизация перенесена в диплом, см. [`DIPLOMA.md`](DIPLOMA.md).
+- **HTTPS для продакшена.** Контейнер `frontend` слушает HTTP (`:80`). При доступе из внешней сети ставьте
+  перед ним TLS-прокси и включайте `EDM_AUTH_COOKIE_SECURE=true` и `EDM_EXPOSE_DOCS=false`.
 - **Один процесс сервера.** SQLite допускает одну запись за раз, поэтому `uvicorn` работает с одним
   процессом.
