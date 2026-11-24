@@ -87,10 +87,18 @@
   `EDM_INITIAL_ADMIN_PASSWORD`), если в БД ещё нет `super-admin`. Ему автоматически создаётся персональная
   группа, статус `super-admin` и членство в кастомной группе `admin`.
 - **Новых пользователей** создают пользователи с правом `users.manage` (`super-admin`, `admin`). Публичной
-  саморегистрации нет.
+  саморегистрации нет. После создания `username` неизменяем (сохраняет консистентность персональной группы и
+  истории), а физическое удаление пользователей не предусмотрено — используется деактивация
+  (`is_active = False`) с мгновенным отзывом всех сессий.
+- **Временные пароли (`must_change_password`):** при создании пользователя или сбросе его пароля админом
+  выставляется `must_change_password = True`. До смены пароля сервер допускает только `/api/auth/me`,
+  `/api/auth/change-password` и `/api/auth/logout` (на остальные маршруты — `403 password_change_required`),
+  а интерфейс переводит пользователя на экран обязательной смены пароля.
 - **Старые документы без владельца (`documents.user_id IS NULL`)** видны пользователям с правом
   `documents.read_all` (`super-admin`, `admin`, `lawyer`, `auditor`) и скрыты от пользователей без него
-  (`employee`). Все новые загрузки записывают `documents.user_id = current_user.id`.
+  (`employee`). При прямом обращении к чужому документу/отчёту возвращается **`404 not_found`** (защита от
+  IDOR — не раскрывается сам факт существования чужого ID). Все новые загрузки записывают
+  `documents.user_id = current_user.id`.
 
 ---
 
@@ -120,13 +128,13 @@
 | `users.manage`          | Создание/правка/блокировка пользователей, сброс паролей, назначение групп |           ✓            |         ✓          |          —          |          —           |           —           |
 | `groups.manage`         | Создание/удаление пустых кастомных групп и настройка прав групп          |            ✓            |    — *(делег.)*    |          —          |          —           |           —           |
 
-> **Защита от эскалации привилегий:**
+> **Защита от эскалации привилегий (Privilege Ceiling):**
 > - Изменять состав/права системной группы `super-admin` запрещено всем.
 > - Включать/отключать право `groups.manage` у любой группы может **только `super-admin`**.
-> - Пользователь с делегированным `groups.manage` (не `super-admin`) может создавать/удалять пустые кастомные
->   группы и редактировать остальные 15 прав у любых кастомных и персональных групп.
-> - Пользователь с `users.manage` (не `super-admin`) может назначать пользователям любые кастомные группы,
->   **кроме** групп, содержащих `groups.manage`, и не может изменять/блокировать самого `super-admin`.
+> - **Потолок прав:** любой пользователь без статуса `super-admin` может назначить пользователю группу или
+>   изменить набор прав группы только в пределах подмножества собственных эффективных прав
+>   (`group_perms ⊆ actor_perms`), а также не может деактивировать самого себя или снять с себя `users.manage`.
+> - Не-суперадмин не может изменять, блокировать, сбрасывать пароль или отзывать сессии у `super-admin`.
 
 ### 2.2. Привязка эндпоинтов API к правам
 
@@ -134,9 +142,10 @@
 |------------------------------------------------------------------------------|--------------------------------------------------------------|
 | `GET /health`                                                                | Публичный (Docker healthcheck)                               |
 | `POST /api/auth/login`, `POST /api/auth/logout`                              | Публичный (rate-limited для `login`)                         |
-| `GET /api/auth/me`, `POST /api/auth/logout-all`, `POST /api/auth/change-password` | Любой активный авторизованный пользователь               |
+| `GET /api/auth/me`, `POST /api/auth/logout-all`, `POST /api/auth/change-password` | Любой активный авторизованный пользователь (работает и при `must_change_password=True`) |
 | `POST /api/auth/transfer-super-admin`                                        | Только текущий `super-admin` + подтверждение паролем         |
-| `GET /api/users`, `POST /api/users`, `PATCH /api/users/{id}`, `PUT /api/users/{id}/groups` | `users.manage`                                  |
+| `GET /api/auth/audit-log`                                                    | `users.manage` или `groups.manage` (журнал событий безопасности) |
+| `GET /api/users`, `POST /api/users`, `PATCH /api/users/{id}`, `PUT /api/users/{id}/groups`, `POST /api/users/{id}/revoke-sessions` | `users.manage` |
 | `GET /api/groups`, `GET /api/permissions`                                    | `groups.manage` или `users.manage` (для выбора групп в UI)   |
 | `POST /api/groups`, `PATCH /api/groups/{id}`, `PUT /api/groups/{id}/permissions`, `DELETE /api/groups/{id}` | `groups.manage` (`DELETE` — только для пустой `custom`-группы) |
 | `GET /api/documents`, `GET /api/reports`                                     | `reports.read` + фильтр по `user_id` без `documents.read_all` |
@@ -163,8 +172,8 @@
    - удалить устаревшую колонку `role` (при миграции существующих записей перенести `hr` → `employee`,
      `auditor` → `auditor`, `admin` → `admin`);
    - добавить поля: `full_name` (`String(255)`, default `""`), `is_active` (`Boolean`, default `True`),
-     `is_super_admin` (`Boolean`, default `False`), `updated_at` (`DateTime`),
-     `last_login_at` (`DateTime`, nullable);
+     `is_super_admin` (`Boolean`, default `False`), `must_change_password` (`Boolean`, default `False`),
+     `updated_at` (`DateTime`), `last_login_at` (`DateTime`, nullable);
    - создать частичный уникальный индекс `uq_users_single_super_admin` на `users(is_super_admin)` с условием
      `WHERE is_super_admin = 1` (инвариант БД: в системе максимум один `super-admin`).
 2. **`groups`** (новая таблица):
@@ -189,6 +198,15 @@
      `author_name` (`String(255)` — снимок имени/логина),
      `decision` (`String(20)` — `CHECK decision IN ('approved', 'needs_revision', 'rejected')`),
      `comment` (`Text`), `created_at` (`DateTime`).
+7. **`auth_audit_log`** (новая таблица — журнал событий безопасности):
+   - `id`, `actor_user_id` (`FK users.id ON DELETE SET NULL`, nullable, index),
+     `actor_username` (`String(100)`), `action` (`String(50)`, index — `login_success`, `login_failed`,
+     `logout`, `password_changed`, `password_reset`, `user_created`, `user_updated`, `user_disabled`,
+     `user_enabled`, `user_sessions_revoked`, `user_groups_updated`, `group_created`, `group_updated`,
+     `group_permissions_updated`, `group_deleted`, `super_admin_transferred`),
+     `target_type` (`String(30)`, nullable), `target_id` (`String(100)`, nullable),
+     `details_json` (`Text`, default `"{}"`), `ip_address` (`String(64)`, nullable),
+     `created_at` (`DateTime`, index).
 
 ---
 
@@ -226,106 +244,126 @@
 
 ### Этап 1. Бэкенд: схема БД, групповая модель, пароли, сессии и CLI-сид
 - [ ] Добавить `argon2-cffi` в `backend/pyproject.toml`.
-- [ ] Обновить `database/enums.py` (`GroupKind`, `ResolutionDecision`) и `database/models.py`: обновить `User`,
-  добавить `Group`, `GroupPermission`, `UserGroup`, `UserSession`, `AuditResolution`.
+- [ ] Обновить `database/enums.py` (`GroupKind`, `ResolutionDecision`) и `database/models.py`: обновить `User`
+  (включая `must_change_password`), добавить `Group`, `GroupPermission`, `UserGroup`, `UserSession`,
+  `AuditResolution` и `AuthAuditLog`.
 - [ ] Написать миграцию Alembic `0013_auth_groups_rbac.py` (с `batch_alter_table`, частичным уникальным
-  индексом `uq_users_single_super_admin`, сидом 4 стартовых кастомных групп `employee`, `auditor`, `lawyer`,
-  `admin` и системной группы `super-admin`) и проверить `upgrade`/`downgrade`.
+  индексом `uq_users_single_super_admin`, таблицей `auth_audit_log`, сидом 4 стартовых кастомных групп
+  `employee`, `auditor`, `lawyer`, `admin` и системной группы `super-admin`) и проверить `upgrade`/`downgrade`.
 - [ ] Создать пакет `backend/src/edm_auditor/auth/`:
   - `passwords.py` — Argon2id хэширование, проверка и валидация пароля (длина ≥ 8);
   - `permissions.py` — каталог 16 `Permission`, дефолтные пресеты стартовых групп, расчёт эффективных прав
     пользователя как `union` прав всех его групп (и полный набор для `super-admin`);
-  - `service.py` — сервисные операции: создание пользователя с автоматической персональной группой,
-    создание/редактирование/удаление (только при `members_count == 0`) кастомных групп, настройка прав
-    кастомных и персональных групп с защитой от эскалации, назначение групп пользователю, атомарная передача
-    `super-admin`;
+  - `service.py` — сервисные операции: создание пользователя (с автоматической персональной группой,
+    неизменяемым `username` и `must_change_password = True`), создание/редактирование/удаление (только при
+    `members_count == 0`) кастомных групп, настройка прав кастомных и персональных групп с проверкой потолка
+    прав (`group_perms ⊆ actor_perms`), назначение групп пользователю, атомарная передача `super-admin`;
+  - `audit_log.py` — запись структурированных событий безопасности в `auth_audit_log`;
   - `sessions.py` — создание, валидация, отзыв одной и всех сессий пользователя;
   - `rate_limit.py` — ограничитель попыток входа;
   - `cli.py` — команда создания первого `super-admin` и идемпотентный сид при старте из `EDM_INITIAL_ADMIN_*`.
 - [ ] Расширить `ApiSettings` новыми параметрами конфигурации и обновить `backend/.env.example`.
 - [ ] Написать юнит-тесты в `backend/tests/auth/` (`test_passwords.py`, `test_sessions.py`,
-  `test_groups_and_permissions.py`, включая объединение прав нескольких групп, запрет удаления непустой группы,
-  передачу `super-admin` и невозможность создания второго `super-admin`).
+  `test_groups_and_permissions.py`, включая объединение прав нескольких групп, потолок прав против эскалации,
+  запрет удаления непустой группы, передачу `super-admin` и невозможность создания второго `super-admin`).
 
 ### Этап 2. Бэкенд: API аутентификации, пользователей, групп и защита логов
 - [ ] Добавить схемы Pydantic в `api/schemas.py` (`LoginRequest`, `AuthUserResponse`, `ChangePasswordRequest`,
   `TransferSuperAdminRequest`, `UserCreate`, `UserUpdate`, `UserGroupsUpdate`, `UserResponse`, `GroupCreate`,
-  `GroupUpdate`, `GroupPermissionsUpdate`, `GroupResponse`, `PermissionInfoResponse`, `ResolutionCreate`,
-  `ResolutionResponse`).
-- [ ] Реализовать FastAPI-зависимости в `auth/dependencies.py`: `get_current_user`, `require_permission(...)`,
-  `require_super_admin`.
+  `GroupUpdate`, `GroupPermissionsUpdate`, `GroupResponse`, `PermissionInfoResponse`, `AuthAuditLogResponse`,
+  `ResolutionCreate`, `ResolutionResponse`).
+- [ ] Реализовать FastAPI-зависимости в `auth/dependencies.py`: `get_current_user` (с блокировкой
+  `403 password_change_required`, если у пользователя `must_change_password=True`, кроме `/api/auth/me`,
+  `/api/auth/change-password`, `/api/auth/logout`), `require_permission(...)`, `require_super_admin`.
 - [ ] Реализовать эндпоинты:
   - `POST /api/auth/login`, `POST /api/auth/logout`, `POST /api/auth/logout-all`, `GET /api/auth/me`
-    (возвращает профиль, `is_super_admin`, список групп и итоговый массив `permissions`),
-    `POST /api/auth/change-password`, `POST /api/auth/transfer-super-admin`;
-  - `GET /api/users`, `POST /api/users`, `PATCH /api/users/{id}`, `PUT /api/users/{id}/groups` (`users.manage`;
-    автосоздание персональной группы, запрет блокировать `super-admin`, защита от назначения групп с
-    `groups.manage` не-суперадмином, отзыв сессий при блокировке);
+    (возвращает профиль, `is_super_admin`, `must_change_password`, список групп и итоговый массив `permissions`),
+    `POST /api/auth/change-password` (снимает `must_change_password`), `POST /api/auth/transfer-super-admin`,
+    `GET /api/auth/audit-log` (пагинация и фильтры по `action` / `actor`);
+  - `GET /api/users`, `POST /api/users`, `PATCH /api/users/{id}`, `PUT /api/users/{id}/groups`,
+    `POST /api/users/{id}/revoke-sessions` (`users.manage`; автосоздание персональной группы, запрет
+    самоблокировки и блокировки/изменения `super-admin`, потолок прав при назначении групп, отзыв сессий при
+    блокировке и `must_change_password=True` при сбросе пароля);
   - `GET /api/permissions` (каталог прав с описаниями для конструктора групп в UI);
   - `GET /api/groups?kind=custom|personal|system`, `POST /api/groups`, `PATCH /api/groups/{id}`,
     `PUT /api/groups/{id}/permissions`, `DELETE /api/groups/{id}` (`409 group_not_empty`, если есть участники;
-    `403` при попытке менять `groups.manage` без статуса `super-admin` или трогать группу `super-admin`).
+    проверка потолка прав и `403` при попытке менять `groups.manage` без статуса `super-admin` или трогать
+    группу `super-admin`).
+- [ ] Писать события в `auth_audit_log` на всех критичных действиях (вход/неудачный вход, смена/сброс пароля,
+  создание/блокировка пользователя, отзыв сессий, изменение групп и прав, передача `super-admin`).
 - [ ] Обновить `request_logging_middleware` (редакция `Cookie`/`Set-Cookie`/`Authorization`, скрытие тел
   `/api/auth/*`, `/api/users*`, `/api/groups*`, флаг `EDM_TRACE_LOG_BODIES`) и добавить проверку `Origin`.
-- [ ] Написать API-тесты аутентификации, управления пользователями, группами, делегирования `groups.manage`,
-  передачи `super-admin`, rate limit и безопасности логов.
+- [ ] Написать API-тесты аутентификации, `must_change_password`, управления пользователями, группами, потолка
+  прав, делегирования `groups.manage`, отзыва сессий, передачи `super-admin`, журнала `auth_audit_log`, rate
+  limit и безопасности логов.
 
 ### Этап 3. Бэкенд: RBAC на всех эндпоинтах, изоляция документов и резолюции аудитора
 - [ ] Подключить `require_permission(...)` ко всем эндпоинтам `/api/*` согласно таблице из раздела 2.2.
-- [ ] Заполнять `Document.user_id = current_user.id` в `POST /api/documents/upload`.
-- [ ] Внедрить helper `_ensure_document_access(document, user_perms)` и фильтрацию `GET /api/documents` и
-  `GET /api/reports` для пользователей без `documents.read_all` (только свои документы; `user_id IS NULL`
-  скрыты от `employee`).
+- [ ] Заполнять `Document.user_id = current_user.id` в `POST /api/documents/upload`, добавить в
+  `DocumentResponse` / `DocumentDetailResponse` поля `owner_id` и `owner_name`, а в `GET /api/documents` —
+  фильтр `status` (в т.ч. `status=uploaded` для очереди «Ожидают аудита»).
+- [ ] Внедрить helper `_ensure_document_access(document, user_perms)` (при отсутствии доступа — **`404 not_found`**
+  для защиты от IDOR) и фильтрацию `GET /api/documents` и `GET /api/reports` для пользователей без
+  `documents.read_all` (только свои документы; `user_id IS NULL` скрыты от `employee`).
 - [ ] Реализовать эндпоинты резолюций:
   - `GET /api/reports/{report_id}/resolutions`;
   - `POST /api/reports/{report_id}/resolutions` (`resolutions.write`);
   - добавить `latest_resolution` в `ReportResponse` и `LatestReportSummary`.
 - [ ] Адаптировать тестовые фикстуры в `backend/tests/api/` (авторизованный клиент по умолчанию) и добавить
   матричный тест `backend/tests/api/test_auth_rbac.py`, проверяющий анонима, `super-admin`, `admin`, `lawyer`,
-  `auditor`, `employee`, пользователя в нескольких группах (`employee` + `auditor`) и пользователя с точечно
-  выданным правом в его персональной группе.
+  `auditor`, `employee` (включая `404` на чужие ID), пользователя в нескольких группах (`employee` + `auditor`)
+  и пользователя с точечно выданным правом в его персональной группе.
 
-### Этап 4. Фронтенд: живая сессия, экран входа и меню пользователя
+### Этап 4. Фронтенд: живая сессия, экран входа, смена временного пароля и меню пользователя
 - [ ] Обновить типы API (`frontend/src/api/types.ts`) и клиент (`frontend/src/api/client.ts`): глобальный
   обработчик `401` (сброс сессии и кэша TanStack Query, перевод на `/login`).
 - [ ] Расширить `frontend/src/auth/permissions.ts` и `session.ts` под новый список из 16 прав и профиль
-  пользователя (`id`, `username`, `fullName`, `email`, `isSuperAdmin`, `groups`, `permissions`).
-- [ ] Переписать `AuthProvider.tsx`: запрос `GET /api/auth/me` при старте, состояния `loading` /
+  пользователя (`id`, `username`, `fullName`, `email`, `isSuperAdmin`, `mustChangePassword`, `groups`,
+  `permissions`).
+- [ ] Переписать `AuthProvider.tsx`: запрос `GET /api/auth/me` через TanStack Query с
+  `refetchOnWindowFocus: true` (изменившиеся права группы подтягиваются без ручного F5), состояния `loading` /
   `authenticated` / `unauthenticated`, методы `login`, `logout`, полная очистка `queryClient.clear()` при
   выходе.
-- [ ] Реализовать страницу `/login` (`LoginPage.tsx`): форма входа, локализованные ошибки
-  (`invalid_credentials`, `account_disabled`, `too_many_requests`), возврат на исходный путь после входа.
+- [ ] Реализовать страницу `/login` (`LoginPage.tsx`) и экран принудительной смены временного пароля
+  (`ForceChangePasswordPage` при `mustChangePassword === true`): локализованные ошибки
+  (`invalid_credentials`, `account_disabled`, `too_many_requests`, `password_change_required`), возврат на
+  исходный путь после входа.
 - [ ] Заполнить слот `data-slot="user-menu"` в `AppLayout.tsx`: имя, бейджи групп (и отметка `super-admin`),
   диалог смены пароля, кнопка «Выйти».
 - [ ] Обновить и расширить тесты `frontend/src/auth/auth.test.tsx`, `frontend/src/api/client.test.ts` и
   `frontend/src/app/app.test.tsx`.
 
-### Этап 5. Фронтенд: админ-панель пользователей и групп, ролевые экраны и резолюции
-- [ ] Обновить `APP_ROUTES` и экраны НПА/правил/типов:
+### Этап 5. Фронтенд: админ-панель пользователей и групп, журнал безопасности, ролевые экраны и резолюции
+- [ ] Обновить `APP_ROUTES` и экраны документов/НПА/правил/типов:
   - маршруты просмотра открываются по `legal_acts.read` / `rules.read` / `document_types.read` (`auditor`
     видит нормативную базу в режиме только чтения);
   - кнопки создания/редактирования/переобработки/удаления обёрнуты в `<Can permission="...edit">`;
-  - у `employee` кнопка запуска/настройки аудита скрыта (`<Can permission="audit.run">`), доступны загрузка,
-    удаление своих документов, просмотр и экспорт готовых отчётов и резолюций.
+  - на `DocumentsPage`: для пользователей с `documents.read_all` — колонка **«Автор»** и быстрый фильтр
+    **«Ожидают аудита»** (`status=uploaded`); для `employee` кнопка запуска/настройки аудита скрыта
+    (`<Can permission="audit.run">`), а у загруженных документов без отчёта показывается понятная плашка
+    «Загружен, ожидает проверки аудитором».
 - [ ] Добавить раздел **«Пользователи»** (`/users`, право `users.manage`):
   - таблица пользователей (логин, имя, email, назначенные кастомные группы, статус, последний вход);
-  - создание пользователя (сразу создаётся его персональная группа + выбор стартовых кастомных групп);
-  - редактирование пользователя: multi-select назначение кастомных групп, блокировка/активация, сброс пароля,
-    просмотр итоговых эффективных прав;
-  - для `super-admin` — действие **«Передать права супер-администратора»** с подтверждением текущим паролем.
+  - создание пользователя (сразу создаётся его персональная группа + выбор стартовых кастомных групп,
+    временный пароль с `must_change_password = True`);
+  - редактирование пользователя: multi-select назначение кастомных групп (с учётом потолка прав),
+    блокировка/активация, сброс пароля, кнопка **«Завершить все сессии»**, просмотр итоговых эффективных прав;
+  - для `super-admin` — действие **«Передать права супер-администратора»** с подтверждением текущим паролем;
+  - вкладка/секция **«Журнал безопасности»** (`GET /api/auth/audit-log`) с фильтром по типу события.
 - [ ] Добавить раздел **«Группы и права»** (`/groups`, право `groups.manage`):
   - **две раздельные вкладки:**
     1. **Кастомные группы** (`employee`, `auditor`, `lawyer`, `admin` и созданные вручную) — создание новой
-       группы, матрица чекбоксов прав (переключатель `groups.manage` доступен только `super-admin`), счётчик
-       и список участников, удаление группы (только если участников `0`);
+       группы, матрица чекбоксов прав (переключатель `groups.manage` доступен только `super-admin`, остальные
+       ограничены потолком прав), счётчик и список участников, удаление группы (только если участников `0`);
     2. **Личные группы пользователей** (именные группы по `username`) — поиск пользователя и точечная
        настройка индивидуальных дополнительных прав для конкретного пользователя.
 - [ ] Добавить блок **«Резолюция аудитора»** на экран аудита (`AuditPage.tsx`):
   - лента резолюций с автором, датой, решением (`Согласовано` / `На доработку` / `Отклонено`) и комментарием;
   - форма добавления резолюции внутри `<Can permission="resolutions.write">`.
 - [ ] Добавить все новые тексты в словарь `frontend/src/i18n/ru.ts`.
-- [ ] Написать тесты Vitest для `LoginPage`, `UsersPage`, `GroupsPage` (обе вкладки + удаление пустой/непустой
-  группы), блока резолюций, read-only режима `auditor` и ограниченного режима `employee`.
+- [ ] Написать тесты Vitest для `LoginPage`, экрана обязательной смены пароля, `UsersPage` (включая отзыв
+  сессий и журнал безопасности), `GroupsPage` (обе вкладки + удаление пустой/непустой группы), блока
+  резолюций, read-only режима `auditor` и ограниченного режима `employee` (с колонкой «Автор» у проверяющих).
 
 ### Этап 6. Docker, документация и финальная проверка
 - [ ] Обновить `docker-compose.yml`, `backend/.env.example`, `frontend/docker/nginx.conf` (проверка передачи
@@ -336,22 +374,25 @@
   - `pytest backend/tests -q`
   - `npm --prefix frontend run test` и `npm --prefix frontend run build`
   - сквозная ручная проверка: `super-admin` (делегирование `groups.manage` и передача `super-admin`), `admin`,
-    `lawyer`, `auditor`, `employee`, пользователь в нескольких группах и настройка персональной группы.
+    `lawyer`, `auditor`, `employee`, `must_change_password`, отзыв сессий, журнал безопасности, пользователь в
+    нескольких группах и настройка персональной группы.
 
 ---
 
 ## 6. Критерии готовности (Definition of Done)
 
-- [ ] Ни один бизнес-эндпоинт `/api/*` не работает без валидной серверной сессии (`401`).
+- [ ] Ни один бизнес-эндпоинт `/api/*` не работает без валидной серверной сессии (`401`), а при
+  `must_change_password=True` доступны только `/api/auth/me`, `/api/auth/change-password` и `/api/auth/logout`.
 - [ ] Все права задаются исключительно через группы; эффективные права пользователя = объединение прав всех
-  его групп (персональной + кастомных).
+  его групп (персональной + кастомных); соблюдается потолок прав (`group_perms ⊆ actor_perms`).
 - [ ] В системе гарантированно ровно один `super-admin`; работает атомарная передача статуса другому активному
   пользователю с подтверждением пароля.
 - [ ] Кастомные группы (`employee`, `auditor`, `lawyer`, `admin` и новые) свободно редактируются, а удаляются
   только при отсутствии участников (`409 group_not_empty`).
-- [ ] Персональная группа создаётся автоматически для каждого пользователя и отображается в админ-панели
-  отдельно от кастомных групп.
-- [ ] `employee` по умолчанию загружает и смотрит/выгружает только свои документы и отчёты, без запуска аудита
-  и без доступа к чужим документам (включая `user_id IS NULL`).
-- [ ] В `data/debug.log` не попадают cookie, пароли и (по умолчанию) тексты документов.
+- [ ] Персональная группа создаётся автоматически для каждого пользователя (при неизменяемом `username`) и
+  отображается в админ-панели отдельно от кастомных групп.
+- [ ] `employee` по умолчанию загружает и смотрит/выгружает только свои документы и отчёты (с понятным статусом
+  ожидания аудитора), без запуска аудита и с ответом `404` при обращении к чужим ID (включая `user_id IS NULL`).
+- [ ] Ключевые события безопасности фиксируются в `auth_audit_log`; в `data/debug.log` не попадают cookie,
+  пароли и (по умолчанию) тексты документов.
 - [ ] Все тесты бэкенда и фронтенда, а также сборка фронтенда проходят без ошибок.
