@@ -5,17 +5,20 @@ from datetime import UTC, datetime
 from sqlalchemy import (
     CheckConstraint,
     Column,
+    DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Table,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from .enums import DocumentStatus, UserRole
+from .enums import DocumentStatus, GroupKind
 
 
 def utc_now() -> datetime:
@@ -118,20 +121,168 @@ class DocumentTypeSuggestion(Base):
     )
 
 
+user_groups = Table(
+    "user_groups",
+    Base.metadata,
+    Column(
+        "user_id",
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "group_id",
+        ForeignKey("groups.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "assigned_at",
+        DateTime,
+        default=utc_now,
+        nullable=False,
+    ),
+)
+
+
 class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str] = mapped_column(String(100), unique=True)
     email: Mapped[str] = mapped_column(String(255), unique=True)
+    full_name: Mapped[str] = mapped_column(String(255), default="")
     hashed_password: Mapped[str] = mapped_column(String(255))
-    role: Mapped[str] = mapped_column(String(20), default=UserRole.HR.value)
+    is_active: Mapped[bool] = mapped_column(default=True)
+    is_super_admin: Mapped[bool] = mapped_column(default=False)
+    must_change_password: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(default=utc_now, onupdate=utc_now)
+    last_login_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
     documents: Mapped[list["Document"]] = relationship(back_populates="owner")
+    groups: Mapped[list["Group"]] = relationship(
+        secondary=user_groups,
+        back_populates="members",
+        order_by="Group.kind, Group.name",
+    )
+    personal_group: Mapped["Group | None"] = relationship(
+        back_populates="owner",
+        foreign_keys="Group.owner_user_id",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    sessions: Mapped[list["UserSession"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    resolutions: Mapped[list["AuditResolution"]] = relationship(
+        back_populates="author",
+        passive_deletes=True,
+    )
 
     __table_args__ = (
-        CheckConstraint("role IN ('admin', 'auditor', 'hr')", name="ck_users_role"),
+        Index(
+            "uq_users_single_super_admin",
+            "is_super_admin",
+            unique=True,
+            sqlite_where=text("is_super_admin = 1"),
+            postgresql_where=text("is_super_admin = true"),
+        ),
+    )
+
+
+class Group(Base):
+    __tablename__ = "groups"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100))
+    kind: Mapped[str] = mapped_column(String(20), default=GroupKind.CUSTOM.value)
+    description: Mapped[str] = mapped_column(Text, default="")
+    owner_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=True, unique=True
+    )
+    created_at: Mapped[datetime] = mapped_column(default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(default=utc_now, onupdate=utc_now)
+
+    owner: Mapped[User | None] = relationship(
+        back_populates="personal_group",
+        foreign_keys=[owner_user_id],
+    )
+    members: Mapped[list[User]] = relationship(
+        secondary=user_groups,
+        back_populates="groups",
+        order_by="User.username",
+    )
+    permissions: Mapped[list["GroupPermission"]] = relationship(
+        back_populates="group",
+        cascade="all, delete-orphan",
+        order_by="GroupPermission.permission",
+        passive_deletes=True,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("kind", "name", name="uq_groups_kind_name"),
+        CheckConstraint(
+            "kind IN ('system', 'custom', 'personal')",
+            name="ck_groups_kind",
+        ),
+        CheckConstraint(
+            "(kind = 'personal' AND owner_user_id IS NOT NULL) "
+            "OR (kind <> 'personal' AND owner_user_id IS NULL)",
+            name="ck_groups_personal_owner",
+        ),
+    )
+
+
+class GroupPermission(Base):
+    __tablename__ = "group_permissions"
+
+    group_id: Mapped[int] = mapped_column(
+        ForeignKey("groups.id", ondelete="CASCADE"), primary_key=True
+    )
+    permission: Mapped[str] = mapped_column(String(64), primary_key=True)
+
+    group: Mapped[Group] = relationship(back_populates="permissions")
+
+
+class UserSession(Base):
+    __tablename__ = "user_sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(default=utc_now)
+    expires_at: Mapped[datetime] = mapped_column(index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    user: Mapped[User] = relationship(back_populates="sessions")
+
+
+class AuthAuditLog(Base):
+    __tablename__ = "auth_audit_log"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    actor_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    actor_username: Mapped[str] = mapped_column(String(100), default="")
+    action: Mapped[str] = mapped_column(String(50), index=True)
+    target_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    target_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    details_json: Mapped[str] = mapped_column(Text, default="{}")
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(default=utc_now, index=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "json_valid(details_json)",
+            name="ck_auth_audit_log_details_json",
+        ),
     )
 
 
@@ -372,6 +523,38 @@ class AuditReport(Base):
     document: Mapped[Document] = relationship(back_populates="reports")
     findings: Mapped[list["AuditFinding"]] = relationship(
         back_populates="report", cascade="all, delete-orphan", passive_deletes=True
+    )
+    resolutions: Mapped[list["AuditResolution"]] = relationship(
+        back_populates="report",
+        cascade="all, delete-orphan",
+        order_by="AuditResolution.created_at.desc(), AuditResolution.id.desc()",
+        passive_deletes=True,
+    )
+
+
+class AuditResolution(Base):
+    __tablename__ = "audit_resolutions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    report_id: Mapped[int] = mapped_column(
+        ForeignKey("audit_reports.id", ondelete="CASCADE"), index=True
+    )
+    author_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    author_name: Mapped[str] = mapped_column(String(255))
+    decision: Mapped[str] = mapped_column(String(20))
+    comment: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(default=utc_now)
+
+    report: Mapped[AuditReport] = relationship(back_populates="resolutions")
+    author: Mapped[User | None] = relationship(back_populates="resolutions")
+
+    __table_args__ = (
+        CheckConstraint(
+            "decision IN ('approved', 'needs_revision', 'rejected')",
+            name="ck_audit_resolutions_decision",
+        ),
     )
 
 

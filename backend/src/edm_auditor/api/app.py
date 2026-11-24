@@ -1972,13 +1972,22 @@ def _require_current_schema(engine) -> None:
     document_columns = {
         item["name"] for item in inspector.get_columns("documents")
     }
+    user_columns = {
+        item["name"] for item in inspector.get_columns("users")
+    }
     if (
         "subject" not in columns
         or "applicability_auto" not in columns
         or "finding_key" not in finding_columns
         or "evaluation_mode" not in finding_columns
         or "statements_version" not in document_columns
+        or "is_super_admin" not in user_columns
+        or "must_change_password" not in user_columns
         or not inspector.has_table("document_statements")
+        or not inspector.has_table("groups")
+        or not inspector.has_table("user_sessions")
+        or not inspector.has_table("audit_resolutions")
+        or not inspector.has_table("auth_audit_log")
     ):
         raise RuntimeError(
             "The database schema is outdated. Back it up and run "

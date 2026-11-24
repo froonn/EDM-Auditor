@@ -6,12 +6,17 @@ from edm_auditor.database.connection import create_engine_for, create_session_fa
 from edm_auditor.database.models import (
     AuditFinding,
     AuditReport,
+    AuditResolution,
     AuditRule,
+    AuthAuditLog,
     Base,
     Document,
     DocumentParagraph,
+    Group,
+    GroupPermission,
     LegalAct,
     User,
+    UserSession,
 )
 
 
@@ -30,6 +35,11 @@ def test_schema_contains_all_tables(session_factory) -> None:
     engine = session_factory.kw["bind"]
     assert set(inspect(engine).get_table_names()) == {
         "users",
+        "groups",
+        "group_permissions",
+        "user_groups",
+        "user_sessions",
+        "auth_audit_log",
         "document_types",
         "document_type_suggestions",
         "document_confirmed_types",
@@ -42,6 +52,7 @@ def test_schema_contains_all_tables(session_factory) -> None:
         "audit_rules",
         "audit_reports",
         "audit_findings",
+        "audit_resolutions",
         "rule_extraction_results",
     }
 
@@ -202,3 +213,100 @@ def test_rule_code_and_json_constraints_are_enforced(session_factory) -> None:
                     constraint_json="{invalid",
                 )
             )
+
+
+def test_single_super_admin_and_group_constraints_are_enforced(session_factory) -> None:
+    with session_factory.begin() as session:
+        u1 = User(
+            username="admin",
+            email="admin@example.com",
+            hashed_password="hash",
+            is_super_admin=True,
+        )
+        u2 = User(
+            username="user2",
+            email="user2@example.com",
+            hashed_password="hash",
+            is_super_admin=False,
+        )
+        u3 = User(
+            username="user3",
+            email="user3@example.com",
+            hashed_password="hash",
+            is_super_admin=False,
+        )
+        session.add_all([u1, u2, u3])
+        session.flush()
+        # Same name 'admin' is allowed across distinct kinds (custom vs personal).
+        session.add_all(
+            [
+                Group(name="admin", kind="custom"),
+                Group(name="admin", kind="personal", owner_user_id=u1.id),
+            ]
+        )
+
+    # Second super-admin violates the partial unique index.
+    with pytest.raises(IntegrityError):
+        with session_factory.begin() as session:
+            session.add(
+                User(
+                    username="second-super",
+                    email="second@example.com",
+                    hashed_password="hash",
+                    is_super_admin=True,
+                )
+            )
+
+    # Personal group without owner_user_id violates check constraint.
+    with pytest.raises(IntegrityError):
+        with session_factory.begin() as session:
+            session.add(Group(name="orphan", kind="personal", owner_user_id=None))
+
+    # Duplicate (kind, name) violates unique constraint.
+    with pytest.raises(IntegrityError):
+        with session_factory.begin() as session:
+            session.add(Group(name="admin", kind="custom"))
+
+
+def test_audit_resolution_check_and_cascade(session_factory) -> None:
+    with session_factory.begin() as session:
+        report = AuditReport(
+            document=Document(
+                title="Contract",
+                file_type="txt",
+                file_path="contract.txt",
+                raw_text="Body",
+                status="audited",
+            ),
+            summary="{}",
+        )
+        session.add(report)
+        session.flush()
+        report_id = report.id
+        session.add(
+            AuditResolution(
+                report_id=report_id,
+                author_name="auditor",
+                decision="approved",
+                comment="Looks good",
+            )
+        )
+
+    with pytest.raises(IntegrityError):
+        with session_factory.begin() as session:
+            session.add(
+                AuditResolution(
+                    report_id=report_id,
+                    author_name="auditor",
+                    decision="invalid_decision",
+                )
+            )
+
+    with session_factory.begin() as session:
+        session.delete(session.get(AuditReport, report_id))
+
+    with session_factory() as session:
+        assert session.query(AuditResolution).count() == 0
+        assert session.query(AuthAuditLog).count() == 0
+        assert session.query(GroupPermission).count() == 0
+        assert session.query(UserSession).count() == 0

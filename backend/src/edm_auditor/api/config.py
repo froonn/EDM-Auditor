@@ -13,6 +13,20 @@ DEFAULT_SOURCE_LANGUAGE = "auto"
 DEFAULT_MODEL_CONFIG = Path("config/models.toml")
 DEFAULT_RAG_INDEX_PATH = Path("data/rag-index.sqlite3")
 DEFAULT_LOG_FILE = Path("data/debug.log")
+DEFAULT_AUTH_COOKIE_NAME = "edm_session"
+DEFAULT_AUTH_SESSION_TTL_HOURS = 24
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_csv(name: str) -> tuple[str, ...]:
+    raw = environ.get(name, "")
+    return tuple(item.strip() for item in raw.split(",") if item.strip())
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +38,15 @@ class ApiSettings:
     model_config: Path = DEFAULT_MODEL_CONFIG
     rag_index_path: Path = DEFAULT_RAG_INDEX_PATH
     log_file: Path = DEFAULT_LOG_FILE
+    auth_cookie_name: str = DEFAULT_AUTH_COOKIE_NAME
+    auth_cookie_secure: bool = False
+    auth_session_ttl_hours: int = DEFAULT_AUTH_SESSION_TTL_HOURS
+    trusted_origins: tuple[str, ...] = ()
+    trace_log_bodies: bool = False
+    expose_docs: bool = True
+    initial_admin_username: str | None = None
+    initial_admin_email: str | None = None
+    initial_admin_password: str | None = None
 
     @classmethod
     def from_env(cls) -> "ApiSettings":
@@ -70,4 +93,17 @@ class ApiSettings:
                 environ.get("RAG_INDEX_PATH", str(DEFAULT_RAG_INDEX_PATH))
             ),
             log_file=log_file_path,
+            auth_cookie_name=environ.get("EDM_AUTH_COOKIE_NAME", DEFAULT_AUTH_COOKIE_NAME),
+            auth_cookie_secure=_env_bool("EDM_AUTH_COOKIE_SECURE", False),
+            auth_session_ttl_hours=int(
+                environ.get(
+                    "EDM_AUTH_SESSION_TTL_HOURS", str(DEFAULT_AUTH_SESSION_TTL_HOURS)
+                )
+            ),
+            trusted_origins=_env_csv("EDM_TRUSTED_ORIGINS"),
+            trace_log_bodies=_env_bool("EDM_TRACE_LOG_BODIES", False),
+            expose_docs=_env_bool("EDM_EXPOSE_DOCS", True),
+            initial_admin_username=environ.get("EDM_INITIAL_ADMIN_USERNAME") or None,
+            initial_admin_email=environ.get("EDM_INITIAL_ADMIN_EMAIL") or None,
+            initial_admin_password=environ.get("EDM_INITIAL_ADMIN_PASSWORD") or None,
         )

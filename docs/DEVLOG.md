@@ -70,6 +70,18 @@
 
 ## Журнал
 
+### 2026-11-24: этап 1 авторизации — схема БД, групповая модель прав, сессии и CLI (`feature/auth-rbac`)
+
+- Добавлена зависимость `argon2-cffi` (Argon2id) и реализована схема групповой авторизации в
+  `backend/src/edm_auditor/database/models.py` и миграции `0013_auth_groups_rbac.py`: таблицы `groups`,
+  `group_permissions`, `user_groups`, `user_sessions`, `audit_resolutions`, `auth_audit_log`, обновлённая
+  таблица `users` с частичным уникальным индексом `uq_users_single_super_admin` и `must_change_password`.
+- Создан пакет `backend/src/edm_auditor/auth/` (пароли, каталог 16 прав и 4 стартовые кастомные группы
+  `employee`/`auditor`/`lawyer`/`admin` + системная `super-admin`, сервисы пользователей/групп с потолком
+  прав и атомарной передачей `super-admin`, сессии с SHA-256 хэшированием, rate limiter входа, журнал
+  `auth_audit_log`, CLI `python -m edm_auditor.auth.cli`), расширены `ApiSettings` и `backend/.env.example`.
+- Добавлены юнит- и миграционные тесты в `backend/tests/auth/` и `backend/tests/database/`.
+
 ### 2026-11-24: план разработки авторизации и групповой модели доступа (`feature/auth-rbac`)
 
 - Создана ветка `feature/auth-rbac` и подготовлен поэтапный план реализации FR-6.3 в

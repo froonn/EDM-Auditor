@@ -106,3 +106,94 @@ def test_upgrade_preserves_legacy_rule_scope_and_finding_links(tmp_path: Path) -
         assert connection.execute("SELECT COUNT(*) FROM legal_acts").fetchone()[0] == 1
         head_columns = {row[1] for row in connection.execute("PRAGMA table_info(audit_rules)")}
         assert {"subject", "constraint_text", "constraint_json", "condition"} <= head_columns
+
+
+def test_migration_0013_migrates_legacy_users_and_supports_downgrade(tmp_path: Path) -> None:
+    path = tmp_path / "legacy_users.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE users (
+                id INTEGER PRIMARY KEY,
+                username VARCHAR(100) NOT NULL UNIQUE,
+                email VARCHAR(255) NOT NULL UNIQUE,
+                hashed_password VARCHAR(255) NOT NULL,
+                role VARCHAR(20) NOT NULL,
+                created_at DATETIME NOT NULL
+            );
+            CREATE TABLE documents (
+                id INTEGER PRIMARY KEY, user_id INTEGER, title VARCHAR(255) NOT NULL,
+                file_type VARCHAR(20) NOT NULL, file_path VARCHAR(1000) NOT NULL,
+                raw_text TEXT NOT NULL, status VARCHAR(20) NOT NULL,
+                created_at DATETIME NOT NULL
+            );
+            CREATE TABLE audit_reports (
+                id INTEGER PRIMARY KEY,
+                document_id INTEGER NOT NULL REFERENCES documents (id) ON DELETE CASCADE,
+                total_findings INTEGER NOT NULL DEFAULT 0,
+                critical_count INTEGER NOT NULL DEFAULT 0,
+                high_count INTEGER NOT NULL DEFAULT 0,
+                medium_count INTEGER NOT NULL DEFAULT 0,
+                low_count INTEGER NOT NULL DEFAULT 0,
+                summary TEXT NOT NULL DEFAULT '',
+                created_at DATETIME NOT NULL
+            );
+            INSERT INTO users VALUES
+                (1, 'alice', 'alice@example.com', 'hash1', 'hr', '2026-01-01'),
+                (2, 'bob', 'bob@example.com', 'hash2', 'auditor', '2026-01-01'),
+                (3, 'carol', 'carol@example.com', 'hash3', 'admin', '2026-01-01');
+            """
+        )
+
+    cfg = _config(path)
+    command.stamp(cfg, "0012_stage4_finding_statement")
+    command.upgrade(cfg, "head")
+
+    with sqlite3.connect(path) as connection:
+        user_cols = {row[1] for row in connection.execute("PRAGMA table_info(users)")}
+        assert "role" not in user_cols
+        assert {"full_name", "is_active", "is_super_admin", "must_change_password"} <= user_cols
+
+        custom_groups = {
+            row[0]
+            for row in connection.execute("SELECT name FROM groups WHERE kind = 'custom'")
+        }
+        assert custom_groups == {"employee", "auditor", "lawyer", "admin"}
+
+        memberships = connection.execute(
+            """
+            SELECT u.username, g.kind, g.name
+            FROM user_groups ug
+            JOIN users u ON u.id = ug.user_id
+            JOIN groups g ON g.id = ug.group_id
+            ORDER BY u.username, g.kind, g.name
+            """
+        ).fetchall()
+        assert memberships == [
+            ("alice", "custom", "employee"),
+            ("alice", "personal", "alice"),
+            ("bob", "custom", "auditor"),
+            ("bob", "personal", "bob"),
+            ("carol", "custom", "admin"),
+            ("carol", "personal", "carol"),
+        ]
+
+    # Verify clean downgrade to 0012 and re-upgrade to head.
+    command.downgrade(cfg, "0012_stage4_finding_statement")
+    with sqlite3.connect(path) as connection:
+        tables = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        assert "groups" not in tables
+        assert "auth_audit_log" not in tables
+        user_cols = {row[1] for row in connection.execute("PRAGMA table_info(users)")}
+        assert "role" in user_cols
+
+    command.upgrade(cfg, "head")
+    with sqlite3.connect(path) as connection:
+        tables = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        assert {"groups", "group_permissions", "user_groups", "user_sessions", "audit_resolutions", "auth_audit_log"} <= tables
