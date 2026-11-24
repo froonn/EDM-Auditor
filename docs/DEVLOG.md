@@ -78,6 +78,13 @@
 
 ## Журнал
 
+### 2026-11-24: исправление миграции `0013_auth_groups_rbac` для старых БД с `ck_users_role`
+
+- В `backend/migrations/versions/0013_auth_groups_rbac.py` добавлено снятие `CHECK`-ограничения
+  `ck_users_role` перед удалением колонки `users.role` в `batch_alter_table("users")`, что устраняет
+  `sqlite3.OperationalError: no such column: role` при обновлении существующей БД; регрессионный тест
+  в `backend/tests/database/test_migrations.py` дополнен ограничением `ck_users_role`.
+
 ### 2026-11-24: этап 6 авторизации — Nginx, документация и завершение ветки `feature/auth-rbac`
 
 - Обновлён `frontend/docker/nginx.conf`: добавлены заголовки безопасности (`X-Content-Type-Options`,

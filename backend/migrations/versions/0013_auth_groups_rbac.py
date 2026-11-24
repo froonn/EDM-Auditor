@@ -69,8 +69,19 @@ def _create_users_table_if_missing(inspector: sa.Inspector) -> list[tuple[int, s
         or "last_login_at" not in columns
     )
     if needs_alter:
-        now_iso = _utc_now().isoformat()
+        now_iso = _utc_now().replace(tzinfo=None).isoformat(sep=" ")
+        role_check_names = [
+            cc["name"]
+            for cc in inspector.get_check_constraints("users")
+            if cc.get("name")
+            and (
+                cc["name"] == "ck_users_role"
+                or "role" in str(cc.get("sqltext") or "").lower()
+            )
+        ]
         with op.batch_alter_table("users") as batch_op:
+            for constraint_name in role_check_names:
+                batch_op.drop_constraint(constraint_name, type_="check")
             if "full_name" not in columns:
                 batch_op.add_column(
                     sa.Column("full_name", sa.String(255), nullable=False, server_default="")

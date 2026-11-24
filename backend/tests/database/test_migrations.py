@@ -119,7 +119,8 @@ def test_migration_0013_migrates_legacy_users_and_supports_downgrade(tmp_path: P
                 email VARCHAR(255) NOT NULL UNIQUE,
                 hashed_password VARCHAR(255) NOT NULL,
                 role VARCHAR(20) NOT NULL,
-                created_at DATETIME NOT NULL
+                created_at DATETIME NOT NULL,
+                CONSTRAINT ck_users_role CHECK (role IN ('admin', 'auditor', 'hr'))
             );
             CREATE TABLE documents (
                 id INTEGER PRIMARY KEY, user_id INTEGER, title VARCHAR(255) NOT NULL,
