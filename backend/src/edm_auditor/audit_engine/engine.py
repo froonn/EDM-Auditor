@@ -85,21 +85,3 @@ class AuditEngine:
             )
         )
         return AuditResult(ordered, tuple(sorted(diagnostics, key=lambda item: item.rule_code)))
-
-
-def _merge_entities(
-    deterministic: tuple[ExtractedEntity, ...],
-    provider: tuple[Any, ...],
-) -> tuple:
-    """Keep deterministic entities and add non-duplicate provider entities."""
-    merged = {
-        (entity.kind, entity.start_char, entity.end_char): entity
-        for entity in deterministic
-    }
-    merged.update({
-        (entity.kind, entity.start_char, entity.end_char): entity
-        for entity in provider
-    })
-    return tuple(
-        sorted(merged.values(), key=lambda entity: (entity.start_char, entity.kind))
-    )

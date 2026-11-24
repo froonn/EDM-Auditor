@@ -78,6 +78,12 @@
 
 ## Журнал
 
+### 2026-11-24: удаление неиспользуемого `_merge_entities` в `audit_engine/engine.py` (Python 3.13)
+
+- Удалена неиспользуемая функция `_merge_entities` в `backend/src/edm_auditor/audit_engine/engine.py`,
+  аннотации которой ссылались на неимпортированные `ExtractedEntity` и `Any` (скрывалось PEP 649 в
+  Python 3.14, но вызывало `NameError` при запуске в Docker-контейнере с Python 3.13).
+
 ### 2026-11-24: исправление миграции `0013_auth_groups_rbac` для старых БД с `ck_users_role`
 
 - В `backend/migrations/versions/0013_auth_groups_rbac.py` добавлено снятие `CHECK`-ограничения
