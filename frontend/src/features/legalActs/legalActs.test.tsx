@@ -162,7 +162,7 @@ describe("legal act page", () => {
     const api = routes({
       "GET /api/rules": () =>
         page([
-          { id: 5, rule_code: "ACT-5", name: "Срок уведомления", severity: "high", check_type: "duration", parameters: {}, is_active: true, legal_act_id: 1, is_generated: true },
+          { id: 5, rule_code: "ACT-5", subject: "Срок уведомления", constraint_text: "Не менее 10 дней", condition: "", severity: "high", is_active: true, legal_act_id: 1, is_generated: true },
         ]),
     });
     renderApp("/legal-acts/1");

@@ -4,6 +4,264 @@
  */
 
 export interface paths {
+    "/api/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Login */
+        post: operations["login_api_auth_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Logout */
+        post: operations["logout_api_auth_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/logout-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Logout All */
+        post: operations["logout_all_api_auth_logout_all_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Me */
+        get: operations["get_me_api_auth_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/change-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Change Password */
+        post: operations["change_password_api_auth_change_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/transfer-super-admin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Transfer Super Admin Endpoint */
+        post: operations["transfer_super_admin_endpoint_api_auth_transfer_super_admin_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/audit-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Auth Audit Log */
+        get: operations["list_auth_audit_log_api_auth_audit_log_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Users */
+        get: operations["list_users_api_users_get"];
+        put?: never;
+        /** Create User Endpoint */
+        post: operations["create_user_endpoint_api_users_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update User Endpoint */
+        patch: operations["update_user_endpoint_api_users__user_id__patch"];
+        trace?: never;
+    };
+    "/api/users/{user_id}/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set User Groups Endpoint */
+        put: operations["set_user_groups_endpoint_api_users__user_id__groups_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users/{user_id}/revoke-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revoke User Sessions Endpoint */
+        post: operations["revoke_user_sessions_endpoint_api_users__user_id__revoke_sessions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/permissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Permissions */
+        get: operations["list_permissions_api_permissions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Groups */
+        get: operations["list_groups_api_groups_get"];
+        put?: never;
+        /** Create Group Endpoint */
+        post: operations["create_group_endpoint_api_groups_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/groups/{group_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Group Endpoint */
+        delete: operations["delete_group_endpoint_api_groups__group_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Group Endpoint */
+        patch: operations["update_group_endpoint_api_groups__group_id__patch"];
+        trace?: never;
+    };
+    "/api/groups/{group_id}/permissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set Group Permissions Endpoint */
+        put: operations["set_group_permissions_endpoint_api_groups__group_id__permissions_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -172,6 +430,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents/{document_id}/statements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Document Statements */
+        get: operations["list_document_statements_api_documents__document_id__statements_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/{document_id}/statements/extract": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Extract Document Statements */
+        post: operations["extract_document_statements_api_documents__document_id__statements_extract_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/{document_id}/statements/{statement_id}/link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Link Document Statement
+         * @description Manually bind or unbind a document statement to an audit rule in the target report.
+         */
+        patch: operations["link_document_statement_api_documents__document_id__statements__statement_id__link_patch"];
+        trace?: never;
+    };
     "/api/documents/{document_id}/classify": {
         parameters: {
             query?: never;
@@ -268,6 +580,24 @@ export interface paths {
         get: operations["get_report_by_id_api_reports__report_id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reports/{report_id}/resolutions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Report Resolutions */
+        get: operations["list_report_resolutions_api_reports__report_id__resolutions_get"];
+        put?: never;
+        /** Create Report Resolution */
+        post: operations["create_report_resolution_api_reports__report_id__resolutions_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -518,6 +848,60 @@ export interface components {
              */
             confirm_all: boolean;
         };
+        /** AuthAuditLogResponse */
+        AuthAuditLogResponse: {
+            /** Id */
+            id: number;
+            /** Actor User Id */
+            actor_user_id?: number | null;
+            /** Actor Username */
+            actor_username: string;
+            /** Action */
+            action: string;
+            /** Target Type */
+            target_type?: string | null;
+            /** Target Id */
+            target_id?: string | null;
+            /** Details */
+            details?: {
+                [key: string]: unknown;
+            };
+            /** Ip Address */
+            ip_address?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** AuthUserResponse */
+        AuthUserResponse: {
+            /** Id */
+            id: number;
+            /** Username */
+            username: string;
+            /** Email */
+            email: string;
+            /** Full Name */
+            full_name: string;
+            /** Is Active */
+            is_active: boolean;
+            /** Is Super Admin */
+            is_super_admin: boolean;
+            /** Must Change Password */
+            must_change_password: boolean;
+            /** Groups */
+            groups?: components["schemas"]["GroupSummaryResponse"][];
+            /** Permissions */
+            permissions?: string[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Last Login At */
+            last_login_at?: string | null;
+        };
         /** Body_upload_document_api_documents_upload_post */
         Body_upload_document_api_documents_upload_post: {
             /** File */
@@ -540,6 +924,13 @@ export interface components {
             /** Document Types */
             document_types?: string | null;
         };
+        /** ChangePasswordRequest */
+        ChangePasswordRequest: {
+            /** Current Password */
+            current_password: string;
+            /** New Password */
+            new_password: string;
+        };
         /** ClassificationUpdate */
         ClassificationUpdate: {
             /** Confirmed Document Types */
@@ -558,6 +949,10 @@ export interface components {
             file_type: string;
             /** Status */
             status: string;
+            /** Owner Id */
+            owner_id?: number | null;
+            /** Owner Name */
+            owner_name?: string | null;
             /** Classified Type */
             classified_type: string | null;
             /**
@@ -595,27 +990,6 @@ export interface components {
             /** Statements */
             statements?: components["schemas"]["DocumentStatementResponse"][];
         };
-        /** DocumentStatementResponse */
-        DocumentStatementResponse: {
-            /** Id */
-            id: number;
-            /** Subject */
-            subject: string;
-            /** Statement Text */
-            statement_text: string;
-            /** Constraint Json */
-            constraint_json?: {
-                [key: string]: unknown;
-            } | null;
-            /** Source Quote */
-            source_quote: string;
-            /** Start Char */
-            start_char: number;
-            /** End Char */
-            end_char: number;
-            /** Prompt Version */
-            prompt_version?: string;
-        };
         /** DocumentResponse */
         DocumentResponse: {
             /** Id */
@@ -626,6 +1000,10 @@ export interface components {
             file_type: string;
             /** Status */
             status: string;
+            /** Owner Id */
+            owner_id?: number | null;
+            /** Owner Name */
+            owner_name?: string | null;
             /** Classified Type */
             classified_type: string | null;
             /**
@@ -656,6 +1034,30 @@ export interface components {
              */
             created_at: string;
             latest_report?: components["schemas"]["LatestReportSummary"] | null;
+        };
+        /** DocumentStatementResponse */
+        DocumentStatementResponse: {
+            /** Id */
+            id: number;
+            /** Subject */
+            subject: string;
+            /** Statement Text */
+            statement_text: string;
+            /** Constraint Json */
+            constraint_json?: {
+                [key: string]: unknown;
+            } | null;
+            /** Source Quote */
+            source_quote: string;
+            /** Start Char */
+            start_char: number;
+            /** End Char */
+            end_char: number;
+            /**
+             * Prompt Version
+             * @default 1
+             */
+            prompt_version: string;
         };
         /** DocumentTypeCandidate */
         DocumentTypeCandidate: {
@@ -760,6 +1162,84 @@ export interface components {
             /** Evaluation Mode */
             evaluation_mode?: string | null;
         };
+        /** GroupCreate */
+        GroupCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Permissions */
+            permissions?: string[];
+        };
+        /** GroupMemberSummary */
+        GroupMemberSummary: {
+            /** Id */
+            id: number;
+            /** Username */
+            username: string;
+            /** Full Name */
+            full_name: string;
+            /** Is Active */
+            is_active: boolean;
+        };
+        /** GroupPermissionsUpdate */
+        GroupPermissionsUpdate: {
+            /** Permissions */
+            permissions?: string[];
+        };
+        /** GroupResponse */
+        GroupResponse: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Kind */
+            kind: string;
+            /** Description */
+            description: string;
+            /** Owner User Id */
+            owner_user_id?: number | null;
+            /** Owner Username */
+            owner_username?: string | null;
+            /**
+             * Member Count
+             * @default 0
+             */
+            member_count: number;
+            /** Members */
+            members?: components["schemas"]["GroupMemberSummary"][];
+            /** Permissions */
+            permissions?: string[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** GroupSummaryResponse */
+        GroupSummaryResponse: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Kind */
+            kind: string;
+        };
+        /** GroupUpdate */
+        GroupUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Description */
+            description?: string | null;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -784,6 +1264,7 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            latest_resolution?: components["schemas"]["ResolutionResponse"] | null;
         };
         /** LegalActCreate */
         LegalActCreate: {
@@ -918,6 +1399,13 @@ export interface components {
             /** Document Types */
             document_types?: string[] | null;
         };
+        /** LoginRequest */
+        LoginRequest: {
+            /** Username */
+            username: string;
+            /** Password */
+            password: string;
+        };
         /** NeuralAnalysisResponse */
         NeuralAnalysisResponse: {
             /** Finding Key */
@@ -932,6 +1420,18 @@ export interface components {
             legal_basis: {
                 [key: string]: unknown;
             }[];
+        };
+        /** PermissionInfoResponse */
+        PermissionInfoResponse: {
+            /** Code */
+            code: string;
+            /** Description */
+            description: string;
+            /**
+             * Super Admin Only
+             * @default false
+             */
+            super_admin_only: boolean;
         };
         /** RagRecommendationResponse */
         RagRecommendationResponse: {
@@ -1015,6 +1515,45 @@ export interface components {
             selection?: {
                 [key: string]: unknown;
             } | null;
+            latest_resolution?: components["schemas"]["ResolutionResponse"] | null;
+        };
+        /** ResolutionCreate */
+        ResolutionCreate: {
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "approved" | "needs_revision" | "rejected";
+            /**
+             * Comment
+             * @default
+             */
+            comment: string;
+        };
+        /** ResolutionResponse */
+        ResolutionResponse: {
+            /** Id */
+            id: number;
+            /** Report Id */
+            report_id: number;
+            /** Author Id */
+            author_id?: number | null;
+            /** Author Name */
+            author_name: string;
+            /** Decision */
+            decision: string;
+            /** Comment */
+            comment: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** RevokeSessionsResponse */
+        RevokeSessionsResponse: {
+            /** Revoked Count */
+            revoked_count: number;
         };
         /** RuleApplicabilityUpdate */
         RuleApplicabilityUpdate: {
@@ -1032,9 +1571,14 @@ export interface components {
             /** Constraint Text */
             constraint_text: string;
             /** Constraint Json */
-            constraint_json?: { [key: string]: unknown } | null;
-            /** Condition */
-            condition?: string;
+            constraint_json?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Condition
+             * @default
+             */
+            condition: string;
             /** Severity */
             severity: string;
             /** Applicability Scope */
@@ -1052,15 +1596,6 @@ export interface components {
             rule_code: string;
             /** Subject */
             subject: string;
-            /** Constraint Text */
-            constraint_text: string;
-            /** Constraint Json */
-            constraint_json?: { [key: string]: unknown } | null;
-            /** Condition */
-            condition?: string;
-            /** Legacy fixture fields; not sent by the stage-2 API. */
-            check_type?: string;
-            parameters?: { [key: string]: unknown };
             /** Legal Act Id */
             legal_act_id: number | null;
             /** Applicability Scope */
@@ -1104,21 +1639,19 @@ export interface components {
             id: number;
             /** Rule Code */
             rule_code: string;
-            /** Legacy fixture name (removed from API contract). */
-            name?: string;
             /** Subject */
-            subject?: string;
-            /** Legacy fixture description (removed from API contract). */
-            description?: string;
+            subject: string;
             /** Constraint Text */
-            constraint_text?: string;
+            constraint_text: string;
             /** Constraint Json */
-            constraint_json?: { [key: string]: unknown } | null;
-            /** Condition */
-            condition?: string;
-            /** Legacy fixture fields; not sent by the stage-2 API. */
-            check_type?: string;
-            parameters?: { [key: string]: unknown };
+            constraint_json?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Condition
+             * @default
+             */
+            condition: string;
             /**
              * Applicability Scope
              * @default unknown
@@ -1161,13 +1694,112 @@ export interface components {
             /** Constraint Text */
             constraint_text?: string | null;
             /** Constraint Json */
-            constraint_json?: { [key: string]: unknown } | null;
+            constraint_json?: {
+                [key: string]: unknown;
+            } | null;
             /** Condition */
             condition?: string | null;
             /** Severity */
             severity?: string | null;
             /** Is Active */
             is_active?: boolean | null;
+        };
+        /** StatementLinkRequest */
+        StatementLinkRequest: {
+            /** Rule Id */
+            rule_id?: number | null;
+            /** Report Id */
+            report_id?: number | null;
+        };
+        /** TransferSuperAdminRequest */
+        TransferSuperAdminRequest: {
+            /** Current Password */
+            current_password: string;
+            /** Target User Id */
+            target_user_id: number;
+        };
+        /** TransferSuperAdminResponse */
+        TransferSuperAdminResponse: {
+            /** Previous Super Admin Id */
+            previous_super_admin_id: number;
+            /** Previous Super Admin Username */
+            previous_super_admin_username: string;
+            /** New Super Admin Id */
+            new_super_admin_id: number;
+            /** New Super Admin Username */
+            new_super_admin_username: string;
+        };
+        /** UserCreate */
+        UserCreate: {
+            /** Username */
+            username: string;
+            /** Email */
+            email: string;
+            /** Password */
+            password: string;
+            /**
+             * Full Name
+             * @default
+             */
+            full_name: string;
+            /** Custom Group Ids */
+            custom_group_ids?: number[];
+            /**
+             * Must Change Password
+             * @default true
+             */
+            must_change_password: boolean;
+        };
+        /** UserGroupsUpdate */
+        UserGroupsUpdate: {
+            /** Custom Group Ids */
+            custom_group_ids?: number[];
+        };
+        /** UserResponse */
+        UserResponse: {
+            /** Id */
+            id: number;
+            /** Username */
+            username: string;
+            /** Email */
+            email: string;
+            /** Full Name */
+            full_name: string;
+            /** Is Active */
+            is_active: boolean;
+            /** Is Super Admin */
+            is_super_admin: boolean;
+            /** Must Change Password */
+            must_change_password: boolean;
+            /** Personal Group Id */
+            personal_group_id?: number | null;
+            /** Custom Groups */
+            custom_groups?: components["schemas"]["GroupSummaryResponse"][];
+            /** Permissions */
+            permissions?: string[];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Last Login At */
+            last_login_at?: string | null;
+        };
+        /** UserUpdate */
+        UserUpdate: {
+            /** Email */
+            email?: string | null;
+            /** Full Name */
+            full_name?: string | null;
+            /** Is Active */
+            is_active?: boolean | null;
+            /** New Password */
+            new_password?: string | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -1191,6 +1823,547 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    login_api_auth_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthUserResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    logout_api_auth_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    logout_all_api_auth_logout_all_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_me_api_auth_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthUserResponse"];
+                };
+            };
+        };
+    };
+    change_password_api_auth_change_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthUserResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    transfer_super_admin_endpoint_api_auth_transfer_super_admin_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransferSuperAdminRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransferSuperAdminResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_auth_audit_log_api_auth_audit_log_get: {
+        parameters: {
+            query?: {
+                action?: string | null;
+                actor_username?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthAuditLogResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_users_api_users_get: {
+        parameters: {
+            query?: {
+                search?: string | null;
+                is_active?: boolean | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_user_endpoint_api_users_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_user_endpoint_api_users__user_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_user_groups_endpoint_api_users__user_id__groups_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserGroupsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_user_sessions_endpoint_api_users__user_id__revoke_sessions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevokeSessionsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_permissions_api_permissions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PermissionInfoResponse"][];
+                };
+            };
+        };
+    };
+    list_groups_api_groups_get: {
+        parameters: {
+            query?: {
+                kind?: ("system" | "custom" | "personal") | null;
+                search?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_group_endpoint_api_groups_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GroupCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_group_endpoint_api_groups__group_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_group_endpoint_api_groups__group_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GroupUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_group_permissions_endpoint_api_groups__group_id__permissions_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GroupPermissionsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     health_health_get: {
         parameters: {
             query?: never;
@@ -1441,6 +2614,7 @@ export interface operations {
             query?: {
                 limit?: number;
                 offset?: number;
+                status?: string | null;
             };
             header?: never;
             path?: never;
@@ -1549,6 +2723,106 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_document_statements_api_documents__document_id__statements_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentStatementResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    extract_document_statements_api_documents__document_id__statements_extract_post: {
+        parameters: {
+            query?: {
+                force?: boolean;
+            };
+            header?: never;
+            path: {
+                document_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentStatementResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    link_document_statement_api_documents__document_id__statements__statement_id__link_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: number;
+                statement_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StatementLinkRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportResponse"];
+                };
             };
             /** @description Validation Error */
             422: {
@@ -1761,6 +3035,72 @@ export interface operations {
             };
         };
     };
+    list_report_resolutions_api_reports__report_id__resolutions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                report_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResolutionResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_report_resolution_api_reports__report_id__resolutions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                report_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolutionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResolutionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     export_report_file_api_reports__report_id__export_get: {
         parameters: {
             query?: {
@@ -1833,7 +3173,6 @@ export interface operations {
             query?: {
                 is_active?: boolean | null;
                 document_type?: string | null;
-                check_type?: string | null;
                 applicability_scope?: components["schemas"]["ApplicabilityScope"] | null;
                 legal_act_id?: number | null;
                 limit?: number;
@@ -2255,7 +3594,10 @@ export interface operations {
     };
     reprocess_legal_act_api_legal_acts__legal_act_id__reprocess_post: {
         parameters: {
-            query?: never;
+            query?: {
+                only_failed?: boolean;
+                chunk_id?: string | null;
+            };
             header?: never;
             path: {
                 legal_act_id: number;

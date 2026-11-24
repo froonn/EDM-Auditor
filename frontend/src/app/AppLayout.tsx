@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from "react-router";
 
 import { useAuth } from "@/auth/AuthProvider";
+import { UserMenu } from "@/features/auth/UserMenu";
 import { useI18n } from "@/i18n";
 import { cn } from "@/lib/utils";
 
@@ -37,8 +38,9 @@ export function AppLayout() {
               </NavLink>
             ))}
           </nav>
-          {/* Reserved for the user menu after sign-in is added. */}
-          <div data-slot="user-menu" />
+          <div data-slot="user-menu">
+            <UserMenu />
+          </div>
         </div>
       </header>
       <main className="flex-1 px-6 py-6">

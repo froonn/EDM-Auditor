@@ -4,20 +4,34 @@ import type {
   AuditPreview,
   AuditResult,
   AuditSelection,
+  AuthAuditLogItem,
+  AuthUser,
   DocumentDetail,
   DocumentItem,
   DocumentStatement,
   DocumentType,
   DocumentTypeSuggestion,
   ExportFormat,
+  GroupCreate,
+  GroupItem,
+  GroupKind,
+  GroupUpdate,
   LegalAct,
   LegalActDetail,
   LegalActDiagnostics,
+  PermissionInfo,
   Report,
   ReportListItem,
+  Resolution,
+  ResolutionCreate,
+  RevokeSessionsResponse,
   Rule,
   RuleCreate,
   RuleUpdate,
+  TransferSuperAdminResponse,
+  UserCreate,
+  UserItem,
+  UserUpdate,
 } from "./types";
 
 /** The API limit of one page. */
@@ -52,9 +66,88 @@ async function fetchAll<T>(path: string, options: RequestOptions = {}): Promise<
 export const api = {
   health: (signal?: AbortSignal) => apiRequest<{ status: string }>("/health", { signal }),
 
+  auth: {
+    me: (signal?: AbortSignal) => apiRequest<AuthUser>("/api/auth/me", { signal }),
+    login: (username: string, password: string) =>
+      apiRequest<AuthUser>("/api/auth/login", { json: { username, password } }),
+    logout: () => apiRequest<void>("/api/auth/logout", { method: "POST" }),
+    logoutAll: () => apiRequest<void>("/api/auth/logout-all", { method: "POST" }),
+    changePassword: (current_password: string, new_password: string) =>
+      apiRequest<AuthUser>("/api/auth/change-password", {
+        json: { current_password, new_password },
+      }),
+    transferSuperAdmin: (current_password: string, target_user_id: number) =>
+      apiRequest<TransferSuperAdminResponse>("/api/auth/transfer-super-admin", {
+        json: { current_password, target_user_id },
+      }),
+    auditLog: (
+      params: PageRequest & { action?: string; actor_username?: string },
+      signal?: AbortSignal,
+    ) =>
+      apiRequestPage<AuthAuditLogItem>("/api/auth/audit-log", {
+        query: {
+          limit: params.limit,
+          offset: params.offset,
+          action: params.action || undefined,
+          actor_username: params.actor_username || undefined,
+        },
+        signal,
+      }),
+  },
+
+  users: {
+    list: (
+      params: PageRequest & { search?: string; is_active?: boolean },
+      signal?: AbortSignal,
+    ) =>
+      apiRequestPage<UserItem>("/api/users", {
+        query: {
+          limit: params.limit,
+          offset: params.offset,
+          search: params.search || undefined,
+          is_active: params.is_active,
+        },
+        signal,
+      }),
+    create: (payload: UserCreate) => apiRequest<UserItem>("/api/users", { json: payload }),
+    update: (id: number, payload: UserUpdate) =>
+      apiRequest<UserItem>(`/api/users/${id}`, { method: "PATCH", json: payload }),
+    setGroups: (id: number, custom_group_ids: number[]) =>
+      apiRequest<UserItem>(`/api/users/${id}/groups`, {
+        method: "PUT",
+        json: { custom_group_ids },
+      }),
+    revokeSessions: (id: number) =>
+      apiRequest<RevokeSessionsResponse>(`/api/users/${id}/revoke-sessions`, { method: "POST" }),
+  },
+
+  groups: {
+    list: (params?: { kind?: GroupKind; search?: string }, signal?: AbortSignal) =>
+      apiRequest<GroupItem[]>("/api/groups", {
+        query: { kind: params?.kind, search: params?.search || undefined },
+        signal,
+      }),
+    create: (payload: GroupCreate) => apiRequest<GroupItem>("/api/groups", { json: payload }),
+    update: (id: number, payload: GroupUpdate) =>
+      apiRequest<GroupItem>(`/api/groups/${id}`, { method: "PATCH", json: payload }),
+    setPermissions: (id: number, permissions: string[]) =>
+      apiRequest<GroupItem>(`/api/groups/${id}/permissions`, {
+        method: "PUT",
+        json: { permissions },
+      }),
+    remove: (id: number) => apiRequest<void>(`/api/groups/${id}`, { method: "DELETE" }),
+  },
+
+  permissions: {
+    list: (signal?: AbortSignal) => apiRequest<PermissionInfo[]>("/api/permissions", { signal }),
+  },
+
   documents: {
-    list: ({ limit, offset }: PageRequest, signal?: AbortSignal) =>
-      apiRequestPage<DocumentItem>("/api/documents", { query: { limit, offset }, signal }),
+    list: ({ limit, offset, status }: PageRequest & { status?: string }, signal?: AbortSignal) =>
+      apiRequestPage<DocumentItem>("/api/documents", {
+        query: { limit, offset, status: status || undefined },
+        signal,
+      }),
     get: (id: number, signal?: AbortSignal) => apiRequest<DocumentDetail>(`/api/documents/${id}`, { signal }),
     statements: (id: number, signal?: AbortSignal) =>
       apiRequest<DocumentStatement[]>(`/api/documents/${id}/statements`, { signal }),
@@ -119,6 +212,10 @@ export const api = {
       apiDownload(`/api/reports/${reportId}/export`, `audit-report-${reportId}.${format}`, {
         query: { format, timezone: timeZone },
       }),
+    resolutions: (reportId: number, signal?: AbortSignal) =>
+      apiRequest<Resolution[]>(`/api/reports/${reportId}/resolutions`, { signal }),
+    createResolution: (reportId: number, payload: ResolutionCreate) =>
+      apiRequest<Resolution>(`/api/reports/${reportId}/resolutions`, { json: payload }),
   },
 
   documentTypes: {

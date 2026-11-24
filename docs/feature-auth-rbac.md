@@ -320,22 +320,22 @@
 
 ### Этап 4. Фронтенд: живая сессия, экран входа, смена временного пароля и меню пользователя
 
-- [ ] Обновить типы API (`frontend/src/api/types.ts`) и клиент (`frontend/src/api/client.ts`): глобальный
+- [x] Обновить типы API (`frontend/src/api/types.ts`) и клиент (`frontend/src/api/client.ts`): глобальный
   обработчик `401` (сброс сессии и кэша TanStack Query, перевод на `/login`).
-- [ ] Расширить `frontend/src/auth/permissions.ts` и `session.ts` под новый список из 16 прав и профиль
+- [x] Расширить `frontend/src/auth/permissions.ts` и `session.ts` под новый список из 16 прав и профиль
   пользователя (`id`, `username`, `fullName`, `email`, `isSuperAdmin`, `mustChangePassword`, `groups`,
   `permissions`).
-- [ ] Переписать `AuthProvider.tsx`: запрос `GET /api/auth/me` через TanStack Query с
+- [x] Переписать `AuthProvider.tsx`: запрос `GET /api/auth/me` через TanStack Query с
   `refetchOnWindowFocus: true` (изменившиеся права группы подтягиваются без ручного F5), состояния `loading` /
   `authenticated` / `unauthenticated`, методы `login`, `logout`, полная очистка `queryClient.clear()` при
   выходе.
-- [ ] Реализовать страницу `/login` (`LoginPage.tsx`) и экран принудительной смены временного пароля
+- [x] Реализовать страницу `/login` (`LoginPage.tsx`) и экран принудительной смены временного пароля
   (`ForceChangePasswordPage` при `mustChangePassword === true`): локализованные ошибки (`invalid_credentials`,
   `account_disabled`, `too_many_requests`, `password_change_required`), возврат на
   исходный путь после входа.
-- [ ] Заполнить слот `data-slot="user-menu"` в `AppLayout.tsx`: имя, бейджи групп (и отметка `super-admin`),
+- [x] Заполнить слот `data-slot="user-menu"` в `AppLayout.tsx`: имя, бейджи групп (и отметка `super-admin`),
   диалог смены пароля, кнопка «Выйти».
-- [ ] Обновить и расширить тесты `frontend/src/auth/auth.test.tsx`, `frontend/src/api/client.test.ts` и
+- [x] Обновить и расширить тесты `frontend/src/auth/auth.test.tsx`, `frontend/src/api/client.test.ts` и
   `frontend/src/app/app.test.tsx`.
 
 ### Этап 5. Фронтенд: админ-панель пользователей и групп, журнал безопасности, ролевые экраны и резолюции

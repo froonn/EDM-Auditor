@@ -20,6 +20,24 @@ export type LegalActDiagnostics = Schemas["LegalActDiagnosticsResponse"];
 export type DocumentTypeSuggestion = Schemas["DocumentTypeSuggestionResponse"];
 export type RuleCreate = Schemas["RuleCreate"];
 export type RuleUpdate = Schemas["RuleUpdate"];
+export type AuthUser = Schemas["AuthUserResponse"];
+export type GroupSummary = Schemas["GroupSummaryResponse"];
+export type UserItem = Schemas["UserResponse"];
+export type UserCreate = Schemas["UserCreate"];
+export type UserUpdate = Schemas["UserUpdate"];
+export type GroupItem = Schemas["GroupResponse"];
+export type GroupMember = Schemas["GroupMemberSummary"];
+export type GroupCreate = Schemas["GroupCreate"];
+export type GroupUpdate = Schemas["GroupUpdate"];
+export type PermissionInfo = Schemas["PermissionInfoResponse"];
+export type AuthAuditLogItem = Schemas["AuthAuditLogResponse"];
+export type Resolution = Schemas["ResolutionResponse"];
+export type ResolutionCreate = Schemas["ResolutionCreate"];
+export type TransferSuperAdminResponse = Schemas["TransferSuperAdminResponse"];
+export type RevokeSessionsResponse = Schemas["RevokeSessionsResponse"];
+
+export type GroupKind = "system" | "custom" | "personal";
+export type ResolutionDecision = "approved" | "needs_revision" | "rejected";
 
 export type ApplicabilityScope = "universal" | "typed" | "manual_only" | "unknown";
 /** Scopes a person may set; `unknown` only describes an uncertain model answer. */

@@ -70,6 +70,16 @@
 
 ## Журнал
 
+### 2026-11-24: этап 4 авторизации — живая сессия на фронтенде, `/login`, смена пароля и меню пользователя (`feature/auth-rbac`)
+
+- Перегенерированы OpenAPI-типы `frontend/src/api/schema.d.ts`, расширены `types.ts`, `endpoints.ts` и
+  клиент `client.ts` (глобальный перехват `401` со сбросом кэша и переводом на `/login`).
+- Расширены `permissions.ts` (16 прав), `session.ts` и переписан `AuthProvider.tsx` на живой `GET /api/auth/me`
+  через TanStack Query (`refetchOnWindowFocus: true`), добавлен `RequireAuth`.
+- Реализованы `LoginPage`, `ForceChangePasswordPage` (при `must_change_password=true`) и `UserMenu` в шапке
+  (имя, бейджи групп и `super-admin`, диалог смены пароля, выход со всех устройств); добавлены тесты
+  `authFlow.test.tsx` (123 теста Vitest и `tsc -b` зелёные).
+
 ### 2026-11-24: этап 3 авторизации — серверный RBAC на всех эндпоинтах, изоляция документов и резолюции (`feature/auth-rbac`)
 
 - Все бизнес-эндпоинты в `backend/src/edm_auditor/api/app.py` закрыты проверками прав

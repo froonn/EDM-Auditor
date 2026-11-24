@@ -1,6 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, apiDownload, apiRequest, apiRequestPage, asApiError, buildUrl, fileNameFromDisposition } from "./client";
+import {
+  ApiError,
+  apiDownload,
+  apiRequest,
+  apiRequestPage,
+  asApiError,
+  buildUrl,
+  fileNameFromDisposition,
+  setUnauthorizedHandler,
+} from "./client";
 
 function mockFetch(response: Response | Error | DOMException) {
   const fetchMock = vi.fn(async () => {
@@ -86,6 +95,28 @@ describe("apiRequest", () => {
     await expect(apiRequest("/api/rules")).rejects.toMatchObject({ code: "unauthorized" });
     mockFetch(new Response("", { status: 403 }));
     await expect(apiRequest("/api/rules")).rejects.toMatchObject({ code: "forbidden" });
+  });
+
+  it("invokes the unauthorized handler on 401 for non-auth paths only", async () => {
+    const handler = vi.fn();
+    setUnauthorizedHandler(handler);
+    try {
+      mockFetch(new Response("", { status: 401 }));
+      await expect(apiRequest("/api/auth/me")).rejects.toMatchObject({ status: 401 });
+      expect(handler).not.toHaveBeenCalled();
+
+      mockFetch(new Response("", { status: 401 }));
+      await expect(apiRequest("/api/auth/login", { json: { username: "a", password: "b" } })).rejects.toMatchObject({
+        status: 401,
+      });
+      expect(handler).not.toHaveBeenCalled();
+
+      mockFetch(new Response("", { status: 401 }));
+      await expect(apiRequest("/api/documents")).rejects.toMatchObject({ status: 401 });
+      expect(handler).toHaveBeenCalledTimes(1);
+    } finally {
+      setUnauthorizedHandler(null);
+    }
   });
 
   it("rejects a successful response that is not JSON", async () => {

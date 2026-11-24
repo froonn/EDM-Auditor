@@ -60,7 +60,7 @@ export function RulesPage() {
       next.delete(rule.id);
       return next;
     });
-    toggle.mutate({ id: rule.id, subject: rule.subject ?? rule.name ?? "", isActive: !rule.is_active });
+    toggle.mutate({ id: rule.id, subject: rule.subject, isActive: !rule.is_active });
   };
 
   const filter = (changes: RuleFilters) => {
@@ -76,7 +76,7 @@ export function RulesPage() {
       cell: (rule) => (
         <div>
           <Link to={`/rules/${rule.id}`} className="font-medium text-primary hover:underline">
-            {rule.subject ?? rule.name ?? ""}
+            {rule.subject}
           </Link>
           <p className="font-mono text-xs text-muted-foreground">{rule.rule_code}</p>
         </div>
@@ -106,7 +106,7 @@ export function RulesPage() {
       cell: (rule) => (
         <input
           type="checkbox"
-          aria-label={t("rules.toggle", { name: rule.subject ?? rule.name ?? "" })}
+          aria-label={t("rules.toggle", { name: rule.subject })}
           // A pending switch shows the requested state and waits: the server rebuilds the search index
           // before it answers, and the list is read again after that.
           checked={pending.get(rule.id) ?? rule.is_active}

@@ -1,5 +1,8 @@
+import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+
+import { createQueryClient } from "@/app/queryClient";
 
 import { AuthProvider, useAuth } from "./AuthProvider";
 import { Can } from "./Can";
@@ -18,15 +21,17 @@ describe("authorization", () => {
 
   it("shows actions only with the permission", () => {
     render(
-      <AuthProvider session={sessionWith(["audit.run"], { id: 7, name: "auditor" })}>
-        <Can permission="audit.run">
-          <span>run</span>
-        </Can>
-        <Can permission="rules.edit" fallback={<span>read only</span>}>
-          <span>edit</span>
-        </Can>
-        <UserName />
-      </AuthProvider>,
+      <QueryClientProvider client={createQueryClient()}>
+        <AuthProvider session={sessionWith(["audit.run"], { id: 7, name: "auditor" })}>
+          <Can permission="audit.run">
+            <span>run</span>
+          </Can>
+          <Can permission="rules.edit" fallback={<span>read only</span>}>
+            <span>edit</span>
+          </Can>
+          <UserName />
+        </AuthProvider>
+      </QueryClientProvider>,
     );
     expect(screen.getByText("run")).toBeInTheDocument();
     expect(screen.queryByText("edit")).not.toBeInTheDocument();

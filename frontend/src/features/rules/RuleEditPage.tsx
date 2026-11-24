@@ -57,7 +57,7 @@ function RuleScreen({ rule }: { rule: Rule | null }) {
         {t("rules.back")}
       </Link>
       <div className="flex items-start gap-4">
-        <h1 className="flex-1 text-2xl font-semibold">{rule ? (rule.subject ?? rule.name ?? "") : t("rules.createTitle")}</h1>
+        <h1 className="flex-1 text-2xl font-semibold">{rule ? rule.subject : t("rules.createTitle")}</h1>
         {rule && (
           <Button variant="destructive" onClick={() => setConfirmDelete(true)} disabled={remove.isPending}>
             {t("action.delete")}
@@ -85,7 +85,7 @@ function RuleScreen({ rule }: { rule: Rule | null }) {
         <ConfirmDialog
           open={confirmDelete}
           onOpenChange={setConfirmDelete}
-          title={t("rules.deleteTitle", { name: rule.subject ?? rule.name ?? "" })}
+          title={t("rules.deleteTitle", { name: rule.subject })}
           description={t("rules.deleteDescription")}
           confirmLabel={t("action.delete")}
           destructive
@@ -158,8 +158,8 @@ function RuleForm({ rule }: { rule: Rule | null }) {
   const [init] = useState(() => initialConstraint(rule?.constraint_json));
 
   const [code, setCode] = useState("");
-  const [subject, setSubject] = useState(rule?.subject ?? rule?.name ?? "");
-  const [constraintText, setConstraintText] = useState(rule?.constraint_text ?? rule?.description ?? "");
+  const [subject, setSubject] = useState(rule?.subject ?? "");
+  const [constraintText, setConstraintText] = useState(rule?.constraint_text ?? "");
   const [condition, setCondition] = useState(rule?.condition ?? "");
   const [constraintKind, setConstraintKind] = useState<ConstraintKind>(init.kind);
   const [operator, setOperator] = useState<ConstraintOperator>(init.operator);

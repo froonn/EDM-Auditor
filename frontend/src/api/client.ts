@@ -61,6 +61,15 @@ export function buildUrl(path: string, query?: RequestOptions["query"]): string 
   return search ? `${path}?${search}` : path;
 }
 
+let unauthorizedHandler: (() => void) | null = null;
+
+/** Register a global handler invoked when any non-auth API call returns 401. */
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  unauthorizedHandler = handler;
+}
+
+const AUTH_EXEMPT_PATHS = new Set(["/api/auth/login", "/api/auth/me", "/api/auth/logout"]);
+
 async function send(path: string, options: RequestOptions): Promise<Response> {
   const headers = new Headers({ Accept: options.accept ?? "application/json" });
   let body: BodyInit | undefined;
@@ -85,7 +94,13 @@ async function send(path: string, options: RequestOptions): Promise<Response> {
     throw new ApiError(0, CLIENT_ERROR_CODES.network, undefined, { cause: error });
   }
 
-  if (!response.ok) throw await errorFromResponse(response);
+  if (!response.ok) {
+    const apiError = await errorFromResponse(response);
+    if (response.status === 401 && !AUTH_EXEMPT_PATHS.has(path)) {
+      unauthorizedHandler?.();
+    }
+    throw apiError;
+  }
   return response;
 }
 
