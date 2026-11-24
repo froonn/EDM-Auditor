@@ -21,12 +21,27 @@ export function Select({ className, ...props }: ComponentProps<"select">) {
 interface FieldProps {
   label: string;
   hint?: string;
+  htmlFor?: string;
   children: ReactNode;
   className?: string;
 }
 
-/** A labelled form control; the label wraps the control, so no ids are needed. */
-export function FormField({ label, hint, children, className }: FieldProps) {
+/**
+ * A labelled form control. When `htmlFor` is omitted, the label wraps the control so no ids are
+ * needed; pass `htmlFor` when `children` contains auxiliary buttons (e.g. show/copy password).
+ */
+export function FormField({ label, hint, htmlFor, children, className }: FieldProps) {
+  if (htmlFor) {
+    return (
+      <div className={cn("flex flex-col gap-1 text-sm", className)}>
+        <label htmlFor={htmlFor} className="font-medium">
+          {label}
+        </label>
+        {children}
+        {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
+      </div>
+    );
+  }
   return (
     <label className={cn("flex flex-col gap-1 text-sm", className)}>
       <span className="font-medium">{label}</span>

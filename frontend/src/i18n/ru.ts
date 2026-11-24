@@ -36,6 +36,8 @@ export const ru = {
   "auth.passwordMismatch": "Новые пароли не совпадают.",
   "auth.passwordTooShort": "Пароль должен содержать не менее 8 символов.",
   "auth.passwordChanged": "Пароль успешно изменён.",
+  "auth.showPassword": "Показать пароль",
+  "auth.hidePassword": "Скрыть пароль",
   "auth.superAdminBadge": "super-admin",
   "auth.userMenuLabel": "Меню пользователя",
 
@@ -88,7 +90,13 @@ export const ru = {
   "users.field.fullName": "ФИО / отображаемое имя",
   "users.field.email": "Email",
   "users.field.password": "Временный пароль",
-  "users.field.passwordHint": "Не менее 8 символов. При первом входе потребуется смена.",
+  "users.field.passwordHint":
+    "Генерируется автоматически и не редактируется вручную. Скопируйте и передайте пользователю.",
+  "users.copyPassword": "Скопировать",
+  "users.passwordCopied": "Скопировано",
+  "users.regeneratePassword": "Пересоздать",
+  "users.issuedPasswordCreated": "Пользователь «{username}» создан. Передайте ему временный пароль (повторно посмотреть его будет нельзя):",
+  "users.issuedPasswordReset": "Пароль пользователя «{username}» сброшен. Передайте ему новый временный пароль (повторно посмотреть его будет нельзя):",
   "users.field.groups": "Кастомные группы",
   "users.field.mustChangePassword": "Потребовать смену пароля при первом входе",
   "users.column.user": "Пользователь",

@@ -324,4 +324,113 @@ describe("role-based UI screens", () => {
     await user.click(screen.getByRole("tab", { name: "Журнал безопасности" }));
     expect(await screen.findByRole("cell", { name: "user_sessions_revoked" })).toBeInTheDocument();
   });
+
+  it("auto-generates read-only temporary passwords with reveal, regenerate, and copy in create and reset flows", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+
+    let createdBody: Record<string, unknown> | null = null;
+    let resetBody: Record<string, unknown> | null = null;
+
+    mockApi({
+      "GET /api/users": () => page(USERS),
+      "GET /api/groups": () => json(CUSTOM_GROUPS),
+      "POST /api/users": (req) => {
+        createdBody = JSON.parse(String(req.init.body)) as Record<string, unknown>;
+        return json(
+          {
+            ...USERS[1],
+            id: 11,
+            username: String(createdBody.username),
+            email: String(createdBody.email),
+            full_name: String(createdBody.full_name ?? ""),
+          },
+          201,
+        );
+      },
+      "PATCH /api/users/10": (req) => {
+        resetBody = JSON.parse(String(req.init.body)) as Record<string, unknown>;
+        return json(USERS[1]);
+      },
+    });
+
+    const superSession = sessionWith(PERMISSIONS, {
+      id: 1,
+      name: "Root Admin",
+      username: "root",
+      isSuperAdmin: true,
+    });
+    renderApp("/users", superSession);
+
+    const createPanel = (await screen.findByRole("heading", { name: "Новый пользователь" })).closest("section")!;
+    const tempInput = within(createPanel).getByLabelText("Временный пароль") as HTMLInputElement;
+    expect(tempInput).toHaveAttribute("readonly");
+    expect(tempInput.type).toBe("password");
+    const initialPassword = tempInput.value;
+    expect(initialPassword.length).toBeGreaterThanOrEqual(16);
+
+    // Manual typing cannot modify the read-only temporary password.
+    await user.type(tempInput, "manual-edit");
+    expect(tempInput.value).toBe(initialPassword);
+
+    // Reveal / hide password toggle works.
+    await user.click(within(createPanel).getByRole("button", { name: "Показать пароль" }));
+    expect(tempInput.type).toBe("text");
+    await user.click(within(createPanel).getByRole("button", { name: "Скрыть пароль" }));
+    expect(tempInput.type).toBe("password");
+
+    // Regenerate creates a new password.
+    await user.click(within(createPanel).getByRole("button", { name: "Пересоздать" }));
+    const regeneratedPassword = tempInput.value;
+    expect(regeneratedPassword).not.toBe(initialPassword);
+    expect(regeneratedPassword.length).toBeGreaterThanOrEqual(16);
+
+    // Copy puts the password on the clipboard and shows feedback.
+    await user.click(within(createPanel).getByRole("button", { name: "Скопировать" }));
+    expect(writeText).toHaveBeenCalledWith(regeneratedPassword);
+    expect(await within(createPanel).findByRole("button", { name: "Скопировано" })).toBeInTheDocument();
+
+    // Creating a user sends the generated temporary password and shows the one-time banner.
+    await user.type(within(createPanel).getByLabelText(/^Логин/), "maria");
+    await user.type(within(createPanel).getByLabelText("Email"), "maria@example.com");
+    await user.click(within(createPanel).getByRole("button", { name: "Создать" }));
+
+    expect(
+      await screen.findByText(/Пользователь «maria» создан\. Передайте ему временный пароль/),
+    ).toBeInTheDocument();
+    expect(createdBody).toMatchObject({
+      username: "maria",
+      email: "maria@example.com",
+      password: regeneratedPassword,
+    });
+    // Form generates a fresh password for the next user.
+    expect(tempInput.value).not.toBe(regeneratedPassword);
+
+    // Reset password dialog also uses an auto-generated read-only temporary password.
+    const ivanRow = screen.getByText("Ivan Petrov").closest("tr")!;
+    await user.click(within(ivanRow).getByRole("button", { name: "Сбросить пароль" }));
+    const dialog = await screen.findByRole("alertdialog");
+    const resetInput = within(dialog).getByLabelText("Новый временный пароль") as HTMLInputElement;
+    expect(resetInput).toHaveAttribute("readonly");
+    expect(resetInput.type).toBe("password");
+    const firstResetPwd = resetInput.value;
+    expect(firstResetPwd.length).toBeGreaterThanOrEqual(16);
+
+    await user.click(within(dialog).getByRole("button", { name: "Пересоздать" }));
+    const secondResetPwd = resetInput.value;
+    expect(secondResetPwd).not.toBe(firstResetPwd);
+
+    await user.click(within(dialog).getByRole("button", { name: "Показать пароль" }));
+    expect(resetInput.type).toBe("text");
+
+    await user.click(within(dialog).getByRole("button", { name: "Сбросить пароль" }));
+    expect(
+      await screen.findByText(/Пароль пользователя «ivan» сброшен\. Передайте ему новый временный пароль/),
+    ).toBeInTheDocument();
+    expect(resetBody).toEqual({ new_password: secondResetPwd });
+  });
 });

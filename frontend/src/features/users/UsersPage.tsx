@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, LogOut, ShieldCheck, Users } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { KeyRound, LogOut, ShieldCheck, Users, X } from "lucide-react";
+import { useId, useState, type FormEvent } from "react";
 
 import { api } from "@/api/endpoints";
 import type { AuthAuditLogItem, GroupItem, UserItem } from "@/api/types";
@@ -8,6 +8,7 @@ import { useAuth } from "@/auth/AuthProvider";
 import { isPermission } from "@/auth/permissions";
 import { DataTable, type Column } from "@/components/DataTable";
 import { ErrorAlert } from "@/components/ErrorAlert";
+import { PasswordInput, TemporaryPasswordField } from "@/components/PasswordInput";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -19,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { FormField, Input, Panel, Select } from "@/components/ui/form";
 import { queryKeys } from "@/features/queries";
 import { useI18n } from "@/i18n";
+import { generateTemporaryPassword } from "@/lib/password";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE = 20;
@@ -90,6 +92,11 @@ function UsersListTab() {
   const [editingGroupsUser, setEditingGroupsUser] = useState<UserItem | null>(null);
   const [resetPasswordUser, setResetPasswordUser] = useState<UserItem | null>(null);
   const [transferUser, setTransferUser] = useState<UserItem | null>(null);
+  const [issuedPassword, setIssuedPassword] = useState<{
+    kind: "created" | "reset";
+    username: string;
+    password: string;
+  } | null>(null);
 
   const isSuperAdmin = Boolean(session.user?.isSuperAdmin);
   const actorPerms: ReadonlySet<string> = session.permissions;
@@ -248,8 +255,15 @@ function UsersListTab() {
         customGroups={customGroupsQuery.data ?? []}
         isSuperAdmin={isSuperAdmin}
         actorPerms={actorPerms}
-        onCreated={invalidateUsers}
+        onCreated={(issued) => {
+          invalidateUsers();
+          setIssuedPassword({ kind: "created", ...issued });
+        }}
       />
+
+      {issuedPassword && (
+        <IssuedPasswordBanner issued={issuedPassword} onDismiss={() => setIssuedPassword(null)} />
+      )}
 
       <div className="flex flex-wrap items-end gap-3">
         <FormField label={t("action.search")} className="w-72">
@@ -321,8 +335,9 @@ function UsersListTab() {
         <ResetPasswordDialog
           user={resetPasswordUser}
           onClose={() => setResetPasswordUser(null)}
-          onSaved={() => {
+          onSaved={(password) => {
             invalidateUsers();
+            setIssuedPassword({ kind: "reset", username: resetPasswordUser.username, password });
             setResetPasswordUser(null);
           }}
         />
@@ -344,6 +359,36 @@ function UsersListTab() {
   );
 }
 
+function IssuedPasswordBanner({
+  issued,
+  onDismiss,
+}: {
+  issued: { kind: "created" | "reset"; username: string; password: string };
+  onDismiss: () => void;
+}) {
+  const { t } = useI18n();
+  const fieldId = useId();
+  const message =
+    issued.kind === "created"
+      ? t("users.issuedPasswordCreated", { username: issued.username })
+      : t("users.issuedPasswordReset", { username: issued.username });
+
+  return (
+    <div
+      role="status"
+      className="space-y-2 rounded-lg border border-success/40 bg-success-muted/40 p-4"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-medium">{message}</p>
+        <Button type="button" variant="ghost" size="sm" aria-label={t("action.close")} onClick={onDismiss}>
+          <X aria-hidden className="size-4" />
+        </Button>
+      </div>
+      <TemporaryPasswordField id={fieldId} value={issued.password} />
+    </div>
+  );
+}
+
 function CreateUserPanel({
   customGroups,
   isSuperAdmin,
@@ -353,34 +398,34 @@ function CreateUserPanel({
   customGroups: GroupItem[];
   isSuperAdmin: boolean;
   actorPerms: ReadonlySet<string>;
-  onCreated: () => void;
+  onCreated: (issued: { username: string; password: string }) => void;
 }) {
   const { t } = useI18n();
+  const passwordId = useId();
   const [username, setUsername] = useState("");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [password, setPassword] = useState(() => generateTemporaryPassword());
   const [mustChange, setMustChange] = useState(true);
   const [selectedGroupIds, setSelectedGroupIds] = useState<number[]>([]);
 
   const create = useMutation({
-    mutationFn: () =>
-      api.users.create({
-        username: username.trim(),
-        email: email.trim(),
-        password,
-        full_name: fullName.trim(),
-        custom_group_ids: selectedGroupIds,
-        must_change_password: mustChange,
-      }),
-    onSuccess: () => {
+    mutationFn: (payload: {
+      username: string;
+      email: string;
+      password: string;
+      full_name: string;
+      custom_group_ids: number[];
+      must_change_password: boolean;
+    }) => api.users.create(payload),
+    onSuccess: (_data, payload) => {
       setUsername("");
       setFullName("");
       setEmail("");
-      setPassword("");
+      setPassword(generateTemporaryPassword());
       setSelectedGroupIds([]);
       setMustChange(true);
-      onCreated();
+      onCreated({ username: payload.username, password: payload.password });
     },
   });
 
@@ -390,7 +435,14 @@ function CreateUserPanel({
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    create.mutate();
+    create.mutate({
+      username: username.trim(),
+      email: email.trim(),
+      password,
+      full_name: fullName.trim(),
+      custom_group_ids: selectedGroupIds,
+      must_change_password: mustChange,
+    });
   }
 
   const ready = username.trim().length >= 2 && email.includes("@") && password.length >= 8;
@@ -399,7 +451,7 @@ function CreateUserPanel({
     <Panel title={t("users.createTitle")}>
       <form onSubmit={handleSubmit} className="space-y-3">
         <fieldset disabled={create.isPending} className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <FormField label={t("users.field.username")} hint={t("users.field.usernameHint")}>
               <Input value={username} onChange={(e) => setUsername(e.target.value)} maxLength={100} required />
             </FormField>
@@ -409,10 +461,16 @@ function CreateUserPanel({
             <FormField label={t("users.field.email")}>
               <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={255} required />
             </FormField>
-            <FormField label={t("users.field.password")} hint={t("users.field.passwordHint")}>
-              <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={8} required />
-            </FormField>
           </div>
+
+          <FormField htmlFor={passwordId} label={t("users.field.password")} hint={t("users.field.passwordHint")}>
+            <TemporaryPasswordField
+              id={passwordId}
+              value={password}
+              onRegenerate={() => setPassword(generateTemporaryPassword())}
+              disabled={create.isPending}
+            />
+          </FormField>
 
           <div className="space-y-1.5">
             <span className="text-sm font-medium">{t("users.field.groups")}</span>
@@ -566,18 +624,19 @@ function ResetPasswordDialog({
 }: {
   user: UserItem;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (newPassword: string) => void;
 }) {
   const { t } = useI18n();
-  const [newPassword, setNewPassword] = useState("");
+  const passwordId = useId();
+  const [newPassword, setNewPassword] = useState(() => generateTemporaryPassword());
   const reset = useMutation({
-    mutationFn: () => api.users.update(user.id, { new_password: newPassword }),
-    onSuccess: onSaved,
+    mutationFn: (password: string) => api.users.update(user.id, { new_password: password }),
+    onSuccess: (_data, password) => onSaved(password),
   });
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    reset.mutate();
+    reset.mutate(newPassword);
   }
 
   return (
@@ -588,13 +647,11 @@ function ResetPasswordDialog({
           <AlertDialogDescription>{t("users.resetPasswordDescription")}</AlertDialogDescription>
         </div>
         <form onSubmit={handleSubmit} className="space-y-3">
-          <FormField label={t("users.newTempPassword")} hint={t("users.field.passwordHint")}>
-            <Input
-              type="password"
-              minLength={8}
-              required
+          <FormField htmlFor={passwordId} label={t("users.newTempPassword")} hint={t("users.field.passwordHint")}>
+            <TemporaryPasswordField
+              id={passwordId}
               value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
+              onRegenerate={() => setNewPassword(generateTemporaryPassword())}
               disabled={reset.isPending}
             />
           </FormField>
@@ -623,6 +680,7 @@ function TransferSuperAdminDialog({
   onTransferred: (username: string) => void;
 }) {
   const { t } = useI18n();
+  const passwordId = useId();
   const [currentPassword, setCurrentPassword] = useState("");
   const transfer = useMutation({
     mutationFn: () => api.auth.transferSuperAdmin(currentPassword, user.id),
@@ -642,9 +700,9 @@ function TransferSuperAdminDialog({
           <AlertDialogDescription>{t("users.transferDescription", { username: user.username })}</AlertDialogDescription>
         </div>
         <form onSubmit={handleSubmit} className="space-y-3">
-          <FormField label={t("auth.currentPassword")}>
-            <Input
-              type="password"
+          <FormField htmlFor={passwordId} label={t("auth.currentPassword")}>
+            <PasswordInput
+              id={passwordId}
               required
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}

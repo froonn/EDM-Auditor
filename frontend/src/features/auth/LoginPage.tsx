@@ -1,9 +1,10 @@
 import { LogIn } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router";
 
 import { useAuth } from "@/auth/AuthProvider";
 import { ErrorAlert } from "@/components/ErrorAlert";
+import { PasswordInput } from "@/components/PasswordInput";
 import { Button } from "@/components/ui/button";
 import { FormField, Input, Panel } from "@/components/ui/form";
 import { useI18n } from "@/i18n";
@@ -14,6 +15,7 @@ export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const from = (location.state as { from?: string } | null)?.from || "/";
+  const passwordId = useId();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -63,10 +65,10 @@ export function LoginPage() {
               />
             </FormField>
 
-            <FormField label={t("auth.password")}>
-              <Input
+            <FormField htmlFor={passwordId} label={t("auth.password")}>
+              <PasswordInput
+                id={passwordId}
                 name="password"
-                type="password"
                 autoComplete="current-password"
                 required
                 value={password}

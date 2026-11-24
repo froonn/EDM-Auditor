@@ -1,16 +1,20 @@
 import { KeyRound, LogOut } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 
 import { api } from "@/api/endpoints";
 import { useAuth } from "@/auth/AuthProvider";
 import { ErrorAlert } from "@/components/ErrorAlert";
+import { PasswordInput } from "@/components/PasswordInput";
 import { Button } from "@/components/ui/button";
-import { FormField, Input, Panel } from "@/components/ui/form";
+import { FormField, Panel } from "@/components/ui/form";
 import { useI18n } from "@/i18n";
 
 export function ForceChangePasswordPage() {
   const { t } = useI18n();
   const { session, applyAuthUser, logout } = useAuth();
+  const currentId = useId();
+  const newId = useId();
+  const confirmId = useId();
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -65,9 +69,9 @@ export function ForceChangePasswordPage() {
           {apiError !== null && <ErrorAlert error={apiError} />}
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            <FormField label={t("auth.currentPassword")}>
-              <Input
-                type="password"
+            <FormField htmlFor={currentId} label={t("auth.currentPassword")}>
+              <PasswordInput
+                id={currentId}
                 autoComplete="current-password"
                 required
                 value={currentPassword}
@@ -76,9 +80,9 @@ export function ForceChangePasswordPage() {
               />
             </FormField>
 
-            <FormField label={t("auth.newPassword")}>
-              <Input
-                type="password"
+            <FormField htmlFor={newId} label={t("auth.newPassword")}>
+              <PasswordInput
+                id={newId}
                 autoComplete="new-password"
                 required
                 minLength={8}
@@ -88,9 +92,9 @@ export function ForceChangePasswordPage() {
               />
             </FormField>
 
-            <FormField label={t("auth.confirmPassword")}>
-              <Input
-                type="password"
+            <FormField htmlFor={confirmId} label={t("auth.confirmPassword")}>
+              <PasswordInput
+                id={confirmId}
                 autoComplete="new-password"
                 required
                 minLength={8}

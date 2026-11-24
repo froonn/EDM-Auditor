@@ -1,10 +1,11 @@
 import { KeyRound, LogOut, ShieldCheck } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useId, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 
 import { api } from "@/api/endpoints";
 import { useAuth } from "@/auth/AuthProvider";
 import { ErrorAlert } from "@/components/ErrorAlert";
+import { PasswordInput } from "@/components/PasswordInput";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -13,13 +14,16 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FormField, Input } from "@/components/ui/form";
+import { FormField } from "@/components/ui/form";
 import { useI18n } from "@/i18n";
 
 export function UserMenu() {
   const { t } = useI18n();
   const { session, logout, logoutAll, applyAuthUser } = useAuth();
   const navigate = useNavigate();
+  const currentId = useId();
+  const newId = useId();
+  const confirmId = useId();
 
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
@@ -155,9 +159,9 @@ export function UserMenu() {
           )}
 
           <form onSubmit={handleChangePassword} className="space-y-3">
-            <FormField label={t("auth.currentPassword")}>
-              <Input
-                type="password"
+            <FormField htmlFor={currentId} label={t("auth.currentPassword")}>
+              <PasswordInput
+                id={currentId}
                 autoComplete="current-password"
                 required
                 value={currentPassword}
@@ -165,9 +169,9 @@ export function UserMenu() {
                 disabled={submitting}
               />
             </FormField>
-            <FormField label={t("auth.newPassword")}>
-              <Input
-                type="password"
+            <FormField htmlFor={newId} label={t("auth.newPassword")}>
+              <PasswordInput
+                id={newId}
                 autoComplete="new-password"
                 required
                 minLength={8}
@@ -176,9 +180,9 @@ export function UserMenu() {
                 disabled={submitting}
               />
             </FormField>
-            <FormField label={t("auth.confirmPassword")}>
-              <Input
-                type="password"
+            <FormField htmlFor={confirmId} label={t("auth.confirmPassword")}>
+              <PasswordInput
+                id={confirmId}
                 autoComplete="new-password"
                 required
                 minLength={8}
