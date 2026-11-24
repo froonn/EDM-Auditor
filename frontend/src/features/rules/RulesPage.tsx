@@ -5,6 +5,8 @@ import { Link } from "react-router";
 
 import { api, type RuleFilters } from "@/api/endpoints";
 import { type ApplicabilityScope, type Rule } from "@/api/types";
+import { useAuth } from "@/auth/AuthProvider";
+import { Can } from "@/auth/Can";
 import { SeverityBadge } from "@/components/badges";
 import { DataTable, type Column } from "@/components/DataTable";
 import { ErrorAlert } from "@/components/ErrorAlert";
@@ -25,6 +27,8 @@ const SCOPES: ApplicabilityScope[] = ["universal", "typed", "manual_only", "unkn
 
 export function RulesPage() {
   const { t, tOptional } = useI18n();
+  const { can } = useAuth();
+  const canEdit = can("rules.edit");
   const types = useDocumentTypes();
   const queryClient = useQueryClient();
   const [offset, setOffset] = useState(0);
@@ -110,7 +114,7 @@ export function RulesPage() {
           // A pending switch shows the requested state and waits: the server rebuilds the search index
           // before it answers, and the list is read again after that.
           checked={pending.get(rule.id) ?? rule.is_active}
-          disabled={pending.has(rule.id)}
+          disabled={!canEdit || pending.has(rule.id)}
           onChange={() => switchRule(rule)}
         />
       ),
@@ -124,12 +128,14 @@ export function RulesPage() {
           <h1 className="text-2xl font-semibold">{t("rules.title")}</h1>
           <p className="max-w-4xl text-muted-foreground">{t("rules.description")}</p>
         </div>
-        <Button asChild>
-          <Link to="/rules/new">
-            <Plus aria-hidden />
-            {t("rules.new")}
-          </Link>
-        </Button>
+        <Can permission="rules.edit">
+          <Button asChild>
+            <Link to="/rules/new">
+              <Plus aria-hidden />
+              {t("rules.new")}
+            </Link>
+          </Button>
+        </Can>
       </div>
       <div className="grid grid-cols-4 gap-3">
         <FormField label={t("rules.filter.active")}>

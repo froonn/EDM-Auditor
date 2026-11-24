@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import { api } from "@/api/endpoints";
 import type { DocumentType, DocumentTypeSuggestion } from "@/api/types";
+import { Can } from "@/auth/Can";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DataTable } from "@/components/DataTable";
 import { ErrorAlert } from "@/components/ErrorAlert";
@@ -27,7 +28,9 @@ export function DocumentTypesPage() {
         <Catalog />
         <div className="space-y-4">
           <Suggestions />
-          <NewType />
+          <Can permission="document_types.edit">
+            <NewType />
+          </Can>
         </div>
       </div>
     </section>
@@ -83,25 +86,27 @@ function SuggestionItem({ suggestion }: { suggestion: DocumentTypeSuggestion }) 
         <p className="text-muted-foreground">{t("types.suggestionReason", { reason: suggestion.reason })}</p>
         <p className="text-xs text-muted-foreground">{t("types.suggestionSeen", { count: suggestion.occurrences })}</p>
       </div>
-      <fieldset disabled={busy} className="grid grid-cols-2 gap-3">
-        <FormField label={t("types.field.code")} hint={t("types.field.codeHint")}>
-          <Input value={code} onChange={(event) => setCode(event.target.value)} maxLength={100} />
-        </FormField>
-        <FormField label={t("types.field.name")}>
-          <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={255} />
-        </FormField>
-        <FormField label={t("types.field.description")} className="col-span-2">
-          <Textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={2} />
-        </FormField>
-        <div className="col-span-2 flex gap-2">
-          <Button size="sm" onClick={() => accept.mutate()} disabled={!codeValid}>
-            {t("types.accept")}
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => dismiss.mutate()}>
-            {t("types.dismiss")}
-          </Button>
-        </div>
-      </fieldset>
+      <Can permission="document_types.edit">
+        <fieldset disabled={busy} className="grid grid-cols-2 gap-3">
+          <FormField label={t("types.field.code")} hint={t("types.field.codeHint")}>
+            <Input value={code} onChange={(event) => setCode(event.target.value)} maxLength={100} />
+          </FormField>
+          <FormField label={t("types.field.name")}>
+            <Input value={name} onChange={(event) => setName(event.target.value)} maxLength={255} />
+          </FormField>
+          <FormField label={t("types.field.description")} className="col-span-2">
+            <Textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={2} />
+          </FormField>
+          <div className="col-span-2 flex gap-2">
+            <Button size="sm" onClick={() => accept.mutate()} disabled={!codeValid}>
+              {t("types.accept")}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => dismiss.mutate()}>
+              {t("types.dismiss")}
+            </Button>
+          </div>
+        </fieldset>
+      </Can>
       {code.trim() && !codeValid && <p className="text-destructive">{t("types.badCode")}</p>}
       {accept.isError && <ErrorAlert error={accept.error} />}
       {dismiss.isError && <ErrorAlert error={dismiss.error} />}
@@ -167,22 +172,24 @@ function Catalog() {
                   ) : (
                     <Badge className="bg-muted text-muted-foreground">{t("types.inactive")}</Badge>
                   )}
-                  <div className="flex gap-1">
-                    {type.is_active && editing !== type.code && (
-                      <Button size="sm" variant="ghost" onClick={() => setEditing(type.code)}>
-                        {t("action.edit")}
-                      </Button>
-                    )}
-                    {type.is_active ? (
-                      <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setDeactivating(type)}>
-                        {t("types.deactivate")}
-                      </Button>
-                    ) : (
-                      <Button size="sm" variant="outline" onClick={() => reactivate.mutate(type)} disabled={reactivate.isPending}>
-                        {t("types.reactivate")}
-                      </Button>
-                    )}
-                  </div>
+                  <Can permission="document_types.edit">
+                    <div className="flex gap-1">
+                      {type.is_active && editing !== type.code && (
+                        <Button size="sm" variant="ghost" onClick={() => setEditing(type.code)}>
+                          {t("action.edit")}
+                        </Button>
+                      )}
+                      {type.is_active ? (
+                        <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setDeactivating(type)}>
+                          {t("types.deactivate")}
+                        </Button>
+                      ) : (
+                        <Button size="sm" variant="outline" onClick={() => reactivate.mutate(type)} disabled={reactivate.isPending}>
+                          {t("types.reactivate")}
+                        </Button>
+                      )}
+                    </div>
+                  </Can>
                 </div>
               ),
             },

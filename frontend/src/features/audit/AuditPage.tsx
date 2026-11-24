@@ -5,6 +5,7 @@ import { Link, useParams, useSearchParams } from "react-router";
 
 import { api } from "@/api/endpoints";
 import { SEVERITIES, type DocumentDetail, type Report, type Severity } from "@/api/types";
+import { useAuth } from "@/auth/AuthProvider";
 import { Can } from "@/auth/Can";
 import { SeverityBadge, StatusBadge } from "@/components/badges";
 import { ErrorAlert } from "@/components/ErrorAlert";
@@ -21,6 +22,7 @@ import { buildSegments } from "./highlight";
 import { ReportExport } from "./ReportExport";
 import { DocumentStatementsSection, ReportExtras } from "./ReportExtras";
 import { toReportView, type FindingView } from "./reportModel";
+import { ResolutionsPanel } from "./ResolutionsPanel";
 
 export function useDocumentId(): number | null {
   const { id } = useParams();
@@ -35,6 +37,7 @@ export function AuditPage() {
 
 function AuditScreen({ documentId }: { documentId: number }) {
   const { t } = useI18n();
+  const { can } = useAuth();
   const [searchParams] = useSearchParams();
   const requested = Number(searchParams.get("report"));
   const reportId = Number.isInteger(requested) && requested > 0 ? requested : undefined;
@@ -67,8 +70,10 @@ function AuditScreen({ documentId }: { documentId: number }) {
       {report.data === null && (
         <div className="space-y-4">
           <div className="rounded-lg border bg-card p-6 text-sm">
-            <p className="font-medium">{t("audit.noReport")}</p>
-            <p className="text-muted-foreground">{t("audit.noReportHint")}</p>
+            <p className="font-medium">{can("audit.run") ? t("audit.noReport") : t("audit.waitingAuditor")}</p>
+            <p className="text-muted-foreground">
+              {can("audit.run") ? t("audit.noReportHint") : t("audit.waitingAuditorHint")}
+            </p>
           </div>
           <DocumentStatementsSection statements={document.data.statements} />
         </div>
@@ -102,6 +107,7 @@ function AuditHeader({
           <h1 className="text-2xl font-semibold break-words">{document.title}</h1>
           <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             <StatusBadge kind="document" status={document.status} />
+            {document.owner_name && <span>{t("audit.ownerLabel", { owner: document.owner_name })}</span>}
             {document.needs_configuration ? (
               <StatusBadge kind="classification" status={document.classification_status ?? "unknown"} />
             ) : (
@@ -288,6 +294,7 @@ function ReportView({
         </section>
       </div>
 
+      <ResolutionsPanel reportId={report.id} documentId={document.id} />
       <ReportExtras view={view} statements={document.statements} documentId={document.id} report={report} />
       <p className="text-xs text-muted-foreground">{t("audit.disclaimer")}</p>
     </div>

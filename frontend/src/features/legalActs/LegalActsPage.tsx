@@ -4,6 +4,7 @@ import { Link } from "react-router";
 
 import { api } from "@/api/endpoints";
 import type { LegalAct } from "@/api/types";
+import { Can } from "@/auth/Can";
 import { StatusBadge } from "@/components/badges";
 import { DataTable, type Column } from "@/components/DataTable";
 import { ErrorAlert } from "@/components/ErrorAlert";
@@ -92,7 +93,9 @@ export function LegalActsPage() {
         <h1 className="text-2xl font-semibold">{t("legalActs.title")}</h1>
         <p className="max-w-4xl text-muted-foreground">{t("legalActs.description")}</p>
       </div>
-      <UploadLegalAct />
+      <Can permission="legal_acts.edit">
+        <UploadLegalAct />
+      </Can>
       <div className="flex items-end gap-3">
         <FormField label={t("action.search")} className="w-80">
           <Input

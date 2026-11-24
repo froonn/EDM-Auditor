@@ -11,6 +11,8 @@ import {
   type ApplicabilityScope,
   type Rule,
 } from "@/api/types";
+import { useAuth } from "@/auth/AuthProvider";
+import { Can } from "@/auth/Can";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ErrorAlert } from "@/components/ErrorAlert";
 import { Button } from "@/components/ui/button";
@@ -19,12 +21,14 @@ import { asOneLine } from "@/features/audit/textFormat";
 import { invalidateCatalog, queryKeys, useDocumentTypes } from "@/features/queries";
 import { TypeChecklist } from "@/features/shared/TypeChecklist";
 import { useI18n } from "@/i18n";
+import { ForbiddenPage } from "@/pages/ForbiddenPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 
 
 export function RuleEditPage() {
   const { id } = useParams();
-  if (id === "new") return <RuleScreen rule={null} />;
+  const { can } = useAuth();
+  if (id === "new") return can("rules.edit") ? <RuleScreen rule={null} /> : <ForbiddenPage />;
   const ruleId = Number(id);
   return Number.isInteger(ruleId) && ruleId > 0 ? <ExistingRule id={ruleId} /> : <NotFoundPage />;
 }
@@ -59,9 +63,11 @@ function RuleScreen({ rule }: { rule: Rule | null }) {
       <div className="flex items-start gap-4">
         <h1 className="flex-1 text-2xl font-semibold">{rule ? rule.subject : t("rules.createTitle")}</h1>
         {rule && (
-          <Button variant="destructive" onClick={() => setConfirmDelete(true)} disabled={remove.isPending}>
-            {t("action.delete")}
-          </Button>
+          <Can permission="rules.edit">
+            <Button variant="destructive" onClick={() => setConfirmDelete(true)} disabled={remove.isPending}>
+              {t("action.delete")}
+            </Button>
+          </Can>
         )}
       </div>
       {rule?.is_generated && (
@@ -243,11 +249,14 @@ function RuleForm({ rule }: { rule: Rule | null }) {
     }
     save.mutate(parsedConstraint);
   };
+  const { can } = useAuth();
+  const canEdit = can("rules.edit");
   const valid = subject.trim() && constraintText.trim() && (rule || code.trim()) && (rule || scope !== "typed" || types.length > 0);
 
   return (
     <Panel title={t("rules.editTitle")}>
-      <fieldset disabled={save.isPending} className="space-y-3">
+      {!canEdit && <p className="text-xs text-muted-foreground">{t("common.readOnlyNotice")}</p>}
+      <fieldset disabled={save.isPending || !canEdit} className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
           {!rule && (
             <FormField label={t("rules.field.code")} hint={t("rules.field.codeHint")}>
@@ -383,9 +392,11 @@ function RuleForm({ rule }: { rule: Rule | null }) {
             {t("rules.field.active")}
           </label>
         )}
-        <Button onClick={submit} disabled={!valid}>
-          {rule ? t("action.save") : t("action.create")}
-        </Button>
+        <Can permission="rules.edit">
+          <Button onClick={submit} disabled={!valid}>
+            {rule ? t("action.save") : t("action.create")}
+          </Button>
+        </Can>
       </fieldset>
       {constraintError && (
         <p role="alert" className="text-sm text-destructive">
@@ -460,12 +471,14 @@ function ApplicabilityForm({ rule }: { rule: Rule }) {
         </p>
       )}
       {rule.applicability_source === "manual" && <p className="text-sm text-muted-foreground">{t("rules.source.manual")}</p>}
-      <fieldset disabled={save.isPending} className="space-y-3">
-        <ScopeFields scope={scope} types={types} onScope={setScope} onTypes={setTypes} />
-        <Button variant="outline" onClick={() => save.mutate()} disabled={scope === "typed" && types.length === 0}>
-          {t("rules.saveApplicability")}
-        </Button>
-      </fieldset>
+      <Can permission="rules.edit">
+        <fieldset disabled={save.isPending} className="space-y-3">
+          <ScopeFields scope={scope} types={types} onScope={setScope} onTypes={setTypes} />
+          <Button variant="outline" onClick={() => save.mutate()} disabled={scope === "typed" && types.length === 0}>
+            {t("rules.saveApplicability")}
+          </Button>
+        </fieldset>
+      </Can>
       {save.isSuccess && <p role="status" className="text-sm text-success">{t("action.saved")}</p>}
       {save.isError && <ErrorAlert error={save.error} showServerMessage />}
     </Panel>

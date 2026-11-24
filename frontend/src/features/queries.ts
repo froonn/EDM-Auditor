@@ -6,12 +6,13 @@ import { useI18n } from "@/i18n";
 import type { AuditSelection, DocumentDetail } from "@/api/types";
 
 export const queryKeys = {
-  documents: (page: PageRequest) => ["documents", page] as const,
+  documents: (page: PageRequest & { status?: string }) => ["documents", page] as const,
   allDocuments: ["documents"] as const,
   document: (id: number) => ["document", id] as const,
   report: (documentId: number, reportId: number | undefined) => ["report", documentId, reportId ?? "latest"] as const,
   documentReports: (documentId: number) => ["report", documentId] as const,
   reportHistory: (documentId: number) => ["reports", documentId] as const,
+  resolutions: (reportId: number) => ["reportResolutions", reportId] as const,
   documentTypes: ["documentTypes"] as const,
   legalActs: ["legalActs", "all"] as const,
   allLegalActs: ["legalActs"] as const,
@@ -27,6 +28,12 @@ export const queryKeys = {
   rulePage: (request: object) => ["rules", "page", request] as const,
   catalog: ["documentTypes", "catalog"] as const,
   suggestions: ["documentTypeSuggestions"] as const,
+  users: (request: object) => ["users", request] as const,
+  allUsers: ["users"] as const,
+  groups: (kind?: string) => ["groups", kind ?? "all"] as const,
+  allGroups: ["groups"] as const,
+  permissionsCatalog: ["permissions"] as const,
+  authAuditLog: (request: object) => ["authAuditLog", request] as const,
 };
 
 /**

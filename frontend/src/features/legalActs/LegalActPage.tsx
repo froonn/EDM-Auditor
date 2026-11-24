@@ -5,6 +5,8 @@ import { Link, useNavigate, useParams } from "react-router";
 
 import { api } from "@/api/endpoints";
 import type { LegalActDetail } from "@/api/types";
+import { useAuth } from "@/auth/AuthProvider";
+import { Can } from "@/auth/Can";
 import { SeverityBadge, StatusBadge } from "@/components/badges";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DataTable } from "@/components/DataTable";
@@ -63,13 +65,15 @@ function LegalActScreen({ id }: { id: number }) {
             </span>
           </div>
         </div>
-        <Button variant="outline" onClick={() => setConfirmReprocess(true)} disabled={busy}>
-          <RefreshCw aria-hidden />
-          {t("legalActs.reprocess")}
-        </Button>
-        <Button variant="destructive" onClick={() => setConfirmDelete(true)} disabled={busy}>
-          {t("action.delete")}
-        </Button>
+        <Can permission="legal_acts.edit">
+          <Button variant="outline" onClick={() => setConfirmReprocess(true)} disabled={busy}>
+            <RefreshCw aria-hidden />
+            {t("legalActs.reprocess")}
+          </Button>
+          <Button variant="destructive" onClick={() => setConfirmDelete(true)} disabled={busy}>
+            {t("action.delete")}
+          </Button>
+        </Can>
       </div>
       {data.processing_status === "needs_reprocessing" && (
         <p role="alert" className="rounded-lg border border-warning bg-warning-muted p-3 text-sm">
@@ -112,6 +116,8 @@ function LegalActScreen({ id }: { id: number }) {
 
 function LegalActForm({ act }: { act: LegalActDetail }) {
   const { t } = useI18n();
+  const { can } = useAuth();
+  const canEdit = can("legal_acts.edit");
   const queryClient = useQueryClient();
   const [code, setCode] = useState(act.code);
   const [title, setTitle] = useState(act.title);
@@ -144,7 +150,8 @@ function LegalActForm({ act }: { act: LegalActDetail }) {
 
   return (
     <Panel title={t("legalActs.edit")}>
-      <fieldset disabled={save.isPending} className="space-y-3">
+      {!canEdit && <p className="text-xs text-muted-foreground">{t("common.readOnlyNotice")}</p>}
+      <fieldset disabled={save.isPending || !canEdit} className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <FormField label={t("legalActs.field.code")}>
             <Input value={code} onChange={(event) => setCode(event.target.value)} maxLength={100} />
@@ -164,9 +171,11 @@ function LegalActForm({ act }: { act: LegalActDetail }) {
         <FormField label={t("legalActs.field.text")} hint={t("legalActs.field.textHint")}>
           <Textarea value={text} onChange={(event) => setText(event.target.value)} rows={12} className="font-mono text-xs" />
         </FormField>
-        <Button onClick={() => save.mutate()} disabled={!valid || Object.keys(changes).length === 0}>
-          {t("action.save")}
-        </Button>
+        <Can permission="legal_acts.edit">
+          <Button onClick={() => save.mutate()} disabled={!valid || Object.keys(changes).length === 0}>
+            {t("action.save")}
+          </Button>
+        </Can>
       </fieldset>
       {save.isSuccess && <p role="status" className="text-sm text-success">{t("action.saved")}</p>}
       {save.isError && <ErrorAlert error={save.error} />}
@@ -216,17 +225,19 @@ function Diagnostics({ id, busy }: { id: number; busy: boolean }) {
     <div className="space-y-4">
       {failedChunks.length > 0 && (
         <Panel title={t("legalActs.failedChunks", { count: failedChunks.length })}>
-          <div className="flex justify-end">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={pending}
-              onClick={() => reprocessSelected.mutate({ only_failed: true })}
-            >
-              <RefreshCw aria-hidden className="size-3.5" />
-              {t("legalActs.reprocessFailed")}
-            </Button>
-          </div>
+          <Can permission="legal_acts.edit">
+            <div className="flex justify-end">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={pending}
+                onClick={() => reprocessSelected.mutate({ only_failed: true })}
+              >
+                <RefreshCw aria-hidden className="size-3.5" />
+                {t("legalActs.reprocessFailed")}
+              </Button>
+            </div>
+          </Can>
           {reprocessSelected.isError && <ErrorAlert error={reprocessSelected.error} />}
           <ul className="space-y-2 text-sm">
             {failedChunks.map((item) => (
@@ -245,14 +256,16 @@ function Diagnostics({ id, busy }: { id: number; busy: boolean }) {
                     </p>
                   )}
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={pending}
-                  onClick={() => reprocessSelected.mutate({ chunk_id: item.chunk_id })}
-                >
-                  {t("legalActs.reprocessChunk")}
-                </Button>
+                <Can permission="legal_acts.edit">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={pending}
+                    onClick={() => reprocessSelected.mutate({ chunk_id: item.chunk_id })}
+                  >
+                    {t("legalActs.reprocessChunk")}
+                  </Button>
+                </Can>
               </li>
             ))}
           </ul>

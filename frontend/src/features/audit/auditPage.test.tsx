@@ -26,6 +26,8 @@ function routes(overrides: Record<string, Parameters<typeof mockApi>[0][string]>
     "GET /api/documents/1": () => json(documentDetail()),
     "GET /api/documents/1/report": () => json(report()),
     "GET /api/reports": () => page(history),
+    "GET /api/reports/10/resolutions": () => json([]),
+    "GET /api/reports/9/resolutions": () => json([]),
     ...overrides,
   });
 }
