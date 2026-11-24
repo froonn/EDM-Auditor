@@ -232,3 +232,46 @@ def patch_fake_providers(monkeypatch, **overrides) -> None:
             f"edm_auditor.api.app.{factory}",
             lambda config, provider=provider: provider(),
         )
+
+
+def authenticate_test_client(client, *, username: str = "test-super-admin"):
+    """Ensure a super-admin exists and attach an active session cookie to TestClient."""
+    from sqlalchemy import select
+
+    from edm_auditor.auth.permissions import SUPER_ADMIN_GROUP_NAME, ensure_default_groups
+    from edm_auditor.auth.sessions import create_session
+    from edm_auditor.database.enums import GroupKind
+    from edm_auditor.database.models import Group, User
+
+    session_factory = client.app.state.session_factory
+    cookie_name = client.app.state.settings.auth_cookie_name
+    with session_factory.begin() as db_session:
+        groups = ensure_default_groups(db_session)
+        user = db_session.scalar(select(User).where(User.is_super_admin.is_(True)))
+        if user is None:
+            user = User(
+                username=username,
+                email=f"{username}@example.com",
+                full_name="Test Super Admin",
+                hashed_password="test-not-used-directly",
+                is_active=True,
+                is_super_admin=True,
+                must_change_password=False,
+            )
+            db_session.add(user)
+            db_session.flush()
+            personal = Group(
+                name=user.username,
+                kind=GroupKind.PERSONAL.value,
+                owner_user_id=user.id,
+            )
+            db_session.add(personal)
+            db_session.flush()
+            user.groups.append(personal)
+            user.groups.append(groups[SUPER_ADMIN_GROUP_NAME])
+            if "admin" in groups:
+                user.groups.append(groups["admin"])
+            db_session.flush()
+        raw_token, _ = create_session(db_session, user)
+    client.cookies.set(cookie_name, raw_token)
+    return client

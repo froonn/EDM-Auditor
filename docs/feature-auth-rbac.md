@@ -302,18 +302,18 @@
 
 ### Этап 3. Бэкенд: RBAC на всех эндпоинтах, изоляция документов и резолюции аудитора
 
-- [ ] Подключить `require_permission(...)` ко всем эндпоинтам `/api/*` согласно таблице из раздела 2.2.
-- [ ] Заполнять `Document.user_id = current_user.id` в `POST /api/documents/upload`, добавить в
+- [x] Подключить `require_permission(...)` ко всем эндпоинтам `/api/*` согласно таблице из раздела 2.2.
+- [x] Заполнять `Document.user_id = current_user.id` в `POST /api/documents/upload`, добавить в
   `DocumentResponse` / `DocumentDetailResponse` поля `owner_id` и `owner_name`, а в `GET /api/documents` —
   фильтр `status` (в т.ч. `status=uploaded` для очереди «Ожидают аудита»).
-- [ ] Внедрить helper `_ensure_document_access(document, user_perms)` (при отсутствии доступа — **`404 not_found`**
+- [x] Внедрить helper `_ensure_document_access(document, user_perms)` (при отсутствии доступа — **`404 not_found`**
   для защиты от IDOR) и фильтрацию `GET /api/documents` и `GET /api/reports` для пользователей без
   `documents.read_all` (только свои документы; `user_id IS NULL` скрыты от `employee`).
-- [ ] Реализовать эндпоинты резолюций:
+- [x] Реализовать эндпоинты резолюций:
     - `GET /api/reports/{report_id}/resolutions`;
     - `POST /api/reports/{report_id}/resolutions` (`resolutions.write`);
     - добавить `latest_resolution` в `ReportResponse` и `LatestReportSummary`.
-- [ ] Адаптировать тестовые фикстуры в `backend/tests/api/` (авторизованный клиент по умолчанию) и добавить
+- [x] Адаптировать тестовые фикстуры в `backend/tests/api/` (авторизованный клиент по умолчанию) и добавить
   матричный тест `backend/tests/api/test_auth_rbac.py`, проверяющий анонима, `super-admin`, `admin`, `lawyer`,
   `auditor`, `employee` (включая `404` на чужие ID), пользователя в нескольких группах (`employee` + `auditor`)
   и пользователя с точечно выданным правом в его персональной группе.

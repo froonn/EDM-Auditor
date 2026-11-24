@@ -29,6 +29,7 @@ from fakes import (
     FakeLLMProvider,
     FakeRuleExtractor,
     FakeStatementProvider,
+    authenticate_test_client,
     patch_fake_providers,
 )
 
@@ -125,7 +126,9 @@ def make_client(tmp_path: Path) -> TestClient:
         max_upload_bytes=1024,
         rag_index_path=tmp_path / "rag-index.sqlite3",
     )
-    return TestClient(create_app(settings=settings, session_factory=session_factory))
+    return authenticate_test_client(
+        TestClient(create_app(settings=settings, session_factory=session_factory))
+    )
 
 
 def test_app_creates_schema_for_missing_database(tmp_path: Path) -> None:
@@ -137,6 +140,7 @@ def test_app_creates_schema_for_missing_database(tmp_path: Path) -> None:
     )
 
     with TestClient(create_app(settings=settings)) as client:
+        authenticate_test_client(client)
         response = client.get("/api/documents")
 
     assert response.status_code == 200
@@ -485,8 +489,10 @@ def test_upload_legal_act_generates_neural_rule(
         connect_args={"check_same_thread": False},
     )
     Base.metadata.create_all(engine)
-    client = TestClient(
-        create_app(settings=settings, session_factory=create_session_factory(engine))
+    client = authenticate_test_client(
+        TestClient(
+            create_app(settings=settings, session_factory=create_session_factory(engine))
+        )
     )
     response = client.post(
         "/api/legal-acts/upload",
@@ -1893,7 +1899,7 @@ def test_legal_act_upload_leaves_no_file_behind(tmp_path: Path) -> None:
 def test_every_error_uses_the_same_format(tmp_path: Path) -> None:
     client = make_client(tmp_path)
     client.app.add_api_route("/boom", lambda: 1 / 0)
-    unsafe = TestClient(client.app, raise_server_exceptions=False)
+    unsafe = authenticate_test_client(TestClient(client.app, raise_server_exceptions=False))
 
     responses = {
         "not_found": unsafe.get("/api/missing"),
@@ -1921,9 +1927,14 @@ def _audited_act(client: TestClient, monkeypatch, text: str) -> tuple[dict, dict
                                              "suggested_type_name": "",
                                              "suggested_type_reason": ""}),
     )
-    client = TestClient(create_app(
-        settings=client.app.state.settings, session_factory=client.app.state.session_factory
-    ))
+    client = authenticate_test_client(
+        TestClient(
+            create_app(
+                settings=client.app.state.settings,
+                session_factory=client.app.state.session_factory,
+            )
+        )
+    )
     _upload_act(client, 1)
     document = _upload(client, text)
     audit = client.post(f"/api/documents/{document['id']}/audit")
@@ -2064,6 +2075,7 @@ def test_document_is_deleted_with_its_file_and_reports(tmp_path: Path) -> None:
         rag_index_path=tmp_path / "rag-index.sqlite3",
     )
     with TestClient(create_app(settings=settings)) as client:
+        authenticate_test_client(client)
         client.post(
             "/api/rules", json=_rule_payload("del", "запрет", applicability_scope="universal")
         )

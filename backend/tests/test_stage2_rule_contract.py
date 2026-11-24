@@ -10,7 +10,7 @@ from edm_auditor.database import Base, create_session_factory
 from edm_auditor.database.models import AuditRule
 from edm_auditor.model_providers import rule_extraction_schema
 from edm_auditor.rule_validation import validate_generated_rule
-from fakes import patch_fake_providers
+from fakes import authenticate_test_client, patch_fake_providers
 
 
 def _make_client(tmp_path: Path, monkeypatch, rule_extractor) -> TestClient:
@@ -24,13 +24,15 @@ def _make_client(tmp_path: Path, monkeypatch, rule_extractor) -> TestClient:
         connect_args={"check_same_thread": False},
     )
     Base.metadata.create_all(engine)
-    return TestClient(
-        create_app(
-            settings=ApiSettings(
-                upload_dir=tmp_path / "uploads",
-                rag_index_path=tmp_path / "rag-index.sqlite3",
-            ),
-            session_factory=create_session_factory(engine),
+    return authenticate_test_client(
+        TestClient(
+            create_app(
+                settings=ApiSettings(
+                    upload_dir=tmp_path / "uploads",
+                    rag_index_path=tmp_path / "rag-index.sqlite3",
+                ),
+                session_factory=create_session_factory(engine),
+            )
         )
     )
 

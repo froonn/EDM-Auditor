@@ -10,7 +10,7 @@ from pathlib import Path
 from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import FastAPI, File, Form, Query, Response, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Query, Response, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -49,7 +49,14 @@ from edm_auditor.audit_engine.neural_errors import AuditModelError, DocumentTooL
 from edm_auditor.auth import (
     AuthError,
     LoginRateLimiter,
+    Permission,
     ensure_initial_super_admin,
+)
+from edm_auditor.auth.dependencies import (
+    AuthContext,
+    get_auth_context,
+    require_any_permission,
+    require_permission,
 )
 from edm_auditor.database import (
     Base,
@@ -74,6 +81,7 @@ from edm_auditor.database.enums import AuditSeverity
 from edm_auditor.database.models import (
     AuditFinding,
     AuditReport,
+    AuditResolution,
     AuditRule,
     Document,
     DocumentStatement,
@@ -147,6 +155,8 @@ from .schemas import (
     LatestReportSummary,
     ReportResponse,
     ReportListResponse,
+    ResolutionCreate,
+    ResolutionResponse,
     RuleCreate,
     RuleResponse,
     RuleUpdate,
@@ -845,9 +855,14 @@ def create_app(
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    def _assert_document_access(document_id: int, auth: AuthContext) -> None:
+        with session_factory() as session:
+            _require_document_access(session.get(Document, document_id), auth)
+
     @app.get("/api/document-types", response_model=list[DocumentTypeResponse])
     def list_document_types(
         include_inactive: bool = False,
+        _: AuthContext = Depends(get_auth_context),
     ) -> list[DocumentTypeResponse]:
         with session_factory() as session:
             statement = select(DocumentType).order_by(DocumentType.code)
@@ -859,7 +874,10 @@ def create_app(
             ]
 
     @app.post("/api/document-types", response_model=DocumentTypeResponse, status_code=201)
-    def create_document_type(payload: DocumentTypeCreate) -> DocumentTypeResponse:
+    def create_document_type(
+        payload: DocumentTypeCreate,
+        _: AuthContext = Depends(require_permission(Permission.DOCUMENT_TYPES_EDIT)),
+    ) -> DocumentTypeResponse:
         with session_factory.begin() as session:
             document_type = _save_document_type(
                 session, payload.code, payload.name, payload.description
@@ -868,7 +886,11 @@ def create_app(
             return DocumentTypeResponse.model_validate(document_type)
 
     @app.patch("/api/document-types/{code}", response_model=DocumentTypeResponse)
-    def update_document_type(code: str, payload: DocumentTypeUpdate) -> DocumentTypeResponse:
+    def update_document_type(
+        code: str,
+        payload: DocumentTypeUpdate,
+        _: AuthContext = Depends(require_permission(Permission.DOCUMENT_TYPES_EDIT)),
+    ) -> DocumentTypeResponse:
         """Models read the name and the description when they choose a type."""
         with session_factory.begin() as session:
             document_type = session.get(DocumentType, code)
@@ -885,6 +907,7 @@ def create_app(
     )
     def list_document_type_suggestions(
         status: str = "pending",
+        _: AuthContext = Depends(require_permission(Permission.DOCUMENT_TYPES_READ)),
     ) -> list[DocumentTypeSuggestionResponse]:
         with session_factory() as session:
             return [
@@ -902,7 +925,9 @@ def create_app(
         status_code=201,
     )
     def accept_document_type_suggestion(
-        suggestion_id: int, payload: DocumentTypeSuggestionAccept
+        suggestion_id: int,
+        payload: DocumentTypeSuggestionAccept,
+        _: AuthContext = Depends(require_permission(Permission.DOCUMENT_TYPES_EDIT)),
     ) -> DocumentTypeResponse:
         """Add the suggested type; existing documents and rules are classified again on request."""
         with session_factory.begin() as session:
@@ -921,12 +946,18 @@ def create_app(
     @app.post(
         "/api/document-type-suggestions/{suggestion_id}/dismiss", status_code=204
     )
-    def dismiss_document_type_suggestion(suggestion_id: int) -> None:
+    def dismiss_document_type_suggestion(
+        suggestion_id: int,
+        _: AuthContext = Depends(require_permission(Permission.DOCUMENT_TYPES_EDIT)),
+    ) -> None:
         with session_factory.begin() as session:
             _pending_suggestion(session, suggestion_id).status = "dismissed"
 
     @app.delete("/api/document-types/{code}", status_code=204)
-    def delete_document_type(code: str) -> None:
+    def delete_document_type(
+        code: str,
+        _: AuthContext = Depends(require_permission(Permission.DOCUMENT_TYPES_EDIT)),
+    ) -> None:
         """Deactivate a type: historical links keep referring to a stable code."""
         with session_factory.begin() as session:
             document_type = session.get(DocumentType, code)
@@ -946,9 +977,15 @@ def create_app(
         response: Response,
         limit: int = Query(default=50, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
+        status: str | None = Query(default=None),
+        auth: AuthContext = Depends(require_permission(Permission.REPORTS_READ)),
     ) -> list[DocumentResponse]:
         with session_factory() as session:
-            statement = select(Document)
+            statement = select(Document).options(selectinload(Document.owner))
+            if Permission.DOCUMENTS_READ_ALL not in auth.permissions:
+                statement = statement.where(Document.user_id == auth.user.id)
+            if status:
+                statement = statement.where(Document.status == status)
             _set_total_count(session, response, statement)
             statement = statement.order_by(Document.id.desc()).offset(offset).limit(limit)
             return [_document_response(item) for item in session.scalars(statement).all()]
@@ -957,6 +994,7 @@ def create_app(
     async def upload_document(
         file: UploadFile = File(...),
         title: str | None = Form(default=None),
+        auth: AuthContext = Depends(require_permission(Permission.DOCUMENTS_UPLOAD)),
     ) -> DocumentResponse:
         try:
             path, _ = await store_upload(
@@ -974,6 +1012,7 @@ def create_app(
                 parsed,
                 title=title or Path(file.filename or path.name).stem,
                 file_path=path,
+                user_id=auth.user.id,
             )
             document_id = document.id
         except DocumentParserError as exc:
@@ -985,18 +1024,30 @@ def create_app(
             # The upload itself succeeded; the type is requested again before an audit.
             logger.warning("Document %s was saved without a type", document_id)
         with session_factory() as session:
-            return _document_response(session.get(Document, document_id))
-
-    @app.get("/api/documents/{document_id}", response_model=DocumentDetailResponse)
-    def get_document(document_id: int) -> DocumentDetailResponse:
-        with session_factory() as session:
-            document = session.scalar(
+            loaded = session.scalar(
                 select(Document)
-                .options(selectinload(Document.statements))
+                .options(selectinload(Document.owner))
                 .where(Document.id == document_id)
             )
-            if document is None:
-                raise ApiError(404, "document_not_found", "Document does not exist")
+            return _document_response(loaded)
+
+    @app.get("/api/documents/{document_id}", response_model=DocumentDetailResponse)
+    def get_document(
+        document_id: int,
+        auth: AuthContext = Depends(require_permission(Permission.REPORTS_READ)),
+    ) -> DocumentDetailResponse:
+        with session_factory() as session:
+            document = _require_document_access(
+                session.scalar(
+                    select(Document)
+                    .options(
+                        selectinload(Document.statements),
+                        selectinload(Document.owner),
+                    )
+                    .where(Document.id == document_id)
+                ),
+                auth,
+            )
             return DocumentDetailResponse(
                 **_document_response(document).model_dump(),
                 text=document.raw_text,
@@ -1008,15 +1059,19 @@ def create_app(
         "/api/documents/{document_id}/statements",
         response_model=list[DocumentStatementResponse],
     )
-    def list_document_statements(document_id: int) -> list[DocumentStatementResponse]:
+    def list_document_statements(
+        document_id: int,
+        auth: AuthContext = Depends(require_permission(Permission.REPORTS_READ)),
+    ) -> list[DocumentStatementResponse]:
         with session_factory() as session:
-            document = session.scalar(
-                select(Document)
-                .options(selectinload(Document.statements))
-                .where(Document.id == document_id)
+            document = _require_document_access(
+                session.scalar(
+                    select(Document)
+                    .options(selectinload(Document.statements))
+                    .where(Document.id == document_id)
+                ),
+                auth,
             )
-            if document is None:
-                raise ApiError(404, "document_not_found", "Document does not exist")
             return [_statement_response(item) for item in document.statements]
 
     @app.post(
@@ -1024,8 +1079,11 @@ def create_app(
         response_model=list[DocumentStatementResponse],
     )
     def extract_document_statements(
-        document_id: int, force: bool = Query(default=False)
+        document_id: int,
+        force: bool = Query(default=False),
+        auth: AuthContext = Depends(require_permission(Permission.AUDIT_RUN)),
     ) -> list[DocumentStatementResponse]:
+        _assert_document_access(document_id, auth)
         try:
             audit_persistence().extract_document_statements(document_id, force=force)
         except LookupError as exc:
@@ -1050,20 +1108,24 @@ def create_app(
         response_model=ReportResponse,
     )
     def link_document_statement(
-        document_id: int, statement_id: int, payload: StatementLinkRequest
+        document_id: int,
+        statement_id: int,
+        payload: StatementLinkRequest,
+        auth: AuthContext = Depends(require_permission(Permission.AUDIT_RUN)),
     ) -> ReportResponse:
         """Manually bind or unbind a document statement to an audit rule in the target report."""
         with session_factory.begin() as session:
-            document = session.get(Document, document_id)
-            if document is None:
-                raise ApiError(404, "document_not_found", "Document does not exist")
+            document = _require_document_access(session.get(Document, document_id), auth)
             statement = session.get(DocumentStatement, statement_id)
             if statement is None or statement.document_id != document_id:
                 raise ApiError(404, "not_found", "Statement does not exist")
 
             report_stmt = (
                 select(AuditReport)
-                .options(selectinload(AuditReport.findings))
+                .options(
+                    selectinload(AuditReport.findings),
+                    selectinload(AuditReport.resolutions),
+                )
                 .where(AuditReport.document_id == document_id)
             )
             if payload.report_id is not None:
@@ -1166,12 +1228,22 @@ def create_app(
             return _report_response(report)
 
     @app.delete("/api/documents/{document_id}", status_code=204)
-    def delete_document(document_id: int) -> None:
+    def delete_document(
+        document_id: int,
+        auth: AuthContext = Depends(
+            require_any_permission(
+                Permission.DOCUMENTS_DELETE_OWN, Permission.DOCUMENTS_DELETE_ANY
+            )
+        ),
+    ) -> None:
         """Delete the document with its reports; the file goes once the data is gone."""
         with session_factory.begin() as session:
-            document = session.get(Document, document_id)
-            if document is None:
-                raise ApiError(404, "document_not_found", "Document does not exist")
+            document = _require_document_access(session.get(Document, document_id), auth)
+            if (
+                Permission.DOCUMENTS_DELETE_ANY not in auth.permissions
+                and document.user_id != auth.user.id
+            ):
+                raise ApiError(403, "forbidden", "You can only delete your own documents")
             file_path = Path(document.file_path)
             session.delete(document)
         _remove_upload(file_path, config.upload_dir)
@@ -1180,7 +1252,11 @@ def create_app(
         "/api/documents/{document_id}/classify",
         response_model=DocumentResponse,
     )
-    def classify_document_endpoint(document_id: int) -> DocumentResponse:
+    def classify_document_endpoint(
+        document_id: int,
+        auth: AuthContext = Depends(require_permission(Permission.AUDIT_RUN)),
+    ) -> DocumentResponse:
+        _assert_document_access(document_id, auth)
         try:
             classification.classify(document_id)
         except LookupError as exc:
@@ -1188,19 +1264,31 @@ def create_app(
         except ClassificationModelError as exc:
             raise _classification_error(exc) from exc
         with session_factory() as session:
-            return _document_response(session.get(Document, document_id))
+            loaded = session.scalar(
+                select(Document)
+                .options(selectinload(Document.owner))
+                .where(Document.id == document_id)
+            )
+            return _document_response(loaded)
 
     @app.patch(
         "/api/documents/{document_id}/classification",
         response_model=DocumentResponse,
     )
     def update_classification(
-        document_id: int, payload: ClassificationUpdate
+        document_id: int,
+        payload: ClassificationUpdate,
+        auth: AuthContext = Depends(require_permission(Permission.AUDIT_RUN)),
     ) -> DocumentResponse:
         with session_factory.begin() as session:
-            document = session.get(Document, document_id)
-            if document is None:
-                raise ApiError(404, "document_not_found", "Document does not exist")
+            document = _require_document_access(
+                session.scalar(
+                    select(Document)
+                    .options(selectinload(Document.owner))
+                    .where(Document.id == document_id)
+                ),
+                auth,
+            )
             types = _active_document_types(session, payload.confirmed_document_types)
             override_classification(session, document, [item.code for item in types])
             session.flush()
@@ -1211,8 +1299,11 @@ def create_app(
         response_model=AuditPreviewResponse,
     )
     def preview_audit(
-        document_id: int, selection: AuditSelectionRequest | None = None
+        document_id: int,
+        selection: AuditSelectionRequest | None = None,
+        auth: AuthContext = Depends(require_permission(Permission.AUDIT_RUN)),
     ) -> AuditPreviewResponse:
+        _assert_document_access(document_id, auth)
         ensure_classified(document_id)
         requested = _selection_config(session_factory, selection)
         try:
@@ -1263,8 +1354,11 @@ def create_app(
         response_model=AuditRequestResponse,
     )
     def audit_document(
-        document_id: int, selection: AuditSelectionRequest | None = None
+        document_id: int,
+        selection: AuditSelectionRequest | None = None,
+        auth: AuthContext = Depends(require_permission(Permission.AUDIT_RUN)),
     ) -> AuditRequestResponse:
+        _assert_document_access(document_id, auth)
         ensure_classified(document_id)
         try:
             report = audit_persistence().audit_document(
@@ -1296,12 +1390,20 @@ def create_app(
         response_model=ReportResponse,
     )
     def get_report(
-        document_id: int, report_id: int | None = Query(default=None)
+        document_id: int,
+        report_id: int | None = Query(default=None),
+        auth: AuthContext = Depends(require_permission(Permission.REPORTS_READ)),
     ) -> ReportResponse:
         with session_factory() as session:
+            doc = session.get(Document, document_id)
+            if doc is not None and not _can_access_document(doc, auth):
+                raise ApiError(404, "report_not_found", "Audit report does not exist")
             statement = (
                 select(AuditReport)
-                .options(selectinload(AuditReport.findings))
+                .options(
+                    selectinload(AuditReport.findings),
+                    selectinload(AuditReport.resolutions),
+                )
                 .where(AuditReport.document_id == document_id)
             )
             if report_id is not None:
@@ -1316,12 +1418,76 @@ def create_app(
             return _report_response(report)
 
     @app.get("/api/reports/{report_id}", response_model=ReportResponse)
-    def get_report_by_id(report_id: int) -> ReportResponse:
+    def get_report_by_id(
+        report_id: int,
+        auth: AuthContext = Depends(require_permission(Permission.REPORTS_READ)),
+    ) -> ReportResponse:
         with session_factory() as session:
-            report = session.get(AuditReport, report_id)
-            if report is None:
-                raise ApiError(404, "report_not_found", "Audit report does not exist")
+            report = _require_report_access(
+                session.scalar(
+                    select(AuditReport)
+                    .options(
+                        selectinload(AuditReport.document),
+                        selectinload(AuditReport.findings),
+                        selectinload(AuditReport.resolutions),
+                    )
+                    .where(AuditReport.id == report_id)
+                ),
+                auth,
+            )
             return _report_response(report)
+
+    @app.get(
+        "/api/reports/{report_id}/resolutions",
+        response_model=list[ResolutionResponse],
+    )
+    def list_report_resolutions(
+        report_id: int,
+        auth: AuthContext = Depends(require_permission(Permission.REPORTS_READ)),
+    ) -> list[ResolutionResponse]:
+        with session_factory() as session:
+            report = _require_report_access(
+                session.scalar(
+                    select(AuditReport)
+                    .options(
+                        selectinload(AuditReport.document),
+                        selectinload(AuditReport.resolutions),
+                    )
+                    .where(AuditReport.id == report_id)
+                ),
+                auth,
+            )
+            return [_resolution_response(item) for item in report.resolutions]
+
+    @app.post(
+        "/api/reports/{report_id}/resolutions",
+        response_model=ResolutionResponse,
+        status_code=201,
+    )
+    def create_report_resolution(
+        report_id: int,
+        payload: ResolutionCreate,
+        auth: AuthContext = Depends(require_permission(Permission.RESOLUTIONS_WRITE)),
+    ) -> ResolutionResponse:
+        with session_factory.begin() as session:
+            report = _require_report_access(
+                session.scalar(
+                    select(AuditReport)
+                    .options(selectinload(AuditReport.document))
+                    .where(AuditReport.id == report_id)
+                ),
+                auth,
+            )
+            resolution = AuditResolution(
+                report_id=report.id,
+                author_id=auth.user.id,
+                author_name=auth.user.full_name or auth.user.username,
+                decision=payload.decision,
+                comment=payload.comment.strip(),
+            )
+            session.add(resolution)
+            session.flush()
+            return _resolution_response(resolution)
 
     @app.get(
         "/api/reports/{report_id}/export",
@@ -1332,6 +1498,7 @@ def create_app(
         report_id: int,
         export_format: str = Query(default="html", alias="format"),
         timezone: str = Query(default="UTC", max_length=100),
+        auth: AuthContext = Depends(require_permission(Permission.REPORTS_EXPORT)),
     ) -> Response:
         """Download the report as a file; dates are shown in the given IANA time zone."""
         if export_format not in EXPORT_FORMATS:
@@ -1345,9 +1512,18 @@ def create_app(
         except (ZoneInfoNotFoundError, ValueError) as exc:
             raise ApiError(422, "invalid_timezone", f"Unknown time zone: {timezone}") from exc
         with session_factory() as session:
-            report = session.get(AuditReport, report_id)
-            if report is None:
-                raise ApiError(404, "report_not_found", "Audit report does not exist")
+            report = _require_report_access(
+                session.scalar(
+                    select(AuditReport)
+                    .options(
+                        selectinload(AuditReport.document),
+                        selectinload(AuditReport.findings),
+                        selectinload(AuditReport.resolutions),
+                    )
+                    .where(AuditReport.id == report_id)
+                ),
+                auth,
+            )
             document = ExportedDocument(
                 title=report.document.title,
                 file_type=report.document.file_type,
@@ -1366,11 +1542,14 @@ def create_app(
         limit: int = Query(default=50, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
         document_id: int | None = Query(default=None),
+        auth: AuthContext = Depends(require_permission(Permission.REPORTS_READ)),
     ) -> list[ReportListResponse]:
         with session_factory() as session:
             statement = select(AuditReport, Document.title).join(
                 Document, Document.id == AuditReport.document_id
             )
+            if Permission.DOCUMENTS_READ_ALL not in auth.permissions:
+                statement = statement.where(Document.user_id == auth.user.id)
             if document_id is not None:
                 statement = statement.where(AuditReport.document_id == document_id)
             _set_total_count(session, response, statement)
@@ -1409,6 +1588,9 @@ def create_app(
         legal_act_id: int | None = None,
         limit: int = Query(default=50, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
+        _: AuthContext = Depends(
+            require_any_permission(Permission.RULES_READ, Permission.AUDIT_RUN)
+        ),
     ) -> list[RuleResponse]:
         with session_factory() as session:
             statement = select(AuditRule)
@@ -1432,7 +1614,12 @@ def create_app(
             ]
 
     @app.get("/api/rules/{rule_id}", response_model=RuleResponse)
-    def get_rule(rule_id: int) -> RuleResponse:
+    def get_rule(
+        rule_id: int,
+        _: AuthContext = Depends(
+            require_any_permission(Permission.RULES_READ, Permission.AUDIT_RUN)
+        ),
+    ) -> RuleResponse:
         with session_factory() as session:
             rule = session.get(AuditRule, rule_id)
             if rule is None:
@@ -1440,7 +1627,10 @@ def create_app(
             return _rule_response(rule)
 
     @app.post("/api/rules", response_model=RuleResponse, status_code=201)
-    def create_rule(payload: RuleCreate) -> RuleResponse:
+    def create_rule(
+        payload: RuleCreate,
+        _: AuthContext = Depends(require_permission(Permission.RULES_EDIT)),
+    ) -> RuleResponse:
         _require_valid_severity(payload.severity)
         try:
             normalized_constraint = validate_manual_constraint(payload.constraint_json)
@@ -1492,7 +1682,11 @@ def create_app(
         return response
 
     @app.patch("/api/rules/{rule_id}", response_model=RuleResponse)
-    def update_rule(rule_id: int, payload: RuleUpdate) -> RuleResponse:
+    def update_rule(
+        rule_id: int,
+        payload: RuleUpdate,
+        _: AuthContext = Depends(require_permission(Permission.RULES_EDIT)),
+    ) -> RuleResponse:
         changes = payload.model_dump(exclude_unset=True)
         if "severity" in changes:
             _require_valid_severity(changes["severity"])
@@ -1542,7 +1736,9 @@ def create_app(
 
     @app.patch("/api/rules/{rule_id}/applicability", response_model=RuleResponse)
     def update_rule_applicability(
-        rule_id: int, payload: RuleApplicabilityUpdate
+        rule_id: int,
+        payload: RuleApplicabilityUpdate,
+        _: AuthContext = Depends(require_permission(Permission.RULES_EDIT)),
     ) -> RuleResponse:
         with session_factory.begin() as session:
             rule = session.get(AuditRule, rule_id)
@@ -1558,7 +1754,10 @@ def create_app(
             return _rule_response(rule)
 
     @app.delete("/api/rules/{rule_id}", status_code=204)
-    def delete_rule(rule_id: int) -> None:
+    def delete_rule(
+        rule_id: int,
+        _: AuthContext = Depends(require_permission(Permission.RULES_EDIT)),
+    ) -> None:
         with session_factory.begin() as session:
             rule = session.get(AuditRule, rule_id)
             if rule is None:
@@ -1578,6 +1777,9 @@ def create_app(
         search: str | None = None,
         limit: int = Query(default=50, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
+        _: AuthContext = Depends(
+            require_any_permission(Permission.LEGAL_ACTS_READ, Permission.AUDIT_RUN)
+        ),
     ) -> list[LegalActResponse]:
         with session_factory() as session:
             statement = select(LegalAct)
@@ -1594,7 +1796,12 @@ def create_app(
             ]
 
     @app.get("/api/legal-acts/{legal_act_id}", response_model=LegalActDetailResponse)
-    def get_legal_act(legal_act_id: int) -> LegalActDetailResponse:
+    def get_legal_act(
+        legal_act_id: int,
+        _: AuthContext = Depends(
+            require_any_permission(Permission.LEGAL_ACTS_READ, Permission.AUDIT_RUN)
+        ),
+    ) -> LegalActDetailResponse:
         with session_factory() as session:
             legal_act = session.get(LegalAct, legal_act_id)
             if legal_act is None:
@@ -1607,6 +1814,7 @@ def create_app(
     )
     def get_legal_act_diagnostics(
         legal_act_id: int,
+        _: AuthContext = Depends(require_permission(Permission.LEGAL_ACTS_READ)),
     ) -> LegalActDiagnosticsResponse:
         with session_factory() as session:
             legal_act = session.get(LegalAct, legal_act_id)
@@ -1631,7 +1839,10 @@ def create_app(
             )
 
     @app.post("/api/legal-acts", response_model=LegalActResponse, status_code=201)
-    def create_legal_act(payload: LegalActCreate) -> LegalActResponse:
+    def create_legal_act(
+        payload: LegalActCreate,
+        _: AuthContext = Depends(require_permission(Permission.LEGAL_ACTS_EDIT)),
+    ) -> LegalActResponse:
         with session_factory.begin() as session:
             _require_free_legal_act_code(session, payload.code)
             values = payload.model_dump()
@@ -1654,6 +1865,7 @@ def create_app(
         number: str | None = Form(default=None),
         source_url: str | None = Form(default=None),
         document_types: str | None = Form(default=None),
+        _: AuthContext = Depends(require_permission(Permission.LEGAL_ACTS_EDIT)),
     ) -> LegalActResponse:
         try:
             path, _ = await store_upload(file, config.upload_dir, config.max_upload_bytes)
@@ -1706,6 +1918,7 @@ def create_app(
         legal_act_id: int,
         only_failed: bool = Query(default=False),
         chunk_id: str | None = Query(default=None),
+        _: AuthContext = Depends(require_permission(Permission.LEGAL_ACTS_EDIT)),
     ) -> LegalActResponse:
         with session_factory() as session:
             if session.get(LegalAct, legal_act_id) is None:
@@ -1717,7 +1930,9 @@ def create_app(
 
     @app.patch("/api/legal-acts/{legal_act_id}", response_model=LegalActResponse)
     def update_legal_act(
-        legal_act_id: int, payload: LegalActUpdate
+        legal_act_id: int,
+        payload: LegalActUpdate,
+        _: AuthContext = Depends(require_permission(Permission.LEGAL_ACTS_EDIT)),
     ) -> LegalActResponse:
         with session_factory.begin() as session:
             legal_act = session.get(LegalAct, legal_act_id)
@@ -1746,7 +1961,10 @@ def create_app(
         return response
 
     @app.delete("/api/legal-acts/{legal_act_id}", status_code=204)
-    def delete_legal_act(legal_act_id: int) -> None:
+    def delete_legal_act(
+        legal_act_id: int,
+        _: AuthContext = Depends(require_permission(Permission.LEGAL_ACTS_EDIT)),
+    ) -> None:
         with session_factory.begin() as session:
             legal_act = session.get(LegalAct, legal_act_id)
             if legal_act is None:
@@ -1825,10 +2043,48 @@ def _require_active_rule_types(rule: AuditRule) -> None:
         )
 
 
+def _can_access_document(document: Document, auth: AuthContext) -> bool:
+    if Permission.DOCUMENTS_READ_ALL in auth.permissions:
+        return True
+    return document.user_id is not None and document.user_id == auth.user.id
+
+
+def _require_document_access(document: Document | None, auth: AuthContext) -> Document:
+    """Hide inaccessible documents behind 404 to prevent IDOR enumeration."""
+    if document is None or not _can_access_document(document, auth):
+        raise ApiError(404, "document_not_found", "Document does not exist")
+    return document
+
+
+def _require_report_access(report: AuditReport | None, auth: AuthContext) -> AuditReport:
+    if report is None or report.document is None or not _can_access_document(report.document, auth):
+        raise ApiError(404, "report_not_found", "Audit report does not exist")
+    return report
+
+
+def _resolution_response(resolution: AuditResolution) -> ResolutionResponse:
+    return ResolutionResponse(
+        id=resolution.id,
+        report_id=resolution.report_id,
+        author_id=resolution.author_id,
+        author_name=resolution.author_name,
+        decision=resolution.decision,
+        comment=resolution.comment,
+        created_at=resolution.created_at,
+    )
+
+
+def _owner_display_name(document: Document) -> str | None:
+    if document.owner is None:
+        return None
+    return document.owner.full_name or document.owner.username
+
+
 def _report_response(report: AuditReport) -> ReportResponse:
     summary = _parse_summary(report.summary)
     contexts = summary.get("rag_contexts", [])
     neural = summary.get("neural", {})
+    latest_res = _resolution_response(report.resolutions[0]) if report.resolutions else None
     return ReportResponse(
         id=report.id,
         document_id=report.document_id,
@@ -1865,6 +2121,7 @@ def _report_response(report: AuditReport) -> ReportResponse:
         neural_status=neural.get("status", "not_requested"),
         neural_analyses=neural.get("analyses", []),
         selection=summary.get("selection"),
+        latest_resolution=latest_res,
     )
 
 
@@ -1875,6 +2132,8 @@ def _document_response(document: Document) -> DocumentResponse:
         title=document.title,
         file_type=document.file_type,
         status=document.status,
+        owner_id=document.user_id,
+        owner_name=_owner_display_name(document),
         classified_type=document.classified_type,
         classification_status=document.classification_status or CLASSIFICATION_PENDING,
         classification_confidence=document.classification_confidence,
@@ -1903,12 +2162,14 @@ def _latest_report_summary(document: Document) -> LatestReportSummary | None:
         return None
     report = session.scalar(
         select(AuditReport)
+        .options(selectinload(AuditReport.resolutions))
         .where(AuditReport.document_id == document.id)
         .order_by(AuditReport.created_at.desc(), AuditReport.id.desc())
         .limit(1)
     )
     if report is None:
         return None
+    latest_res = _resolution_response(report.resolutions[0]) if report.resolutions else None
     return LatestReportSummary(
         id=report.id,
         total_findings=report.total_findings,
@@ -1917,6 +2178,7 @@ def _latest_report_summary(document: Document) -> LatestReportSummary | None:
         medium_count=report.medium_count,
         low_count=report.low_count,
         created_at=report.created_at,
+        latest_resolution=latest_res,
     )
 
 

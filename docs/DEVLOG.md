@@ -70,6 +70,19 @@
 
 ## Журнал
 
+### 2026-11-24: этап 3 авторизации — серверный RBAC на всех эндпоинтах, изоляция документов и резолюции (`feature/auth-rbac`)
+
+- Все бизнес-эндпоинты в `backend/src/edm_auditor/api/app.py` закрыты проверками прав
+  (`require_permission` / `require_any_permission` / `get_auth_context`).
+- В загрузке документов записывается `user_id`, в ответах документов добавлены `owner_id` и `owner_name`, в
+  `GET /api/documents` добавлен фильтр `status`; для пользователей без `documents.read_all` списки
+  фильтруются по владельцу, а доступ к чужим документам/отчётам (включая `user_id IS NULL`) возвращает `404`
+  для защиты от IDOR.
+- Добавлены эндпоинты резолюций аудитора `GET/POST /api/reports/{report_id}/resolutions` и поле
+  `latest_resolution` в `ReportResponse` и `LatestReportSummary`.
+- Адаптированы тестовые фикстуры и evaluation runner, добавлен сквозной матричный тест
+  `backend/tests/api/test_auth_rbac.py` (все 401 тест бэкенда зелёные).
+
 ### 2026-11-24: этап 2 авторизации — API аутентификации, пользователей, групп и защита логов (`feature/auth-rbac`)
 
 - Реализованы зависимости сессионной аутентификации в `backend/src/edm_auditor/auth/dependencies.py`

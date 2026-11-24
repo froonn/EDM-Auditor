@@ -303,13 +303,17 @@ def test_api_returns_document_statements_on_document_detail_and_endpoint(
         connect_args={"check_same_thread": False},
     )
     Base.metadata.create_all(engine)
-    client = TestClient(
-        create_app(
-            settings=ApiSettings(
-                upload_dir=tmp_path / "uploads",
-                rag_index_path=tmp_path / "rag-index.sqlite3",
-            ),
-            session_factory=create_session_factory(engine),
+    from fakes import authenticate_test_client
+
+    client = authenticate_test_client(
+        TestClient(
+            create_app(
+                settings=ApiSettings(
+                    upload_dir=tmp_path / "uploads",
+                    rag_index_path=tmp_path / "rag-index.sqlite3",
+                ),
+                session_factory=create_session_factory(engine),
+            )
         )
     )
 

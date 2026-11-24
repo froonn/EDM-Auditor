@@ -75,6 +75,23 @@ class ClassificationUpdate(BaseModel):
     confirmed_document_types: list[str]
 
 
+class ResolutionCreate(BaseModel):
+    decision: Literal["approved", "needs_revision", "rejected"]
+    comment: str = Field(default="", max_length=4000)
+
+
+class ResolutionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    report_id: int
+    author_id: int | None = None
+    author_name: str
+    decision: str
+    comment: str
+    created_at: datetime
+
+
 class LatestReportSummary(BaseModel):
     id: int
     total_findings: int
@@ -83,6 +100,7 @@ class LatestReportSummary(BaseModel):
     medium_count: int
     low_count: int
     created_at: datetime
+    latest_resolution: ResolutionResponse | None = None
 
 
 class DocumentResponse(BaseModel):
@@ -92,6 +110,8 @@ class DocumentResponse(BaseModel):
     title: str
     file_type: str
     status: str
+    owner_id: int | None = None
+    owner_name: str | None = None
     classified_type: str | None
     classification_status: str = "unknown"
     classification_confidence: float | None = None
@@ -237,6 +257,7 @@ class ReportResponse(BaseModel):
     neural_status: str = "not_requested"
     neural_analyses: list[NeuralAnalysisResponse] = Field(default_factory=list)
     selection: dict[str, Any] | None = None
+    latest_resolution: ResolutionResponse | None = None
 
 
 class RuleCreate(BaseModel):
@@ -525,19 +546,4 @@ class AuthAuditLogResponse(BaseModel):
     target_id: str | None = None
     details: dict[str, Any] = Field(default_factory=dict)
     ip_address: str | None = None
-    created_at: datetime
-
-
-class ResolutionCreate(BaseModel):
-    decision: Literal["approved", "needs_revision", "rejected"]
-    comment: str = Field(default="", max_length=4000)
-
-
-class ResolutionResponse(BaseModel):
-    id: int
-    report_id: int
-    author_id: int | None = None
-    author_name: str
-    decision: str
-    comment: str
     created_at: datetime

@@ -135,10 +135,22 @@ def run_corpus(
             upload_dir=workdir / "uploads",
             rag_index_path=workdir / "rag-index.sqlite3",
             log_file=log_file or workdir / "debug.log",
+            initial_admin_username="eval-admin",
+            initial_admin_email="eval-admin@local.invalid",
+            initial_admin_password="eval-runner-temp-password",
         )
         with _metered_factories(meter), TestClient(
             api_module.create_app(settings=settings), raise_server_exceptions=False
         ) as client:
+            login_resp = client.post(
+                "/api/auth/login",
+                json={
+                    "username": "eval-admin",
+                    "password": "eval-runner-temp-password",
+                },
+            )
+            if login_resp.status_code != 200:
+                raise RuntimeError(f"Evaluation runner failed to authenticate: {login_resp.text}")
             act_ids = {}
             for act in corpus.acts:
                 logger.info("Legal act %s", act.id)

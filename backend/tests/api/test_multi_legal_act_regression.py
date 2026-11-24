@@ -207,6 +207,9 @@ def client(tmp_path: Path, monkeypatch) -> TestClient:
             session_factory=create_session_factory(engine),
         )
     )
+    from fakes import authenticate_test_client
+
+    authenticate_test_client(client)
     for code, title, filename in (
         ("ACT-PAYMENTS", "Положение об оплате труда работников", "payments.txt"),
         ("ACT-REMOTE", "Положение о дистанционной работе", "remote_work.txt"),
