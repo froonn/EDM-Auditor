@@ -70,12 +70,14 @@
 
 ## Журнал
 
-### 2026-11-24: план разработки авторизации и ролевой модели (`feature/auth-rbac`)
+### 2026-11-24: план разработки авторизации и групповой модели доступа (`feature/auth-rbac`)
 
 - Создана ветка `feature/auth-rbac` и подготовлен поэтапный план реализации FR-6.3 в
-  [`feature-auth-rbac.md`](feature-auth-rbac.md): HttpOnly cookie-сессии в БД (`user_sessions`), 4 роли
-  (`admin`, `lawyer`, `auditor`, `hr`) с выделением группы юристов для редактирования НПА и правил,
-  изоляция документов для `hr`, резолюции аудиторов (`audit_resolutions`) и защита `data/debug.log`.
+  [`feature-auth-rbac.md`](feature-auth-rbac.md): HttpOnly cookie-сессии в БД (`user_sessions`),
+  Linux-подобная групповая модель прав (`groups`, `group_permissions`, `user_groups`) с единственным
+  `super-admin` и передачей его прав, автоматическими персональными группами пользователей, 4 стартовыми
+  редактируемыми кастомными группами (`employee` без запуска аудита, `auditor`, `lawyer`, `admin`),
+  изоляцией документов, резолюциями аудиторов (`audit_resolutions`) и защитой `data/debug.log`.
 
 ### 2026-11-24: расширение плана диплома (предпросмотр PDF/DOCX, подсветка НПА и новые модули)
 
