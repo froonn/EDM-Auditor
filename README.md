@@ -108,7 +108,7 @@ docker compose up --build -d
 `localhost`, а внутри контейнера это сам контейнер. Как это обойти, описано в
 [`docs/docker.md`](docs/docker.md#ограничения). Без Docker подходят все пресеты.
 
-Интерфейс откроется на <http://localhost:8080>, документация API на <http://localhost:8080/docs>. Данные
+Интерфейс откроется на <http://localhost:8088>, документация API на <http://localhost:8088/docs>. Данные
 хранятся в томе Docker и сохраняются между перезапусками. Остановка: `docker compose down`. Подробности,
 перенос базы и ограничения описаны в [`docs/docker.md`](docs/docker.md).
 

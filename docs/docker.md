@@ -31,8 +31,8 @@ docker compose exec backend python -m edm_auditor.auth.cli create-super-admin \
 docker compose up --build -d
 ```
 
-Интерфейс открывается на <http://localhost:8080> (вход на `/login`), документация API на
-<http://localhost:8080/docs> (отключается через `EDM_EXPOSE_DOCS=false`). Другой порт задаётся переменной:
+Интерфейс открывается на <http://localhost:8088> (вход на `/login`), документация API на
+<http://localhost:8088/docs> (отключается через `EDM_EXPOSE_DOCS=false`). Другой порт задаётся переменной:
 `EDM_PORT=9000 docker compose up --build -d`.
 
 При публикации за HTTPS-прокси задайте в `backend/.env`:

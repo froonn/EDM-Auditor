@@ -44,7 +44,7 @@
 `super-admin`) и `/groups` (раздельно кастомные и личные группы), выгрузка отчёта в HTML. Swagger UI на
 `/docs` для работы больше не нужен.
 
-**Запуск на защите:** `docker compose up --build -d`, интерфейс на <http://localhost:8080>, см.
+**Запуск на защите:** `docker compose up --build -d`, интерфейс на <http://localhost:8088>, см.
 [`docker.md`](docker.md).
 
 **Не сделано:**
@@ -77,6 +77,13 @@
 [`docker.md`](docker.md).
 
 ## Журнал
+
+### 2026-11-24: смена порта Docker Compose по умолчанию на 8088
+
+- Порт по умолчанию `EDM_PORT` в `docker-compose.yml` изменён с `8080` на `8088`, чтобы не
+  конфликтовать с другими локальными сервисами на `8080`. Обновлены `backend/.env.example`,
+  комментарий в `frontend/docker/nginx.conf`, [`docker.md`](docker.md), [`DEBUG.md`](DEBUG.md) и
+  [`README.md`](../README.md).
 
 ### 2026-11-24: удаление неиспользуемого `_merge_entities` в `audit_engine/engine.py` (Python 3.13)
 
