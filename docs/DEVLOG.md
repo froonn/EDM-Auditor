@@ -78,6 +78,16 @@
 
 ## Журнал
 
+### 2026-11-25: изоляция `debug.log` и auth-переменных окружения в `pytest`
+
+- В `backend/tests/conftest.py` добавлена автофикстура `isolate_test_log_file`, перенаправляющая
+  путь по умолчанию `DEFAULT_LOG_FILE` (`data/debug.log`) в `tmp_path` с закрытием файловых
+  обработчиков после теста, и расширена очистка `EDM_*` переменных окружения (`EDM_LOG_FILE`,
+  `EDM_AUTH_*`, `EDM_INITIAL_ADMIN_*` и др.).
+- В `backend/migrations/env.py` безусловное `Path("data").mkdir(...)` заменено на создание
+  родительского каталога фактического SQLite-пути из `sqlalchemy.url`. Прогоны `pytest` из корня
+  репозитория больше не создают лишний каталог `data/` и не дописывают в `backend/data/debug.log`.
+
 ### 2026-11-24: явная валидация обязательных и некорректных полей в формах авторизации, пользователей и групп
 
 - В `FormField` (`frontend/src/components/ui/form.tsx`) добавлен проп `error` с выводом ошибки под

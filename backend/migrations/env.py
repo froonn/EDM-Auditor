@@ -7,7 +7,11 @@ from sqlalchemy import engine_from_config, pool
 from edm_auditor.database.models import Base
 
 config = context.config
-Path("data").mkdir(parents=True, exist_ok=True)
+_url = config.get_main_option("sqlalchemy.url") or ""
+if _url.startswith("sqlite:///"):
+    _db_path = _url.removeprefix("sqlite:///")
+    if _db_path and _db_path != ":memory:":
+        Path(_db_path).parent.mkdir(parents=True, exist_ok=True)
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
