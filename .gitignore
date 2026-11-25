@@ -14,3 +14,4 @@ docs/archive/remove-copilot-from-history.md
 node_modules/
 frontend/dist/
 *.tsbuildinfo
+test/

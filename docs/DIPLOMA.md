@@ -9,7 +9,7 @@
 ### Авторизация и роли (FR-6.3)
 
 Реализована гибкая групповая модель доступа по принципу групп Linux (подробный план и спецификация — в
-[`feature-auth-rbac.md`](feature-auth-rbac.md)):
+[`archive/feature-auth-rbac.md`](archive/feature-auth-rbac.md)):
 
 - все права задаются только через группы (`groups`, `group_permissions`, `user_groups`); у каждого
   пользователя автоматически создаётся личная группа (`kind='personal'`), а итоговые права вычисляются как

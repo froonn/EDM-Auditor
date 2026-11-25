@@ -78,6 +78,12 @@
 
 ## Журнал
 
+### 2026-11-25: архивирование плана `feature-auth-rbac.md`, `.gitignore` и `backend/poetry.lock`
+
+- Завершённый план [`archive/feature-auth-rbac.md`](archive/feature-auth-rbac.md) перенесён в
+  `docs/archive/`, обновлены ссылки в [`DIPLOMA.md`](DIPLOMA.md) и [`DEVLOG.md`](DEVLOG.md).
+- В `.gitignore` добавлен каталог `test/`, в репозиторий добавлен `backend/poetry.lock`.
+
 ### 2026-11-25: изоляция `debug.log` и auth-переменных окружения в `pytest`
 
 - В `backend/tests/conftest.py` добавлена автофикстура `isolate_test_log_file`, перенаправляющая
@@ -136,7 +142,7 @@
   `X-Frame-Options`, `Referrer-Policy`), явный проброс `Set-Cookie` и сохранение `$http_host` в
   `Host`/`X-Forwarded-Host` для корректной CSRF-проверки `Origin` в Docker Compose.
 - Закрыт раздел FR-6.3 в [`DIPLOMA.md`](DIPLOMA.md), актуализированы [`DEVLOG.md`](DEVLOG.md),
-  [`feature-auth-rbac.md`](feature-auth-rbac.md), [`docs/docker.md`](docker.md),
+  [`archive/feature-auth-rbac.md`](archive/feature-auth-rbac.md), [`docs/docker.md`](docker.md),
   [`backend/README.md`](../backend/README.md) и [`frontend/README.md`](../frontend/README.md).
 
 ### 2026-11-24: этап 5 авторизации — админ-панель пользователей и групп, журнал безопасности, read-only режим и резолюции (`feature/auth-rbac`)
@@ -201,7 +207,7 @@
 ### 2026-11-24: план разработки авторизации и групповой модели доступа (`feature/auth-rbac`)
 
 - Создана ветка `feature/auth-rbac` и подготовлен поэтапный план реализации FR-6.3 в
-  [`feature-auth-rbac.md`](feature-auth-rbac.md): HttpOnly cookie-сессии в БД (`user_sessions`),
+  [`archive/feature-auth-rbac.md`](archive/feature-auth-rbac.md): HttpOnly cookie-сессии в БД (`user_sessions`),
   Linux-подобная групповая модель прав (`groups`, `group_permissions`, `user_groups`) с единственным
   `super-admin` и передачей его прав, автоматическими персональными группами пользователей, 4 стартовыми
   редактируемыми кастомными группами (`employee` без запуска аудита, `auditor`, `lawyer`, `admin`),
