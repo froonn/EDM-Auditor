@@ -26,8 +26,8 @@
 и предпросмотр аудита, экран аудита с подсветкой нарушений и карточками, управление НПА, правилами и типами
 документов, выгрузка отчёта в HTML. Swagger UI на `/docs` для работы больше не нужен.
 
-**Запуск на защите:** `docker compose up --build -d`, интерфейс на <http://localhost:8080>, см.
-[`docker.md`](docker.md).
+**Запуск на защите:** `docker compose -p edm-auditor-coursework up --build -d`, интерфейс на
+<http://localhost:8080>, см. [`docker.md`](docker.md).
 
 **Не сделано:**
 
@@ -67,6 +67,12 @@
 [`docker.md`](docker.md).
 
 ## Журнал
+
+### 2026-11-26: изолированный проект Docker Compose в инструкциях запуска
+
+- В [`README.md`](../README.md) и [`docker.md`](docker.md) команды Docker Compose обновлены с флагом
+  `-p edm-auditor-coursework`, чтобы том базы курсовой ветки не конфликтовал с более новой схемой БД из
+  ветки `master` (ошибка `backend is unhealthy` на `alembic upgrade head`).
 
 ### 2026-11-18: сценарий защиты курсового проекта
 

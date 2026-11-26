@@ -20,19 +20,24 @@
 переменные при запуске.
 
 ```bash
-docker compose up --build -d
+docker compose -p edm-auditor-coursework up --build -d
 ```
 
-Интерфейс открывается на <http://localhost:8080>, документация API на <http://localhost:8080/docs>. Другой
-порт задаётся переменной: `EDM_PORT=9000 docker compose up --build -d`.
+Флаг `-p edm-auditor-coursework` задаёт отдельное имя Compose-проекта и собственный том
+`edm-auditor-coursework_edm-data`. Это нужно, если на этом же компьютере ранее запускалась ветка `master`:
+общий том `edm-auditor_edm-data` содержит более новую версию схемы БД, и обычный `docker compose up --build -d`
+падает на `alembic upgrade head` с ошибкой `container edm-auditor-backend-1 is unhealthy`.
 
-| Команда                          | Что делает                                       |
-|----------------------------------|--------------------------------------------------|
-| `docker compose ps`              | Состояние сервисов; бэкенд должен быть `healthy` |
-| `docker compose logs -f backend` | Журнал бэкенда                                   |
-| `docker compose down`            | Остановить; данные сохраняются                   |
-| `docker compose down -v`         | Остановить и **удалить все данные**              |
-| `docker compose up --build -d`   | Пересобрать после изменения кода                 |
+Интерфейс открывается на <http://localhost:8080>, документация API на <http://localhost:8080/docs>. Другой
+порт задаётся переменной: `EDM_PORT=9000 docker compose -p edm-auditor-coursework up --build -d`.
+
+| Команда                                                | Что делает                                       |
+|--------------------------------------------------------|--------------------------------------------------|
+| `docker compose -p edm-auditor-coursework ps`          | Состояние сервисов; бэкенд должен быть `healthy` |
+| `docker compose -p edm-auditor-coursework logs -f backend` | Журнал бэкенда                               |
+| `docker compose -p edm-auditor-coursework down`        | Остановить; данные сохраняются                   |
+| `docker compose -p edm-auditor-coursework down -v`     | Остановить и **удалить все данные**              |
+| `docker compose -p edm-auditor-coursework up --build -d` | Пересобрать после изменения кода               |
 
 Загрузка НПА и аудит ждут модель, поэтому nginx ждёт ответа бэкенда до 15 минут. Размер загружаемого файла
 ограничен 25 МиБ в nginx и 20 МиБ в API.
@@ -44,14 +49,14 @@ docker compose up --build -d
 копирования.
 
 ```bash
-docker compose up -d
-docker compose stop backend
-docker compose cp backend/data/edm_auditor.sqlite3 backend:/app/data/
-docker compose cp backend/data/rag-index.sqlite3 backend:/app/data/
-docker compose cp backend/data/uploads/. backend:/app/data/uploads/
-docker compose run --rm --no-deps -u root backend chown -R edm:edm /app/data
-docker compose run --rm --no-deps backend sh -c 'alembic current 2>/dev/null | grep -q . || alembic stamp head'
-docker compose start backend
+docker compose -p edm-auditor-coursework up -d
+docker compose -p edm-auditor-coursework stop backend
+docker compose -p edm-auditor-coursework cp backend/data/edm_auditor.sqlite3 backend:/app/data/
+docker compose -p edm-auditor-coursework cp backend/data/rag-index.sqlite3 backend:/app/data/
+docker compose -p edm-auditor-coursework cp backend/data/uploads/. backend:/app/data/uploads/
+docker compose -p edm-auditor-coursework run --rm --no-deps -u root backend chown -R edm:edm /app/data
+docker compose -p edm-auditor-coursework run --rm --no-deps backend sh -c 'alembic current 2>/dev/null | grep -q . || alembic stamp head'
+docker compose -p edm-auditor-coursework start backend
 ```
 
 `chown` возвращает файлы пользователю сервера: `docker compose cp` записывает их от root. Предпоследняя команда

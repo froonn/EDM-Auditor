@@ -94,16 +94,20 @@ flowchart LR
 cp backend/.env.example backend/.env
 # В backend/.env укажите EDM_MODEL_PRESET и ключ выбранного провайдера,
 # например EDM_MODEL_PRESET=google-ai-studio и GEMINI_API_KEY
-docker compose up --build -d
+docker compose -p edm-auditor-coursework up --build -d
 ```
+
+Флаг `-p edm-auditor-coursework` изолирует том с SQLite-базой курсовой ветки от тома ветки `master` (в `master`
+схема БД новее, поэтому обычный `docker compose up` на общем томе падает на проверке миграций с ошибкой
+`backend is unhealthy`).
 
 В Docker без доработок работает только `google-ai-studio`: остальные пресеты обращаются к серверу моделей на
 `localhost`, а внутри контейнера это сам контейнер. Как это обойти, описано в
 [`docs/docker.md`](docs/docker.md#ограничения). Без Docker подходят все пресеты.
 
 Интерфейс откроется на <http://localhost:8080>, документация API на <http://localhost:8080/docs>. Данные
-хранятся в томе Docker и сохраняются между перезапусками. Остановка: `docker compose down`. Подробности,
-перенос базы и ограничения описаны в [`docs/docker.md`](docs/docker.md).
+хранятся в томе Docker и сохраняются между перезапусками. Остановка: `docker compose -p edm-auditor-coursework down`.
+Подробности, перенос базы и ограничения описаны в [`docs/docker.md`](docs/docker.md).
 
 ### Без Docker
 
